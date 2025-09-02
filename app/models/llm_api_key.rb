@@ -10,22 +10,18 @@ class LlmApiKey < ApplicationRecord
   after_destroy :log_deletion
 
   def plain_api_key
-
   end
 
   private
 
   def set_uuid
-
   end
 
-  #削除前にキャッシュをクリア
+  # 削除前にキャッシュをクリア
   def clear_related_cache
-
   end
 
   # 削除後のログ記録
   def log_deletion
-
   end
 end
