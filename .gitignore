@@ -9,6 +9,7 @@
 
 # Ignore all environment files.
 /.env*
+!/.env.example
 
 # Ignore all logfiles and tempfiles.
 /log/*
@@ -102,4 +103,3 @@ yarn-debug.log*
 .idea/copilotDiffState.xml
 .kamal/secrets
 .idea
-tmp
