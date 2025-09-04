@@ -10,7 +10,15 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_09_04_040655) do
+ActiveRecord::Schema[8.0].define(version: 2025_09_04_044147) do
+  create_table "llm_models", force: :cascade do |t|
+    t.integer "llm_id", null: false
+    t.string "name", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["llm_id"], name: "index_llm_models_on_llm_id"
+  end
+
   create_table "llms", force: :cascade do |t|
     t.string "name", null: false
     t.datetime "created_at", null: false
@@ -30,4 +38,6 @@ ActiveRecord::Schema[8.0].define(version: 2025_09_04_040655) do
     t.index ["google_id"], name: "index_users_on_google_id", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
   end
+
+  add_foreign_key "llm_models", "llms"
 end
