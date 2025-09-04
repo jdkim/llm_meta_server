@@ -10,7 +10,19 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_09_04_044147) do
+ActiveRecord::Schema[8.0].define(version: 2025_09_04_062508) do
+  create_table "llm_api_keys", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.string "llm_type", null: false
+    t.text "encrypted_api_key", null: false
+    t.string "uuid", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id", "llm_type"], name: "index_llm_api_keys_on_user_id_and_llm_type", unique: true
+    t.index ["user_id"], name: "index_llm_api_keys_on_user_id"
+    t.index ["uuid"], name: "index_llm_api_keys_on_uuid", unique: true
+  end
+
   create_table "llm_models", force: :cascade do |t|
     t.integer "llm_id", null: false
     t.string "name", null: false
@@ -39,5 +51,6 @@ ActiveRecord::Schema[8.0].define(version: 2025_09_04_044147) do
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
   end
 
+  add_foreign_key "llm_api_keys", "users"
   add_foreign_key "llm_models", "llms"
 end
