@@ -4,7 +4,7 @@ class LlmApiKeyTest < ActiveSupport::TestCase
   test "should create valid llm_api_key with required attributes" do
     user = User.create!(
       email: "test@example.com",
-      password: "password123"
+      google_id: 1
     )
 
     llm_api_key = LlmApiKey.new(
@@ -33,7 +33,7 @@ class LlmApiKeyTest < ActiveSupport::TestCase
   test "should require unique uuid" do
     user = User.create!(
       email: "test2@example.com",
-      password: "password123"
+      google_id: 2
     )
     uuid = SecureRandom.uuid
 
