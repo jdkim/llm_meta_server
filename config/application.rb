@@ -1,6 +1,7 @@
 require_relative "boot"
 
 require "rails/all"
+require_relative "../app/middleware/authentication_middleware"
 
 # Require the gems listed in Gemfile, including any gems
 # you've limited to :test, :development, or :production.
@@ -15,6 +16,12 @@ module LlmApiCallMetaServer
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
     # Common ones are `templates`, `generators`, or `middleware`, for example.
     config.autoload_lib(ignore: %w[assets tasks])
+
+    # Automatically loading middleware setting
+    config.autoload_paths += %W[#{config.root}/app/middleware]
+
+    # Declare using middleware
+    config.middleware.use AuthenticationMiddleware
 
     # Configuration for the application, engines, and railties goes here.
     #
