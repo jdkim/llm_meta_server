@@ -4,4 +4,13 @@ class ApplicationController < ActionController::Base
 
   # Devise authentication
   before_action :authenticate_user!
+  before_action :configure_permitted_parameters, if: :devise_controller?
+
+  protected
+
+  # Devise permitted parameters setting
+  def configure_permitted_parameters
+    devise_parameter_sanitizer.permit(:sign_up, keys: [ :google_id ])
+    devise_parameter_sanitizer.permit(:account_update, keys: [ :google_id ])
+  end
 end
