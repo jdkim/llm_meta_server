@@ -15,13 +15,8 @@ class Users::OmniauthCallbacksController < Devise::OmniauthCallbacksController
       # - Database constraints are violated
       # - User model validations fail
 
-      # Preserve OAuth data in session for potential retry
-      # Remove 'extra' field to reduce session size (contains raw provider data)
-      session["devise.google_data"] = request.env["omniauth.auth"].except("extra")
-
-      # Redirect to manual registration with error details
-      # User can complete registration manually using the preserved OAuth data
-      redirect_to new_user_registration_url, alert: @user.errors.full_messages.join("\n")
+      # Redirect to home with error messages
+      redirect_to home_index_path, alert: @user.errors.full_messages.join("\n")
     end
   end
 
