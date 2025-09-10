@@ -16,7 +16,7 @@ class Users::OmniauthCallbacksController < Devise::OmniauthCallbacksController
       # - User model validations fail
 
       # Redirect to home with error messages
-      redirect_to home_index_path, alert: @user.errors.full_messages.join("\n")
+      redirect_to root_path, alert: @user.errors.full_messages.join("\n")
     end
   end
 
