@@ -66,7 +66,7 @@ gem "aws-sdk-kms"
 gem "dotenv-rails"
 
 # FontAwesome icons
-gem 'font-awesome-rails', '~> 4.7', '>= 4.7.0.9'
+gem "font-awesome-rails", "~> 4.7", ">= 4.7.0.9"
 
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
