@@ -15,12 +15,7 @@ class User < ApplicationRecord
 
   # Method to determine authentication provider
   def authentication_provider
-    return :google_oauth2 if google_id.present?
-    # Add conditions here when adding other IdPs in the future
-    # return :azure_oauth2 if azure_id.present?
-    # return :github if github_id.present?
-
-    :unknown
+    :google_oauth2
   end
 
   # Check if user is a Google SSO user
