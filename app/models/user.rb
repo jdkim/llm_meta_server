@@ -32,14 +32,4 @@ class User < ApplicationRecord
   def sso_user?
     authentication_provider != :unknown
   end
-
-  # Get authentication provider display name
-  def authentication_provider_name
-    case authentication_provider
-    when :google_oauth2
-      "Google"
-    else
-      "Unknown"
-    end
-  end
 end
