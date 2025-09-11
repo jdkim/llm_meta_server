@@ -23,7 +23,7 @@
                 <span class="font-medium text-gray-700">Provider ID:</span>
               </div>
               <div class="w-2/3">
-                <span class="text-gray-900"><%= @user.google_id || "Not set" %></span>
+                <span class="text-gray-900"><%= @user.google_id %></span>
               </div>
             </div>
             <div class="flex">
@@ -31,7 +31,7 @@
                 <span class="font-medium text-gray-700">Registration Date:</span>
               </div>
               <div class="w-2/3">
-                <span class="text-gray-900"><%= @user.created_at.strftime("%B %d, %Y") if @user.created_at %></span>
+                <span class="text-gray-900"><%= @user.created_at.strftime("%B %d, %Y") %></span>
               </div>
             </div>
           </div>
