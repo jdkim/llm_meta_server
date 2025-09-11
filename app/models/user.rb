@@ -37,9 +37,9 @@ class User < ApplicationRecord
   def authentication_provider_name
     case authentication_provider
     when :google_oauth2
-      'Google'
+      "Google"
     else
-      'Unknown'
+      "Unknown"
     end
   end
 end
