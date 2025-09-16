@@ -10,8 +10,4 @@ class UserController < ApplicationController
   def set_user
     @user = current_user
   end
-
-  def user_params
-    params.require(:user).permit(:email)
-  end
 end
