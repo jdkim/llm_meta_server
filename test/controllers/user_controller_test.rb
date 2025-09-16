@@ -10,7 +10,7 @@ class UserControllerTest < ActionDispatch::IntegrationTest
 
   test "should redirect when not authenticated" do
     get "/profile"
-    # 未認証の場合は何らかのリダイレクトが発生することを確認
+    # Verify that some redirect occurs when not authenticated
     assert_response :redirect
   end
 
