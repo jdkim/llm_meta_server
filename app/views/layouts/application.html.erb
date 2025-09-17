@@ -27,7 +27,25 @@
           <div class="flex items-center">
             <%= link_to "LLM API Call Meta Server", root_path, class: "text-white text-xl font-bold hover:text-blue-200" %>
           </div>
-          <!-- Desktop Navigation (Planned) -->
+          <!-- Desktop Navigation -->
+          <div class="hidden md:flex items-center space-x-4">
+            <% if user_signed_in? %>
+              <!-- User Dropdown -->
+              <div class="relative">
+                <button popovertarget="menu-popover" class="flex items-center text-white hover:text-blue-200 focus:outline-none">
+                  <span class="mr-1"><%= current_user.email %></span>
+                  <i class="fa-solid fa-chevron-down h-4 w-4"></i>
+                </button>
+
+                <div popover id="menu-popover">
+                </div>
+              </div>
+            <% else %>
+              <%= link_to user_google_oauth2_omniauth_authorize_path, class: "text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium" do %>
+                <i class="fa-brands fa-google mr-2"></i>Sign in with Google
+              <% end %>
+            <% end %>
+          </div>
         </div>
       </div>
     </nav>
