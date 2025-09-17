@@ -4,7 +4,7 @@ Rails.application.routes.draw do
     sessions: "users/sessions"
   }
 
-  # 独自のセッションルート（すべてDevise scope内で定義）
+  # Custom session routes (all defined within Devise scope)
   devise_scope :user do
     delete "/logout", to: "users/sessions#destroy", as: :user_logout
     get "/logout", to: "users/sessions#destroy"
