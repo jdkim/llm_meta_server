@@ -41,8 +41,10 @@
                 </div>
               </div>
             <% else %>
-              <%= link_to user_google_oauth2_omniauth_authorize_path, class: "text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium" do %>
-                <i class="fa-brands fa-google mr-2"></i>Sign in with Google
+              <%= form_with url: user_google_oauth2_omniauth_authorize_path, method: :post, local: true, class: "w-full", data: { turbo: false } do |form| %>
+                <%= button_tag type: "submit", class: "text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium bg-transparent border-0 cursor-pointer" do %>
+                  <i class="fa-brands fa-google mr-2"></i>Sign in with Google
+                <% end %>
               <% end %>
             <% end %>
           </div>
