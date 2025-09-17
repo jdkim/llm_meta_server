@@ -7,16 +7,7 @@ class Users::SessionsController < Devise::SessionsController
       reset_session
     end
 
-    redirect_to "/users/sessions/sso_logout"
-  end
-
-  # Open a view with a button that allows signing out from Google account.
-  def sso_logout
-    # Display SSO sign out confirmation page
-    @provider = :google_oauth2
-    @provider_name = "Google"
-    @logout_url = "https://accounts.google.com/logout"
-
-    render "sso_logout"
+    flash[:notice] = "You have successfully signed out."
+    redirect_to root_path
   end
 end
