@@ -7,10 +7,10 @@ Rails.application.routes.draw do
   # Custom session routes (all defined within Devise scope)
   devise_scope :user do
     delete "/logout", to: "users/sessions#destroy", as: :user_logout
-    get "/logout", to: "users/sessions#destroy"
+    post "/logout", to: "users/sessions#destroy"
     # Redirect signout to logout for consistency
-    get "/signout", to: redirect("/logout")
     delete "/signout", to: redirect("/logout")
+    post "/signout", to: redirect("/logout")
   end
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
