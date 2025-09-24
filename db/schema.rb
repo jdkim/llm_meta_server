@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_09_18_075907) do
+ActiveRecord::Schema[8.0].define(version: 2025_09_18_082501) do
   create_table "llm_api_keys", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "llm_type", null: false
@@ -18,6 +18,7 @@ ActiveRecord::Schema[8.0].define(version: 2025_09_18_075907) do
     t.string "uuid", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "description"
     t.index ["user_id", "llm_type"], name: "index_llm_api_keys_on_user_id_and_llm_type"
     t.index ["user_id"], name: "index_llm_api_keys_on_user_id"
     t.index ["uuid"], name: "index_llm_api_keys_on_uuid", unique: true
