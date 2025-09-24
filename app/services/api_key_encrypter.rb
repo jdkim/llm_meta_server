@@ -12,6 +12,7 @@ class ApiKeyEncrypter
   # @return [String] Base64-encoded ciphertext
   def encrypt(plain_api_key)
     resp = @aws_kms_client.encrypt(key_id: @key_id, plaintext: plain_api_key)
+
     Base64.encode64(resp.ciphertext_blob)
   end
 end
