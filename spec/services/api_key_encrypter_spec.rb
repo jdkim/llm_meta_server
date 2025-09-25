@@ -14,11 +14,13 @@ RSpec.describe ApiKeyEncrypter do
 
   it "encrypts the API key using AWS KMS and returns Base64 ciphertext" do
     encrypt_response = double("encrypt_response", ciphertext_blob: ciphertext_blob)
+    # Confirm that kms_client's encrypt method is called with correct arguments and returns the expected response
     expect(kms_client).to receive(:encrypt).with(key_id: key_id, plaintext: plain_api_key)
                                            .and_return(encrypt_response)
 
     encrypter = described_class.new
     result = encrypter.encrypt(plain_api_key)
+    # encrypter.encrypt should return the Base64-encoded ciphertext
     expect(result).to eq base64_ciphertext
   end
 end
