@@ -19,6 +19,6 @@ RSpec.describe ApiKeyEncrypter do
 
     encrypter = described_class.new
     result = encrypter.encrypt(plain_api_key)
-    expect(result).to eq(base64_ciphertext)
+    expect(result).to eq base64_ciphertext
   end
 end
