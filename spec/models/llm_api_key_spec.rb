@@ -29,12 +29,12 @@ RSpec.describe LlmApiKey, type: :model do
 
     context 'without required attributes' do
       let(:params) { {} }
-      it {
+      it 'shows errors for all required attributes', :aggregate_failures do
         is_expected.not_to be_valid
         expect(llm_api_key.errors[:uuid]).to include("can't be blank")
         expect(llm_api_key.errors[:llm_type]).to include("can't be blank")
         expect(llm_api_key.errors[:encrypted_api_key]).to include("can't be blank")
-      }
+      end
     end
 
     context 'with duplicate attributes' do
