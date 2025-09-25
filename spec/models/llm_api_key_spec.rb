@@ -18,10 +18,12 @@ RSpec.describe LlmApiKey, type: :model do
       }
       it {
         is_expected.to be_valid
-        expect(llm_api_key.user).to eq(user)
-        expect(llm_api_key.uuid).not_to be_nil
-        expect(llm_api_key.llm_type).to eq("openai")
-        expect(llm_api_key.encrypted_api_key).to eq("encrypted_key_example")
+        expect(llm_api_key).to have_attributes(
+                                 user: user,
+                                 uuid: kind_of(String),
+                                 llm_type: "openai",
+                                 encrypted_api_key: "encrypted_key_example"
+                               )
       }
     end
 
