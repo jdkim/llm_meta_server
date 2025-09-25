@@ -7,16 +7,6 @@ RSpec.describe LlmApiKey, type: :model do
   describe '#valid?' do
     subject { llm_api_key }
 
-    context 'without required attributes' do
-      let(:params) { {} }
-      it {
-        is_expected.not_to be_valid
-        expect(llm_api_key.errors[:uuid]).to include("can't be blank")
-        expect(llm_api_key.errors[:llm_type]).to include("can't be blank")
-        expect(llm_api_key.errors[:encrypted_api_key]).to include("can't be blank")
-      }
-    end
-
     context 'with valid required attributes' do
       let(:params) {
         {
@@ -32,6 +22,16 @@ RSpec.describe LlmApiKey, type: :model do
         expect(llm_api_key.uuid).not_to be_nil
         expect(llm_api_key.llm_type).to eq("openai")
         expect(llm_api_key.encrypted_api_key).to eq("encrypted_key_example")
+      }
+    end
+
+    context 'without required attributes' do
+      let(:params) { {} }
+      it {
+        is_expected.not_to be_valid
+        expect(llm_api_key.errors[:uuid]).to include("can't be blank")
+        expect(llm_api_key.errors[:llm_type]).to include("can't be blank")
+        expect(llm_api_key.errors[:encrypted_api_key]).to include("can't be blank")
       }
     end
 
