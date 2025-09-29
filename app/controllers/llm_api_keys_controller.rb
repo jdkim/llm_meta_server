@@ -26,7 +26,7 @@ class LlmApiKeysController < ApplicationController
       )
       llm_api_key.save!
       redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
-    rescue => e
+    rescue ActiveRecord::RecordInvalid => e
       redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to add API key: #{e.message}"
     end
   end
