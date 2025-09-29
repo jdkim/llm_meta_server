@@ -19,23 +19,9 @@
               <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
                 <div class="flex-1">
                   <div class="flex items-center space-x-3 mb-2">
-                    <% if api_key.llm_type == "OpenAI" %>
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-black text-white">
-                        <%= api_key.llm_type %>
-                      </span>
-                    <% elsif api_key.llm_type == "Anthropic" %>
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-600 text-amber-100">
-                        <%= api_key.llm_type %>
-                      </span>
-                    <% elsif api_key.llm_type == "Google" %>
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800">
-                        <%= api_key.llm_type %>
-                      </span>
-                    <% elsif api_key.llm_type == "Ollama" %>
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white text-black border border-black">
-                        <%= api_key.llm_type %>
-                      </span>
-                    <% end %>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-black text-white">
+                      <%= api_key.llm_type %>
+                    </span>
                     <% if api_key.description.present? %>
                       <span class="text-sm text-gray-600"><%= api_key.description %></span>
                     <% end %>
