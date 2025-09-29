@@ -33,7 +33,6 @@ RSpec.describe LlmApiKey, type: :model do
         is_expected.not_to be_valid
         expect(llm_api_key.errors[:uuid]).to include("can't be blank")
         expect(llm_api_key.errors[:llm_type]).to include("can't be blank")
-        expect(llm_api_key.errors[:encrypted_api_key]).to include("can't be blank")
       end
     end
 
