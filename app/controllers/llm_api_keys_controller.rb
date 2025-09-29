@@ -12,21 +12,22 @@ class LlmApiKeysController < ApplicationController
     api_key = params[:api_key]
     description = params[:description]
 
-    if llm_type.present? && api_key.present?
-      begin
-        llm_api_key = current_user.llm_api_keys.build(
-          uuid: SecureRandom.uuid,
-          llm_type: llm_type,
-          api_key: api_key,
-          description: description
-        )
-        llm_api_key.save!
-        redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
-      rescue => e
-        redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to add API key: #{e.message}"
-      end
-    else
+    if !llm_type.present? || !api_key.present?
       redirect_to user_llm_api_keys_path, alert: "Please enter LLM type and API key"
+      return
+    end
+
+    begin
+      llm_api_key = current_user.llm_api_keys.build(
+        uuid: SecureRandom.uuid,
+        llm_type: llm_type,
+        api_key: api_key,
+        description: description
+      )
+      llm_api_key.save!
+      redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
+    rescue => e
+      redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to add API key: #{e.message}"
     end
   end
 end
