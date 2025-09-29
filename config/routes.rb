@@ -21,7 +21,9 @@ Rails.application.routes.draw do
   # get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
 
   # User profile routes
-  resources :user, only: [ :show ]
+  resources :user, only: [ :show ] do
+    resources :llm_api_keys, only: [ :index ], path: "/keys"
+  end
 
   # Defines the root path route ("/")
   root "home#index"
