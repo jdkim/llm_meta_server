@@ -22,7 +22,7 @@ Rails.application.routes.draw do
 
   # User profile routes
   resources :user, only: [ :show ] do
-    resources :llm_api_keys, only: [ :index ], path: "/keys"
+    resources :llm_api_keys, only: [ :index ]
   end
 
   # Defines the root path route ("/")
