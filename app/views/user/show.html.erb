@@ -39,8 +39,8 @@
         <!-- API Key Management Card -->
         <div class="bg-white shadow-md rounded-lg overflow-hidden">
           <div class="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-            <h4 class="text-lg font-semibold text-gray-900">API Key Management</h4>
-            <%#= link_to "API Key Settings", show_keys_user_path, class: "text-sm bg-green-100 text-green-700 px-3 py-1 rounded-md hover:bg-green-200 transition-colors" %>
+            <h4 class="text-lg font-semibold text-gray-900">LLM API Key Management</h4>
+            <%= link_to "Manage API Keys", user_llm_api_keys_path(@user), class: "text-sm bg-yellow-100 text-yellow-700 px-3 py-1 rounded-md hover:bg-yellow-200 transition-colors" %>
           </div>
           <div class="px-6 py-4">
             <p class="text-gray-600 mb-4">Manage your LLM service API keys.</p>

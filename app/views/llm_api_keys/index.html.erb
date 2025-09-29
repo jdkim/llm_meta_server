@@ -1,0 +1,50 @@
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="mb-6">
+    <div class="flex justify-between items-center">
+      <h2 class="text-2xl font-bold text-gray-900">API Key Management</h2>
+      <%= link_to "Back to Profile", user_path(current_user), class: "text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-200 transition-colors" %>
+    </div>
+  </div>
+
+  <div class="space-y-6">
+    <!-- Existing API Keys List -->
+    <div class="bg-white shadow-md rounded-lg overflow-hidden">
+      <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+        <h4 class="text-lg font-semibold text-gray-900">Registered API Keys</h4>
+      </div>
+      <div class="px-6 py-4">
+        <% if @llm_api_keys.any? %>
+          <div class="space-y-3">
+            <% @llm_api_keys.each do |api_key| %>
+              <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
+                <div class="flex-1">
+                  <div class="flex items-center space-x-3 mb-2">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-black text-white">
+                      <%= api_key.llm_type %>
+                    </span>
+                    <% if api_key.description.present? %>
+                      <span class="text-sm text-gray-600"><%= api_key.description %></span>
+                    <% end %>
+                  </div>
+                  <div class="space-y-1">
+                    <span class="text-sm font-medium text-gray-700">Created:</span>
+                    <span class="text-sm text-gray-600"><%= api_key.created_at.strftime("%Y/%m/%d %H:%M") %></span>
+                    <% if api_key.created_at < api_key.updated_at %>
+                      <span class="text-sm font-medium text-gray-700 ml-2">Updated:</span>
+                      <span class="text-sm text-gray-600"><%= api_key.updated_at.strftime("%Y/%m/%d %H:%M") %></span>
+                    <% end %>
+                  </div>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% else %>
+          <div class="p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+            <p class="text-gray-500 text-center mb-2">No API keys have been registered yet.</p>
+            <p class="text-gray-500 text-center">Please add a new API key using the form below.</p>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  </div>
+</div>
