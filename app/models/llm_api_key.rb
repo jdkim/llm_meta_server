@@ -5,4 +5,15 @@ class LlmApiKey < ApplicationRecord
   validates :llm_type, presence: true
   validates :encrypted_api_key, presence: true
   validates :description, length: { maximum: 255 }, allow_blank: true
+
+  attr_accessor :api_key
+
+  before_save :encrypt_api_key
+
+  private
+
+  def encrypt_api_key
+    self.encrypted_api_key = ApiKeyEncrypter.new.encrypt(api_key) unless api_key.blank?
+    self.api_key = nil
+  end
 end
