@@ -7,9 +7,14 @@ class LlmApiKey < ApplicationRecord
 
   attr_accessor :api_key
 
+  before_save :set_uuid
   before_save :encrypt_api_key
 
   private
+
+  def set_uuid
+    self.uuid ||= SecureRandom.uuid
+  end
 
   def encrypt_api_key
     self.encrypted_api_key = ApiKeyEncrypter.new.encrypt(api_key) unless api_key.blank?

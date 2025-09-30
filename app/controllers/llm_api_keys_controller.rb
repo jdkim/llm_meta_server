@@ -18,7 +18,6 @@ class LlmApiKeysController < ApplicationController
     end
 
     llm_api_key = current_user.llm_api_keys.build(
-      uuid: SecureRandom.uuid,
       llm_type: llm_type,
       api_key: api_key,
       description: description
