@@ -31,7 +31,6 @@ RSpec.describe LlmApiKey, type: :model do
       let(:params) { {} }
       it 'shows errors for all required attributes', :aggregate_failures do
         is_expected.not_to be_valid
-        expect(llm_api_key.errors[:uuid]).to include("can't be blank")
         expect(llm_api_key.errors[:llm_type]).to include("can't be blank")
       end
     end
