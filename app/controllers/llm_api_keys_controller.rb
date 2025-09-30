@@ -20,6 +20,6 @@ class LlmApiKeysController < ApplicationController
   private
 
   def llm_api_key_params
-    params.expect(llm_api_key: [:llm_type, :api_key, :description])
+    params.expect(llm_api_key: [ :llm_type, :api_key, :description ])
   end
 end
