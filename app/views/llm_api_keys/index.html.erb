@@ -46,5 +46,53 @@
         <% end %>
       </div>
     </div>
+
+    <!-- Add New API Key Form -->
+    <div class="bg-white shadow-md rounded-lg overflow-hidden">
+      <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+        <h5 class="font-semibold text-gray-900">Add New API Key</h5>
+      </div>
+      <div class="px-6 py-4">
+        <%= form_with url: user_llm_api_keys_path, method: :post, local: true do |form| %>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label for="llm_type" class="block font-medium text-gray-700 mb-2">LLM Type</label>
+              <%= select_tag "llm_api_key[llm_type]",
+                             options_for_select([
+                                                  ['OpenAI', 'OpenAI'],
+                                                  ['Anthropic', 'Anthropic'],
+                                                  ['Google', 'Google'],
+                                                  ['Ollama', 'Ollama']
+                                                ], ''),
+                             { class: "w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500", prompt: "Select LLM Type", required: true } %>
+            </div>
+
+            <div class="col-start-1 col-span-2">
+              <label for="api_key" class="block font-medium text-gray-700 mb-2">API Key</label>
+              <%= password_field_tag "llm_api_key[api_key]", "",
+                                     class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                     placeholder: "Enter API key",
+                                     required: true %>
+              <p class="text-sm text-gray-500 mt-1">
+                API keys are encrypted and stored securely.
+              </p>
+            </div>
+            <div class="col-span-2">
+              <label for="description" class="block font-medium text-gray-700 mb-2">Description (Optional)</label>
+              <%= text_field_tag "llm_api_key[description]", "",
+                                  class: "w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                  placeholder: "Enter description for this API key (e.g., purpose or project name)" %>
+              <div class="text-sm text-gray-500 mt-1">
+                Enter a clear description such as the purpose or project name for this API key.
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end">
+            <%= submit_tag "Add API Key", class: "bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors" %>
+          </div>
+        <% end %>
+      </div>
+    </div>
   </div>
 </div>
