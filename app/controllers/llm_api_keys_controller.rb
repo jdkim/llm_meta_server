@@ -8,8 +8,7 @@ class LlmApiKeysController < ApplicationController
 
   # POST /user/:user_id/llm_api_keys
   def create
-    llm_api_key = current_user.llm_api_keys.build(llm_api_key_params)
-    llm_api_key.save!
+    current_user.llm_api_keys.create!(llm_api_key_params)
     redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter LLM type and API key"
