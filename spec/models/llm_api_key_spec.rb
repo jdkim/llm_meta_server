@@ -10,9 +10,8 @@ RSpec.describe LlmApiKey, type: :model do
     context 'with valid required attributes' do
       let(:params) {
         {
-          uuid: SecureRandom.uuid,
           llm_type: "openai",
-          encrypted_api_key: "encrypted_key_example",
+          api_key: "plain_text_key_example",
           user: user
         }
       }
@@ -22,7 +21,7 @@ RSpec.describe LlmApiKey, type: :model do
                                  user: user,
                                  uuid: kind_of(String),
                                  llm_type: "openai",
-                                 encrypted_api_key: "encrypted_key_example"
+                                 encrypted_api_key: kind_of(String)
                                )
       }
     end
