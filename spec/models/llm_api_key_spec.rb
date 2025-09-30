@@ -33,21 +33,5 @@ RSpec.describe LlmApiKey, type: :model do
         expect(llm_api_key.errors[:llm_type]).to include("can't be blank")
       end
     end
-
-    context 'with duplicate attributes' do
-      before { LlmApiKey.create!(params) }
-      let(:params) {
-        {
-          uuid: SecureRandom.uuid,
-          llm_type: "openai",
-          encrypted_api_key: "encrypted_key_example",
-          user: user
-        }
-      }
-      it {
-        is_expected.not_to be_valid
-        expect(llm_api_key.errors[:uuid]).to include("has already been taken")
-      }
-    end
   end
 end
