@@ -8,23 +8,18 @@ class LlmApiKeysController < ApplicationController
 
   # POST /user/:user_id/llm_api_keys
   def create
-    llm_type = params[:llm_type]
-    api_key = params[:api_key]
-    description = params[:description]
-
-    if !llm_type.present? || !api_key.present?
-      redirect_to user_llm_api_keys_path, alert: "Please enter LLM type and API key"
-      return
-    end
-
-    llm_api_key = current_user.llm_api_keys.build(
-      llm_type: llm_type,
-      api_key: api_key,
-      description: description
-    )
+    llm_api_key = current_user.llm_api_keys.build(llm_api_key_params)
     llm_api_key.save!
     redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
+  rescue ActionController::ParameterMissing => e
+    redirect_to user_llm_api_keys_path, alert: "Please enter LLM type and API key"
   rescue ActiveRecord::RecordInvalid => e
     redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to add API key: #{e.message}"
+  end
+
+  private
+
+  def llm_api_key_params
+    params.expect(llm_api_key: [:llm_type, :api_key, :description])
   end
 end
