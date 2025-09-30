@@ -7,8 +7,7 @@ class LlmApiKey < ApplicationRecord
 
   attr_accessor :api_key
 
-  before_save :set_uuid
-  before_save :encrypt_api_key
+  before_validation :set_uuid, :encrypt_api_key
 
   private
 
