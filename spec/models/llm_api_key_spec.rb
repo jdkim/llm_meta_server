@@ -4,7 +4,7 @@ RSpec.describe LlmApiKey, type: :model do
   let(:plain_api_key) { "plain_text_key_example" }
   let(:api_key_encrypter) { instance_double(ApiKeyEncrypter) }
   let(:ciphertext_blob) { "encrypted_api_key" }
-  let(:base64_ciphertext) { Base64.encode64(ciphertext_blob) }
+  let(:base64_ciphertext) { "ダミー文字列" }
   let(:user) { User.create!(email: "test@example.com", google_id: 1) }
   let(:llm_api_key) { LlmApiKey.new(params) }
 
