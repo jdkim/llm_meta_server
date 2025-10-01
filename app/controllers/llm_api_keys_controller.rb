@@ -39,6 +39,10 @@ class LlmApiKeysController < ApplicationController
     else
       redirect_to user_llm_api_keys_path, alert: "Please enter a new API key or description"
     end
+  rescue ActionController::ParameterMissing
+    redirect_to user_llm_api_keys_path, alert: "Please enter API key or description"
+  rescue ActiveRecord::RecordInvalid => e
+    redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to update API key or description: #{e.message}"
   end
 
   private
