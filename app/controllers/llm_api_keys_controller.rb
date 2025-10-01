@@ -1,5 +1,6 @@
 class LlmApiKeysController < ApplicationController
   before_action :authenticate_user!
+  before_action :set_llm_api_key, only: [ :update ]
 
   # GET /user/:user_id/llm_api_keys
   def index
@@ -16,9 +17,39 @@ class LlmApiKeysController < ApplicationController
     redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to add API key: #{e.message}"
   end
 
+  # PATCH/PUT /user/:user_id/llm_api_keys/:id
+  def update
+    updates = {}
+    new_api_key = llm_api_key_params[:api_key]
+    description = llm_api_key_params[:description]
+
+    updates[:encrypted_api_key] = ApiKeyEncrypter.new.encrypt(new_api_key) if new_api_key.present?
+    updates[:description] = description if description.present?
+
+    if updates.any?
+      @llm_api_key.update!(updates)
+      notice = if updates.key?(:encrypted_api_key) && updates.key?(:description)
+                 "API key and description have been updated successfully"
+      elsif updates.key?(:encrypted_api_key)
+                 "API key has been updated successfully"
+      else
+                 "Description of API key has been updated successfully"
+      end
+      redirect_to user_llm_api_keys_path, notice: notice
+    else
+      redirect_to user_llm_api_keys_path, alert: "Please enter a new API key or description"
+    end
+  end
+
   private
 
   def llm_api_key_params
     params.expect(llm_api_key: [ :llm_type, :api_key, :description ])
+  end
+
+  def set_llm_api_key
+    @llm_api_key = current_user.llm_api_keys.find(params[:id])
+  rescue ActiveRecord::RecordNotFound
+    redirect_to user_path(current_user), alert: "The specified API key was not found"
   end
 end
