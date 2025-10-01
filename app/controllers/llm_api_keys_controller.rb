@@ -1,6 +1,5 @@
 class LlmApiKeysController < ApplicationController
   before_action :authenticate_user!
-  before_action :set_llm_api_key, only: [ :update ]
 
   # GET /user/:user_id/llm_api_keys
   def index
@@ -24,10 +23,10 @@ class LlmApiKeysController < ApplicationController
     description = llm_api_key_params[:description]
 
     updates[:api_key] = new_api_key if new_api_key.present?
-    updates[:description] = description if description.present? && description != @llm_api_key.description
+    updates[:description] = description if description.present? && description != llm_api_key.description
 
     if updates.any?
-      @llm_api_key.update!(updates)
+      llm_api_key.update!(updates)
       notice = if updates.key?(:encrypted_api_key) && updates.key?(:description)
                  "API key and description have been updated successfully"
       elsif updates.key?(:encrypted_api_key)
@@ -51,8 +50,8 @@ class LlmApiKeysController < ApplicationController
     params.expect(llm_api_key: [ :llm_type, :api_key, :description ])
   end
 
-  def set_llm_api_key
-    @llm_api_key = current_user.llm_api_keys.find(params[:id])
+  def llm_api_key
+    current_user.llm_api_keys.find(params[:id])
   rescue ActiveRecord::RecordNotFound
     redirect_to user_path(current_user), alert: "The specified API key was not found"
   end
