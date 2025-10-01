@@ -23,7 +23,7 @@ class LlmApiKeysController < ApplicationController
     new_api_key = llm_api_key_params[:api_key]
     description = llm_api_key_params[:description]
 
-    updates[:encrypted_api_key] = ApiKeyEncrypter.new.encrypt(new_api_key) if new_api_key.present?
+    updates[:api_key] = new_api_key if new_api_key.present?
     updates[:description] = description if description.present? && description != @llm_api_key.description
 
     if updates.any?
