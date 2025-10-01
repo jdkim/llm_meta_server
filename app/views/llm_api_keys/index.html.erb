@@ -63,17 +63,17 @@
                       </button>
                     </div>
                     <div class="mb-6">
-                      <%= hidden_field_tag :key_id, api_key.id %>
+                      <%= hidden_field_tag "llm_api_key[key_id]", api_key.id %>
                       <div class="mb-4">
                         <label for="api_key_<%= api_key.id %>" class="block font-medium text-gray-700 mb-2">New API Key (Optional)</label>
-                        <%= password_field_tag :api_key, "",
+                        <%= password_field_tag "llm_api_key[api_key]", "",
                                                class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500",
                                                id: "api_key_#{api_key.id}",
                                                placeholder: "Enter new API key" %>
                       </div>
                       <div class="mb-4">
                         <label for="description_<%= api_key.id %>" class="block font-medium text-gray-700 mb-2">Description (Optional)</label>
-                        <%= text_field_tag :description, api_key.description,
+                        <%= text_field_tag "llm_api_key[description]", api_key.description,
                                            class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500",
                                            id: "description_#{api_key.id}",
                                            placeholder: "Enter description for this API key (e.g., purpose or project name)" %>
