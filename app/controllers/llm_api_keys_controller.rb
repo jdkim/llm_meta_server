@@ -26,6 +26,17 @@ class LlmApiKeysController < ApplicationController
     redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to update API key or description: #{e.message}"
   end
 
+  # DELETE /user/:user_id/keys/:id
+  def destroy
+    llm_type = llm_api_key.llm_type
+    description = llm_api_key.description
+    if llm_api_key.destroy
+      redirect_to user_llm_api_keys_path, notice: "#{llm_type.upcase} (#{description}) API key has been deleted successfully"
+    else
+      redirect_to user_llm_api_keys_path, alert: "Failed to delete API key"
+    end
+  end
+
   private
 
   def update_message_for(llm_api_key)
