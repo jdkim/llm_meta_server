@@ -26,10 +26,12 @@ class LlmApiKeysController < ApplicationController
     updates[:description] = description if description.present? && description != llm_api_key.description
 
     if updates.any?
-      llm_api_key.update!(updates)
-      notice = if updates.key?(:encrypted_api_key) && updates.key?(:description)
+      # Temporarily store in an instance variable to retain dirty information
+      @llm_api_key = llm_api_key
+      @llm_api_key.update!(updates)
+      notice = if @llm_api_key.saved_change_to_encrypted_api_key? && @llm_api_key.saved_change_to_description?
                  "API key and description have been updated successfully"
-      elsif updates.key?(:encrypted_api_key)
+      elsif @llm_api_key.saved_change_to_encrypted_api_key?
                  "API key has been updated successfully"
       else
                  "Description of API key has been updated successfully"
