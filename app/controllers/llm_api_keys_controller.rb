@@ -23,7 +23,7 @@ class LlmApiKeysController < ApplicationController
     description = llm_api_key_params[:description]
 
     updates[:api_key] = new_api_key if new_api_key.present?
-    updates[:description] = description if description.present? && description != llm_api_key.description
+    updates[:description] = description if description != llm_api_key.description
 
     if updates.any?
       # Temporarily store in an instance variable to retain dirty information
