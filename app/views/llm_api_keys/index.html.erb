@@ -15,27 +15,9 @@
       <div class="px-6 py-4">
         <% if @llm_api_keys.any? %>
           <div class="space-y-3">
-            <% @llm_api_keys.each do |api_key| %>
-              <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
-                <div class="flex-1">
-                  <div class="flex items-center space-x-3 mb-2">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-black text-white">
-                      <%= api_key.llm_type %>
-                    </span>
-                    <% if api_key.description.present? %>
-                      <span class="text-sm text-gray-600"><%= api_key.description %></span>
-                    <% end %>
-                  </div>
-                  <div class="space-y-1">
-                    <span class="text-sm font-medium text-gray-700">Created:</span>
-                    <span class="text-sm text-gray-600"><%= api_key.created_at.strftime("%Y/%m/%d %H:%M") %></span>
-                    <% if api_key.created_at < api_key.updated_at %>
-                      <span class="text-sm font-medium text-gray-700 ml-2">Updated:</span>
-                      <span class="text-sm text-gray-600"><%= api_key.updated_at.strftime("%Y/%m/%d %H:%M") %></span>
-                    <% end %>
-                  </div>
-                </div>
-              </div>
+            <% @llm_api_keys.each do |api_key, index| %>
+              <%= render "api_key_list_item", locals: { api_key: api_key, index: index } %>
+              <%= render "api_key_update_modal", locals: { api_key: api_key, index: index } %>
             <% end %>
           </div>
         <% else %>
