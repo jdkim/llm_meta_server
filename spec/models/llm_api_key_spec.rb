@@ -75,5 +75,32 @@ RSpec.describe LlmApiKey, type: :model do
         expect(llm_api_key.api_key).to be_nil
       }
     end
+
+    context 'when updating empty api_key, encrypted_api_key remains unchanged' do
+      let(:params) {
+        {
+          llm_type: "openai",
+          api_key: plain_api_key,
+          user: user
+        }
+      }
+
+      let(:new_plain_api_key) { "" }
+
+      before do
+        llm_api_key.save! # Save first
+        llm_api_key.update!(api_key: new_plain_api_key)
+      end
+
+      it {
+        is_expected.to have_attributes(
+                         user: user,
+                         uuid: kind_of(String),
+                         llm_type: "openai",
+                         encrypted_api_key: base64_ciphertext
+                       )
+        expect(llm_api_key.api_key).to be_nil
+      }
+    end
   end
 end
