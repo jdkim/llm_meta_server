@@ -5,9 +5,9 @@
 <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
   <div class="flex-1">
     <div class="flex items-center space-x-3 mb-2">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-black text-white">
-                      <%= api_key.llm_type %>
-                    </span>
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-black text-white">
+        <%= api_key.llm_type %>
+      </span>
       <% if api_key.description.present? %>
         <span class="text-sm text-gray-600"><%= api_key.description %></span>
       <% end %>
