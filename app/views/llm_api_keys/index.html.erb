@@ -15,9 +15,9 @@
       <div class="px-6 py-4">
         <% if @llm_api_keys.any? %>
           <div class="space-y-3">
-            <% @llm_api_keys.each do |api_key| %>
-              <%= render "api_key_list_item", locals: { api_key: api_key } %>
-              <%= render "api_key_update_modal", locals: { api_key: api_key } %>
+            <% @llm_api_keys.each do |api_key, index| %>
+              <%= render "api_key_list_item", locals: { api_key: api_key, index: index } %>
+              <%= render "api_key_update_modal", locals: { api_key: api_key, index: index } %>
             <% end %>
           </div>
         <% else %>

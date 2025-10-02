@@ -1,5 +1,6 @@
 <%
   api_key = locals[:api_key]
+  index = locals[:index]
 %>
 
 <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
@@ -23,7 +24,7 @@
   </div>
   <div class="flex flex-col space-y-2 ml-4">
     <button type="button" class="text-sm bg-yellow-100 text-yellow-700 px-3 py-1 rounded-md hover:bg-yellow-200 transition-colors"
-            popovertarget="updateModal<%= api_key.id %>">
+            popovertarget="updateModal-<%= index %>">
       Update
     </button>
     <%#= link_to "Delete", user_llm_api_key_path(current_user, api_key),

@@ -1,8 +1,9 @@
 <%
   api_key = locals[:api_key]
+  index = locals[:index]
 %>
 
-<div id="updateModal<%= api_key.id %>" popover class="m-0 p-0 border-0 bg-transparent max-w-none max-h-none">
+<div id="updateModal-<%= index %>" popover class="m-0 p-0 border-0 bg-transparent max-w-none max-h-none">
   <div class="fixed inset-0 bg-white/30 backdrop-blur-md flex items-center justify-center">
     <div class="relative p-5 border w-96 shadow-lg rounded-md bg-white">
       <%= form_with url: user_llm_api_key_path(current_user, api_key), method: :patch, local: true do |form| %>
