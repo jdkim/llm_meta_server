@@ -19,15 +19,7 @@ class LlmApiKeysController < ApplicationController
   # PATCH/PUT /user/:user_id/llm_api_keys/:id
   def update
     llm_api_key.update!(llm_api_key_params)
-    if llm_api_key.saved_change_to_encrypted_api_key? && llm_api_key.saved_change_to_description?
-      redirect_to user_llm_api_keys_path, notice: "API key and description have been updated successfully"
-    elsif llm_api_key.saved_change_to_encrypted_api_key?
-      redirect_to user_llm_api_keys_path, notice: "API key has been updated successfully"
-    elsif llm_api_key.saved_change_to_description?
-      redirect_to user_llm_api_keys_path, notice: "Description of API key has been updated successfully"
-    else
-      redirect_to user_llm_api_keys_path, alert: "Please enter a new API key or description"
-    end
+    redirect_to user_llm_api_keys_path, update_message_for(llm_api_key)
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter API key or description"
   rescue ActiveRecord::RecordInvalid => e
@@ -35,6 +27,18 @@ class LlmApiKeysController < ApplicationController
   end
 
   private
+
+  def update_message_for(llm_api_key)
+    if llm_api_key.saved_change_to_encrypted_api_key? && llm_api_key.saved_change_to_description?
+      { notice: "API key and description have been updated successfully" }
+    elsif llm_api_key.saved_change_to_encrypted_api_key?
+      { notice: "API key has been updated successfully" }
+    elsif llm_api_key.saved_change_to_description?
+      { notice: "Description of API key has been updated successfully" }
+    else
+      { alert: "Please enter a new API key or description" }
+    end
+  end
 
   def llm_api_key_params
     params.expect(llm_api_key: [ :llm_type, :api_key, :description ])
