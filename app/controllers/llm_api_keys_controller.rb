@@ -18,25 +18,15 @@ class LlmApiKeysController < ApplicationController
 
   # PATCH/PUT /user/:user_id/llm_api_keys/:id
   def update
-    updates = {}
-    new_api_key = llm_api_key_params[:api_key]
-    description = llm_api_key_params[:description]
-
-    updates[:api_key] = new_api_key if new_api_key.present?
-    updates[:description] = description if description != llm_api_key.description
-
-    if updates.any?
-      # Temporarily store in an instance variable to retain dirty information
-      @llm_api_key = llm_api_key
-      @llm_api_key.update!(updates)
-      notice = if @llm_api_key.saved_change_to_encrypted_api_key? && @llm_api_key.saved_change_to_description?
-                 "API key and description have been updated successfully"
-      elsif @llm_api_key.saved_change_to_encrypted_api_key?
-                 "API key has been updated successfully"
-      else
-                 "Description of API key has been updated successfully"
-      end
-      redirect_to user_llm_api_keys_path, notice: notice
+    # Temporarily store in an instance variable to retain dirty information
+    @llm_api_key = llm_api_key
+    @llm_api_key.update!(llm_api_key_params)
+    if @llm_api_key.saved_change_to_encrypted_api_key? && @llm_api_key.saved_change_to_description?
+      redirect_to user_llm_api_keys_path, notice: "API key and description have been updated successfully"
+    elsif @llm_api_key.saved_change_to_encrypted_api_key?
+      redirect_to user_llm_api_keys_path, notice: "API key has been updated successfully"
+    elsif @llm_api_key.saved_change_to_description?
+      redirect_to user_llm_api_keys_path, notice: "Description of API key has been updated successfully"
     else
       redirect_to user_llm_api_keys_path, alert: "Please enter a new API key or description"
     end
