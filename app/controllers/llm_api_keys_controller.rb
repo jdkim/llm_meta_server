@@ -28,10 +28,8 @@ class LlmApiKeysController < ApplicationController
 
   # DELETE /user/:user_id/llm_api_keys/:id
   def destroy
-    llm_type = llm_api_key.llm_type
-    description = llm_api_key.description
     llm_api_key.destroy!
-    redirect_to user_llm_api_keys_path, notice: "#{llm_type} (#{description}) API key has been deleted successfully"
+    redirect_to user_llm_api_keys_path, notice: "#{llm_api_key.llm_type} (#{llm_api_key.description}) API key has been deleted successfully"
   rescue ActiveRecord::RecordNotDestroyed
     redirect_to user_llm_api_keys_path, alert: "Failed to delete API key"
   end
