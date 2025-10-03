@@ -31,7 +31,7 @@ class LlmApiKeysController < ApplicationController
     llm_type = llm_api_key.llm_type
     description = llm_api_key.description
     if llm_api_key.destroy
-      redirect_to user_llm_api_keys_path, notice: "#{llm_type.upcase} (#{description}) API key has been deleted successfully"
+      redirect_to user_llm_api_keys_path, notice: "#{llm_type} (#{description}) API key has been deleted successfully"
     else
       redirect_to user_llm_api_keys_path, alert: "Failed to delete API key"
     end
