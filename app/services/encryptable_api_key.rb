@@ -14,7 +14,7 @@ class EncryptableApiKey
 
   # Encrypted (if not available, encrypt and memoize)
   def encrypted_api_key
-    @encrypted ||= @encrypted_src ||  ApiKeyDecrypter.new.encrypt(@plain_src)
+    @encrypted ||= @encrypted_src || ApiKeyEncrypter.new.encrypt(@plain_src)
   end
 
   # For debugging: considering confidentiality
