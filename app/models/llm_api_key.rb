@@ -9,6 +9,10 @@ class LlmApiKey < ApplicationRecord
 
   before_validation :set_uuid, :encrypt_api_key
 
+  def plain_api_key
+    ApiKeyDecrypter.new.decrypt(encrypted_api_key) if encrypted_api_key.present?
+  end
+
   private
 
   def set_uuid
