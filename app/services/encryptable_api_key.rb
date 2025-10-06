@@ -9,7 +9,7 @@ class EncryptableApiKey
 
   # Plain text (if not available, decrypt and memoize)
   def plain_api_key
-    @plain ||= @plain_src ||  ApiKeyDecrypter.new.decrypt(@encrypted_src)
+    @plain ||= @plain_src || ApiKeyDecrypter.new.decrypt(@encrypted_src)
   end
 
   # Encrypted (if not available, encrypt and memoize)
