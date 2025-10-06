@@ -48,20 +48,20 @@ RSpec.describe EncryptableApiKey do
   describe "#plain_api_key" do
     context "when initialized with plain_api_key" do
       it "returns the plain API key directly" do
-        wrapper = described_class.new(plain_api_key: plain_key)
-        expect(wrapper.plain_api_key).to eq(plain_key)
+        subject = described_class.new(plain_api_key: plain_key)
+        expect(subject.plain_api_key).to eq(plain_key)
       end
 
       it "does not call decrypter because plain key is already set" do
-        wrapper = described_class.new(plain_api_key: plain_key)
+        subject = described_class.new(plain_api_key: plain_key)
         expect(decrypter).not_to receive(:decrypt)
-        wrapper.plain_api_key
+        subject.plain_api_key
       end
 
       it "memoizes the result" do
-        wrapper = described_class.new(plain_api_key: plain_key)
-        first_call = wrapper.plain_api_key
-        second_call = wrapper.plain_api_key
+        subject = described_class.new(plain_api_key: plain_key)
+        first_call = subject.plain_api_key
+        second_call = subject.plain_api_key
         expect(first_call.object_id).to eq(second_call.object_id)
       end
     end
@@ -69,17 +69,17 @@ RSpec.describe EncryptableApiKey do
     context "when initialized with encrypted_api_key" do
       it "decrypts and returns the plain API key" do
         allow(decrypter).to receive(:decrypt).with(encrypted_key).and_return(plain_key)
-        wrapper = described_class.new(encrypted_api_key: encrypted_key)
-        expect(wrapper.plain_api_key).to eq(plain_key)
+        subject = described_class.new(encrypted_api_key: encrypted_key)
+        expect(subject.plain_api_key).to eq(plain_key)
       end
 
       it "calls decrypter only once (memoization)" do
         allow(decrypter).to receive(:decrypt).with(encrypted_key).and_return(plain_key)
-        wrapper = described_class.new(encrypted_api_key: encrypted_key)
+        subject = described_class.new(encrypted_api_key: encrypted_key)
 
         expect(decrypter).to receive(:decrypt).once.and_return(plain_key)
-        wrapper.plain_api_key
-        wrapper.plain_api_key # Second call should use memoized value
+        subject.plain_api_key
+        subject.plain_api_key # Second call should use memoized value
       end
     end
   end
@@ -87,22 +87,22 @@ RSpec.describe EncryptableApiKey do
   describe "#encrypted_api_key" do
     context "when initialized with encrypted_api_key" do
       it "returns the encrypted API key directly" do
-        wrapper = described_class.new(encrypted_api_key: encrypted_key)
-        expect(wrapper.encrypted_api_key).to eq(encrypted_key)
+        subject = described_class.new(encrypted_api_key: encrypted_key)
+        expect(subject.encrypted_api_key).to eq(encrypted_key)
       end
 
       it "does not call encrypter because encrypted_key is already set" do
-        wrapper = described_class.new(encrypted_api_key: encrypted_key)
+        subject = described_class.new(encrypted_api_key: encrypted_key)
         expect(encrypter).not_to receive(:encrypt)
-        wrapper.encrypted_api_key
+        subject.encrypted_api_key
       end
     end
 
     context "when initialized with plain_api_key" do
       it "encrypts and returns the encrypted API key" do
         allow(encrypter).to receive(:encrypt).with(plain_key).and_return(encrypted_key)
-        wrapper = described_class.new(plain_api_key: plain_key)
-        expect(wrapper.encrypted_api_key).to eq(encrypted_key)
+        subject = described_class.new(plain_api_key: plain_key)
+        expect(subject.encrypted_api_key).to eq(encrypted_key)
       end
     end
   end
@@ -110,40 +110,40 @@ RSpec.describe EncryptableApiKey do
   describe "#inspect" do
     context "to prevent API key leakage in logs" do
       it "redacts plain_api_key when initialized with plain_api_key" do
-        wrapper = described_class.new(plain_api_key: plain_key)
-        inspect_result = wrapper.inspect
+        subject = described_class.new(plain_api_key: plain_key)
+        inspect_result = subject.inspect
 
         expect(inspect_result).to include("[REDACTED]")
         expect(inspect_result).not_to include(plain_key)
       end
 
       it "redacts encrypted_api_key when initialized with encrypted_api_key" do
-        wrapper = described_class.new(encrypted_api_key: encrypted_key)
-        inspect_result = wrapper.inspect
+        subject = described_class.new(encrypted_api_key: encrypted_key)
+        inspect_result = subject.inspect
 
         expect(inspect_result).to include("[REDACTED]")
         expect(inspect_result).not_to include(encrypted_key)
       end
 
       it "returns a consistent format" do
-        wrapper = described_class.new(plain_api_key: plain_key)
-        expect(wrapper.inspect).to eq('#<EncryptableApiKey plain_api_key="[REDACTED]" encrypted_api_key="[REDACTED]">')
+        subject = described_class.new(plain_api_key: plain_key)
+        expect(subject.inspect).to eq('#<EncryptableApiKey plain_api_key="[REDACTED]" encrypted_api_key="[REDACTED]">')
       end
     end
   end
 
   describe "security considerations" do
     it "does not expose plain API key in error messages" do
-      wrapper = described_class.new(plain_api_key: plain_key)
+      subject = described_class.new(plain_api_key: plain_key)
 
       # When an exception occurs, inspect should not reveal the actual key
-      expect(wrapper.to_s).not_to include(plain_key)
+      expect(subject.to_s).not_to include(plain_key)
     end
 
     it "does not expose encrypted API key in error messages" do
-      wrapper = described_class.new(encrypted_api_key: encrypted_key)
+      subject = described_class.new(encrypted_api_key: encrypted_key)
 
-      expect(wrapper.to_s).not_to include(encrypted_key)
+      expect(subject.to_s).not_to include(encrypted_key)
     end
   end
 end
