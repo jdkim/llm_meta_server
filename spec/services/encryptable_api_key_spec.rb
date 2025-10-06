@@ -12,22 +12,6 @@ RSpec.describe EncryptableApiKey do
   end
 
   describe "#initialize" do
-    context "when both plain_api_key and encrypted_api_key are specified" do
-      it "raises ArgumentError" do
-        expect {
-          described_class.new(plain_api_key: plain_key, encrypted_api_key: encrypted_key)
-        }.to raise_error(ArgumentError, "Specify either plain_api_key or encrypted_api_key")
-      end
-    end
-
-    context "when neither plain_api_key nor encrypted_api_key is specified" do
-      it "raises ArgumentError" do
-        expect {
-          described_class.new
-        }.to raise_error(ArgumentError, "Either plain_api_key or encrypted_api_key must be specified")
-      end
-    end
-
     context "when only plain_api_key is specified" do
       it "does not raise an error" do
         expect {
@@ -41,6 +25,22 @@ RSpec.describe EncryptableApiKey do
         expect {
           described_class.new(encrypted_api_key: encrypted_key)
         }.not_to raise_error
+      end
+    end
+
+    context "when both plain_api_key and encrypted_api_key are specified" do
+      it "raises ArgumentError" do
+        expect {
+          described_class.new(plain_api_key: plain_key, encrypted_api_key: encrypted_key)
+        }.to raise_error(ArgumentError, "Specify either plain_api_key or encrypted_api_key")
+      end
+    end
+
+    context "when neither plain_api_key nor encrypted_api_key is specified" do
+      it "raises ArgumentError" do
+        expect {
+          described_class.new
+        }.to raise_error(ArgumentError, "Either plain_api_key or encrypted_api_key must be specified")
       end
     end
   end
