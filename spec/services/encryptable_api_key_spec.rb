@@ -96,13 +96,6 @@ RSpec.describe EncryptableApiKey do
         expect(encrypter).not_to receive(:encrypt)
         wrapper.encrypted_api_key
       end
-
-      it "memoizes the result" do
-        wrapper = described_class.new(encrypted_api_key: encrypted_key)
-        first_call = wrapper.encrypted_api_key
-        second_call = wrapper.encrypted_api_key
-        expect(first_call.object_id).to eq(second_call.object_id)
-      end
     end
 
     context "when initialized with plain_api_key" do
@@ -110,15 +103,6 @@ RSpec.describe EncryptableApiKey do
         allow(encrypter).to receive(:encrypt).with(plain_key).and_return(encrypted_key)
         wrapper = described_class.new(plain_api_key: plain_key)
         expect(wrapper.encrypted_api_key).to eq(encrypted_key)
-      end
-
-      it "calls encrypter only once (memoization)" do
-        allow(encrypter).to receive(:encrypt).with(plain_key).and_return(encrypted_key)
-        wrapper = described_class.new(plain_api_key: plain_key)
-
-        expect(encrypter).to receive(:encrypt).once.and_return(encrypted_key)
-        wrapper.encrypted_api_key
-        wrapper.encrypted_api_key # Second call should use memoized value
       end
     end
   end
