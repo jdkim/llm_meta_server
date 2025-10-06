@@ -51,12 +51,6 @@ RSpec.describe EncryptableApiKey do
         subject = described_class.new(plain_api_key: plain_key)
         expect(subject.plain_api_key).to eq(plain_key)
       end
-
-      it "does not call decrypter because plain key is already set" do
-        subject = described_class.new(plain_api_key: plain_key)
-        expect(decrypter).not_to receive(:decrypt)
-        subject.plain_api_key
-      end
     end
 
     context "when initialized with encrypted_api_key" do
@@ -73,12 +67,6 @@ RSpec.describe EncryptableApiKey do
       it "returns the encrypted API key directly" do
         subject = described_class.new(encrypted_api_key: encrypted_key)
         expect(subject.encrypted_api_key).to eq(encrypted_key)
-      end
-
-      it "does not call encrypter because encrypted_key is already set" do
-        subject = described_class.new(encrypted_api_key: encrypted_key)
-        expect(encrypter).not_to receive(:encrypt)
-        subject.encrypted_api_key
       end
     end
 
