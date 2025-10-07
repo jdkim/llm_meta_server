@@ -12,4 +12,11 @@ class User < ApplicationRecord
       user.google_id = auth.uid
     end
   end
+
+  def retrieve_key(uuid)
+    llm_api_key = llm_api_keys.find_by(uuid: uuid)
+    return nil unless llm_api_key
+
+    EncryptableApiKey.new(encrypted_api_key: llm_api_key.encrypted_api_key).decrypt
+  end
 end
