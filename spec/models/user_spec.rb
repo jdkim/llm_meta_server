@@ -44,4 +44,26 @@ RSpec.describe User, type: :model do
       end
     end
   end
+
+  describe '#retrieve_key' do
+    let(:params) { { email: "test@example.com", google_id: 1 } }
+    let(:llm_api_key) { double("LlmApiKey", uuid: "uuid123", encrypted_api_key: "encrypted_value") }
+    let(:decrypted_value) { "decrypted_api_key" }
+
+    before do
+      allow(user.llm_api_keys).to receive(:find_by).with(uuid: 'uuid123').and_return(llm_api_key)
+      encryptable_api_key_instance = double('EncryptableApiKey')
+      allow(EncryptableApiKey).to receive(:new).with(encrypted_api_key: 'encrypted_value').and_return(encryptable_api_key_instance)
+      allow(encryptable_api_key_instance).to receive(:decrypt).and_return(decrypted_value)
+    end
+
+    it 'returns decrypted api key when key exists' do
+      expect(user.retrieve_key('uuid123')).to eq(decrypted_value)
+    end
+
+    it 'returns nil when key does not exist' do
+      allow(user.llm_api_keys).to receive(:find_by).with(uuid: 'not_found').and_return(nil)
+      expect(user.retrieve_key('not_found')).to be_nil
+    end
+  end
 end
