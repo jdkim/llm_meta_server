@@ -17,6 +17,6 @@ class User < ApplicationRecord
     llm_api_key = llm_api_keys.find_by(uuid: uuid)
     return nil unless llm_api_key
 
-    EncryptableApiKey.new(encrypted_api_key: llm_api_key.encrypted_api_key).decrypt
+    llm_api_key.encryptable_api_key
   end
 end

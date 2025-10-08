@@ -54,11 +54,12 @@ RSpec.describe User, type: :model do
       allow(user.llm_api_keys).to receive(:find_by).with(uuid: 'uuid123').and_return(llm_api_key)
       encryptable_api_key_instance = double('EncryptableApiKey')
       allow(EncryptableApiKey).to receive(:new).with(encrypted_api_key: 'encrypted_value').and_return(encryptable_api_key_instance)
-      allow(encryptable_api_key_instance).to receive(:decrypt).and_return(decrypted_value)
+      allow(encryptable_api_key_instance).to receive(:plain_api_key).and_return(decrypted_value)
+      allow(llm_api_key).to receive(:encryptable_api_key).and_return(encryptable_api_key_instance)
     end
 
     it 'returns decrypted api key when key exists' do
-      expect(user.key_for('uuid123')).to eq(decrypted_value)
+      expect(user.key_for('uuid123').plain_api_key).to eq(decrypted_value)
     end
 
     it 'returns nil when key does not exist' do
