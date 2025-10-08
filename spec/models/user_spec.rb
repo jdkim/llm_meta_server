@@ -58,12 +58,12 @@ RSpec.describe User, type: :model do
     end
 
     it 'returns decrypted api key when key exists' do
-      expect(user.retrieve_key('uuid123')).to eq(decrypted_value)
+      expect(user.key_for('uuid123')).to eq(decrypted_value)
     end
 
     it 'returns nil when key does not exist' do
       allow(user.llm_api_keys).to receive(:find_by).with(uuid: 'not_found').and_return(nil)
-      expect(user.retrieve_key('not_found')).to be_nil
+      expect(user.key_for('not_found')).to be_nil
     end
   end
 end
