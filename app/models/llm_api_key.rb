@@ -15,7 +15,6 @@ class LlmApiKey < ApplicationRecord
 
   def encryptable_api_key=(encryptable_api_key)
     self.encrypted_api_key = encryptable_api_key.encrypted_api_key
-    self.api_key = nil
   end
 
   private
@@ -26,5 +25,6 @@ class LlmApiKey < ApplicationRecord
 
   def set_plain_api_key
     self.encryptable_api_key = EncryptableApiKey.new(plain_api_key: api_key) if api_key.present?
+    self.api_key = nil
   end
 end
