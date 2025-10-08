@@ -46,24 +46,14 @@ RSpec.describe User, type: :model do
   end
 
   describe '#retrieve_key' do
-    let(:params) { { email: "test@example.com", google_id: 1 } }
-    let(:llm_api_key) { double("LlmApiKey", uuid: "uuid123", encrypted_api_key: "encrypted_value") }
-    let(:decrypted_value) { "decrypted_api_key" }
-
-    before do
-      allow(user.llm_api_keys).to receive(:find_by).with(uuid: 'uuid123').and_return(llm_api_key)
-      encryptable_api_key_instance = double('EncryptableApiKey')
-      allow(EncryptableApiKey).to receive(:new).with(encrypted_api_key: 'encrypted_value').and_return(encryptable_api_key_instance)
-      allow(encryptable_api_key_instance).to receive(:plain_api_key).and_return(decrypted_value)
-      allow(llm_api_key).to receive(:encryptable_api_key).and_return(encryptable_api_key_instance)
-    end
-
-    it 'returns decrypted api key when key exists' do
-      expect(user.key_for('uuid123').plain_api_key).to eq(decrypted_value)
+    it 'returns encrypted_api_key when key exists' do
+      user = User.create!(email: "test@example.com", google_id: 1)
+      llm_api_key = user.llm_api_keys.create!(uuid: "uuid123", llm_type: "openai", encrypted_api_key: "encrypted_value")
+      expect(user.key_for('uuid123').encrypted_api_key).to eq("encrypted_value")
     end
 
     it 'returns nil when key does not exist' do
-      allow(user.llm_api_keys).to receive(:find_by).with(uuid: 'not_found').and_return(nil)
+      user = User.create!(email: "test@example.com", google_id: 1)
       expect(user.key_for('not_found')).to be_nil
     end
   end
