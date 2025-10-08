@@ -7,10 +7,15 @@ class LlmApiKey < ApplicationRecord
 
   attr_accessor :api_key
 
-  before_validation :set_uuid, :encrypt_api_key
+  before_validation :set_uuid, :set_plain_api_key
 
   def encryptable_api_key
     EncryptableApiKey.new(encrypted_api_key: encrypted_api_key)
+  end
+
+  def encryptable_api_key=(encryptable_api_key)
+    self.encrypted_api_key = encryptable_api_key.encrypted_api_key
+    self.api_key = nil
   end
 
   private
@@ -19,8 +24,7 @@ class LlmApiKey < ApplicationRecord
     self.uuid ||= SecureRandom.uuid
   end
 
-  def encrypt_api_key
-    self.encrypted_api_key = ApiKeyEncrypter.new.encrypt(api_key) if api_key.present?
-    self.api_key = nil
+  def set_plain_api_key
+    self.encryptable_api_key = EncryptableApiKey.new(plain_api_key: api_key) if api_key.present?
   end
 end
