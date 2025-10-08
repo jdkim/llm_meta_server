@@ -44,4 +44,17 @@ RSpec.describe User, type: :model do
       end
     end
   end
+
+  describe '#retrieve_key' do
+    it 'returns encrypted_api_key when key exists' do
+      user = User.create!(email: "test@example.com", google_id: 1)
+      user.llm_api_keys.create!(uuid: "uuid123", llm_type: "openai", encrypted_api_key: "encrypted_value")
+      expect(user.key_for('uuid123').encrypted_api_key).to eq("encrypted_value")
+    end
+
+    it 'returns nil when key does not exist' do
+      user = User.create!(email: "test@example.com", google_id: 1)
+      expect(user.key_for('not_found')).to be_nil
+    end
+  end
 end

@@ -103,4 +103,28 @@ RSpec.describe LlmApiKey, type: :model do
       }
     end
   end
+
+  describe '#encryptable_api_key' do
+    subject { llm_api_key.encryptable_api_key }
+
+    let(:params) {
+      {
+        llm_type: "openai",
+        api_key: plain_api_key,
+        user: user
+      }
+    }
+
+    let(:encryptable_api_key_instance) { instance_double(EncryptableApiKey) }
+
+    before do
+      llm_api_key.save! # Save first to trigger encryption
+      allow(EncryptableApiKey).to receive(:new).with(encrypted_api_key: base64_ciphertext)
+                                        .and_return(encryptable_api_key_instance)
+    end
+
+    it {
+      is_expected.to eq(encryptable_api_key_instance)
+    }
+  end
 end
