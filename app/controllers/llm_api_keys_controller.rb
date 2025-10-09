@@ -64,7 +64,6 @@ class LlmApiKeysController < ApplicationController
   def build_llm_api_key_attributes_for_update
     ps = llm_api_key_params
     {
-      llm_type: llm_api_key.llm_type, # llm_type cannot be changed during update
       encryptable_api_key: ps[:api_key].present? ?
                              EncryptableApiKey.new(plain_api_key: ps[:api_key]) :
                              llm_api_key.encryptable_api_key,
