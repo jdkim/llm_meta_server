@@ -73,9 +73,8 @@ class LlmApiKeysController < ApplicationController
       attributes[:encryptable_api_key] = EncryptableApiKey.new(plain_api_key: ps[:api_key])
     end
 
-    if ps[:description].present?
-      attributes[:description] = ps[:description]
-    end
+    # Allow description to be updated with empty value
+    attributes[:description] = ps[:description]
 
     attributes
   end
