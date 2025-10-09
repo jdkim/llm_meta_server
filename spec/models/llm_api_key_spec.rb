@@ -5,11 +5,11 @@ RSpec.describe LlmApiKey, type: :model do
   let(:base64_ciphertext) { "dummy_base64_encoded_encrypted_api_key" }
   let(:user) { User.create!(email: "test@example.com", google_id: 1) }
   let(:llm_api_key) { LlmApiKey.new(params) }
-  let(:encryptable_api_key_instance_A) { instance_double(EncryptableApiKey, encrypted_api_key: base64_ciphertext) }
+  let(:encryptable_api_key_A) { instance_double(EncryptableApiKey, encrypted_api_key: base64_ciphertext) }
 
   before do
     allow(EncryptableApiKey).to receive(:new).with(plain_api_key: plain_api_key)
-                                             .and_return(encryptable_api_key_instance_A)
+                                             .and_return(encryptable_api_key_A)
   end
 
   describe '#valid?' do
@@ -19,7 +19,7 @@ RSpec.describe LlmApiKey, type: :model do
       let(:params) {
         {
           llm_type: "openai",
-          encryptable_api_key: encryptable_api_key_instance_A,
+          encryptable_api_key: encryptable_api_key_A,
           user: user
         }
       }
@@ -50,7 +50,7 @@ RSpec.describe LlmApiKey, type: :model do
       let(:params) {
         {
           llm_type: "openai",
-          encryptable_api_key: encryptable_api_key_instance_A,
+          encryptable_api_key: encryptable_api_key_A,
           user: user
         }
       }
@@ -80,7 +80,7 @@ RSpec.describe LlmApiKey, type: :model do
       let(:params) {
         {
           llm_type: "openai",
-          encryptable_api_key: encryptable_api_key_instance_A,
+          encryptable_api_key: encryptable_api_key_A,
           user: user
         }
       }
@@ -103,21 +103,21 @@ RSpec.describe LlmApiKey, type: :model do
     let(:params) {
       {
         llm_type: "openai",
-        encryptable_api_key: encryptable_api_key_instance_A,
+        encryptable_api_key: encryptable_api_key_A,
         user: user
       }
     }
 
-    let(:encryptable_api_key_instance_B) { instance_double(EncryptableApiKey) }
+    let(:encryptable_api_key_B) { instance_double(EncryptableApiKey) }
 
     before do
       llm_api_key.save! # Save first to trigger encryption
       allow(EncryptableApiKey).to receive(:new).with(encrypted_api_key: base64_ciphertext)
-                                        .and_return(encryptable_api_key_instance_B)
+                                        .and_return(encryptable_api_key_B)
     end
 
     it {
-      is_expected.to eq(encryptable_api_key_instance_B)
+      is_expected.to eq(encryptable_api_key_B)
     }
   end
 end
