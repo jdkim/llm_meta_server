@@ -8,17 +8,19 @@ class LlmApiKeysController < ApplicationController
 
   # POST /user/:user_id/llm_api_keys
   def create
-    current_user.llm_api_keys.create!(llm_api_key_params)
+    current_user.llm_api_keys.create!(build_llm_api_key_attributes_for_create)
     redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter LLM type and API key"
+  rescue ArgumentError => e
+    redirect_to user_llm_api_keys_path, alert: e.message
   rescue ActiveRecord::RecordInvalid => e
     redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to add API key: #{e.message}"
   end
 
   # PATCH/PUT /user/:user_id/llm_api_keys/:id
   def update
-    llm_api_key.update!(llm_api_key_params)
+    llm_api_key.update!(build_llm_api_key_attributes_for_update)
     redirect_to user_llm_api_keys_path, update_message_for(llm_api_key)
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter API key or description"
@@ -50,6 +52,31 @@ class LlmApiKeysController < ApplicationController
 
   def llm_api_key_params
     params.expect(llm_api_key: [ :llm_type, :api_key, :description ])
+  end
+
+  def build_llm_api_key_attributes_for_create
+    ps = llm_api_key_params
+    raise ArgumentError, "API Key can't blank." if ps[:api_key].blank?
+
+    {
+      llm_type: ps[:llm_type],
+      encryptable_api_key: EncryptableApiKey.new(plain_api_key: ps[:api_key]),
+      description: ps[:description]
+    }
+  end
+
+  def build_llm_api_key_attributes_for_update
+    ps = llm_api_key_params
+    attributes = {}
+
+    if ps[:api_key].present?
+      attributes[:encryptable_api_key] = EncryptableApiKey.new(plain_api_key: ps[:api_key])
+    end
+
+    # Allow description to be updated with empty value
+    attributes[:description] = ps[:description]
+
+    attributes
   end
 
   def llm_api_key
