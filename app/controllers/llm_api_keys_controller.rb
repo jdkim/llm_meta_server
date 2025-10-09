@@ -56,9 +56,7 @@ class LlmApiKeysController < ApplicationController
     ps = llm_api_key_params
     {
       llm_type: ps[:llm_type],
-      encryptable_api_key: ps[:api_key].present? ?
-                             EncryptableApiKey.new(plain_api_key: ps[:api_key]) :
-                             llm_api_key.encryptable_api_key,
+      encryptable_api_key: EncryptableApiKey.new(plain_api_key: ps[:api_key]),
       description: ps[:description]
     }
   end
