@@ -2,15 +2,14 @@ require 'rails_helper'
 
 RSpec.describe LlmApiKey, type: :model do
   let(:plain_api_key) { "plain_text_key_example" }
-  let(:api_key_encrypter) { instance_double(ApiKeyEncrypter) }
   let(:base64_ciphertext) { "dummy_base64_encoded_encrypted_api_key" }
   let(:user) { User.create!(email: "test@example.com", google_id: 1) }
   let(:llm_api_key) { LlmApiKey.new(params) }
+  let(:encryptable_api_key_instance_A) { instance_double(EncryptableApiKey, encrypted_api_key: base64_ciphertext) }
 
   before do
-    allow(ApiKeyEncrypter).to receive(:new).and_return(api_key_encrypter)
-    allow(api_key_encrypter).to receive(:encrypt).with(plain_api_key)
-                                          .and_return(base64_ciphertext)
+    allow(EncryptableApiKey).to receive(:new).with(plain_api_key: plain_api_key)
+                                             .and_return(encryptable_api_key_instance_A)
   end
 
   describe '#valid?' do
@@ -20,7 +19,7 @@ RSpec.describe LlmApiKey, type: :model do
       let(:params) {
         {
           llm_type: "openai",
-          api_key: plain_api_key,
+          encryptable_api_key: encryptable_api_key_instance_A,
           user: user
         }
       }
@@ -47,22 +46,24 @@ RSpec.describe LlmApiKey, type: :model do
   describe '#update' do
     subject { llm_api_key }
 
-    context 'when updating with api_key, encrypted_api_key is updated and api_key is not retained' do
+    context 'when updating with encryptable_api_key, encrypted_api_key is updated' do
       let(:params) {
         {
           llm_type: "openai",
-          api_key: plain_api_key,
+          encryptable_api_key: encryptable_api_key_instance_A,
           user: user
         }
       }
 
       let(:new_plain_api_key) { "new_plain_text_key_example" }
       let(:new_base64_ciphertext) { "new_dummy_base64_encoded_encrypted_api_key" }
+      let(:new_encryptable_api_key) { instance_double(EncryptableApiKey, encrypted_api_key: new_base64_ciphertext) }
 
       before do
-        allow(api_key_encrypter).to receive(:encrypt).with(new_plain_api_key)
-                                              .and_return(new_base64_ciphertext)
-        llm_api_key.update!(api_key: new_plain_api_key)
+        allow(EncryptableApiKey).to receive(:new).with(plain_api_key: new_plain_api_key)
+                                              .and_return(new_encryptable_api_key)
+        llm_api_key.save!
+        llm_api_key.update!(encryptable_api_key: new_encryptable_api_key)
       end
 
       it {
@@ -72,35 +73,27 @@ RSpec.describe LlmApiKey, type: :model do
                          llm_type: "openai",
                          encrypted_api_key: new_base64_ciphertext
                        )
-        expect(llm_api_key.api_key).to be_nil
       }
     end
 
-    context 'when updating empty api_key, encrypted_api_key remains unchanged' do
+    context 'when updating with nil encryptable_api_key, raises an error' do
       let(:params) {
         {
           llm_type: "openai",
-          api_key: plain_api_key,
+          encryptable_api_key: encryptable_api_key_instance_A,
           user: user
         }
       }
 
-      let(:new_plain_api_key) { "" }
-
       before do
-        llm_api_key.save! # Save first
-        llm_api_key.update!(api_key: new_plain_api_key)
+        llm_api_key.save!
       end
 
-      it {
-        is_expected.to have_attributes(
-                         user: user,
-                         uuid: kind_of(String),
-                         llm_type: "openai",
-                         encrypted_api_key: base64_ciphertext
-                       )
-        expect(llm_api_key.api_key).to be_nil
-      }
+      it 'raises an ArgumentError' do
+        expect {
+          llm_api_key.encryptable_api_key = nil
+        }.to raise_error(ArgumentError, "encryptable_api_key cannot be nil")
+      end
     end
   end
 
@@ -110,21 +103,21 @@ RSpec.describe LlmApiKey, type: :model do
     let(:params) {
       {
         llm_type: "openai",
-        api_key: plain_api_key,
+        encryptable_api_key: encryptable_api_key_instance_A,
         user: user
       }
     }
 
-    let(:encryptable_api_key_instance) { instance_double(EncryptableApiKey) }
+    let(:encryptable_api_key_instance_B) { instance_double(EncryptableApiKey) }
 
     before do
       llm_api_key.save! # Save first to trigger encryption
       allow(EncryptableApiKey).to receive(:new).with(encrypted_api_key: base64_ciphertext)
-                                        .and_return(encryptable_api_key_instance)
+                                        .and_return(encryptable_api_key_instance_B)
     end
 
     it {
-      is_expected.to eq(encryptable_api_key_instance)
+      is_expected.to eq(encryptable_api_key_instance_B)
     }
   end
 end

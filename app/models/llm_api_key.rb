@@ -12,6 +12,8 @@ class LlmApiKey < ApplicationRecord
   end
 
   def encryptable_api_key=(encryptable_api_key)
+    raise ArgumentError, "encryptable_api_key cannot be nil" if encryptable_api_key.nil?
+
     self.encrypted_api_key = encryptable_api_key.encrypted_api_key
   end
 
