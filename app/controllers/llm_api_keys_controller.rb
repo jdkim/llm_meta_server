@@ -8,7 +8,7 @@ class LlmApiKeysController < ApplicationController
 
   # POST /user/:user_id/llm_api_keys
   def create
-    current_user.llm_api_keys.create!(build_llm_api_key_attributes)
+    current_user.llm_api_keys.create!(build_llm_api_key_attributes_for_create)
     redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter LLM type and API key"
@@ -18,7 +18,7 @@ class LlmApiKeysController < ApplicationController
 
   # PATCH/PUT /user/:user_id/llm_api_keys/:id
   def update
-    llm_api_key.update!(build_llm_api_key_attributes)
+    llm_api_key.update!(build_llm_api_key_attributes_for_update)
     redirect_to user_llm_api_keys_path, update_message_for(llm_api_key)
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter API key or description"
@@ -52,10 +52,21 @@ class LlmApiKeysController < ApplicationController
     params.expect(llm_api_key: [ :llm_type, :api_key, :description ])
   end
 
-  def build_llm_api_key_attributes
+  def build_llm_api_key_attributes_for_create
     ps = llm_api_key_params
     {
-      llm_type: ps[:llm_type] || llm_api_key.llm_type, # llm_type cannot be changed during update
+      llm_type: ps[:llm_type],
+      encryptable_api_key: ps[:api_key].present? ?
+                             EncryptableApiKey.new(plain_api_key: ps[:api_key]) :
+                             llm_api_key.encryptable_api_key,
+      description: ps[:description]
+    }
+  end
+
+  def build_llm_api_key_attributes_for_update
+    ps = llm_api_key_params
+    {
+      llm_type: llm_api_key.llm_type, # llm_type cannot be changed during update
       encryptable_api_key: ps[:api_key].present? ?
                              EncryptableApiKey.new(plain_api_key: ps[:api_key]) :
                              llm_api_key.encryptable_api_key,
