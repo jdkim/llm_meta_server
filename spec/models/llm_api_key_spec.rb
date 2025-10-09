@@ -112,6 +112,8 @@ RSpec.describe LlmApiKey, type: :model do
 
     before do
       llm_api_key.save! # Save first to trigger encryption
+      # Clear the memoized @encryptable_api_key to allow re-instantiation
+      llm_api_key.instance_variable_set(:@encryptable_api_key, nil)
       allow(EncryptableApiKey).to receive(:new).with(encrypted_api_key: base64_ciphertext)
                                         .and_return(encryptable_api_key_B)
     end
