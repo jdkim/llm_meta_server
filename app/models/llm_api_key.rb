@@ -5,9 +5,7 @@ class LlmApiKey < ApplicationRecord
   validates :llm_type, presence: true
   validates :description, length: { maximum: 255 }, allow_blank: true
 
-  attr_accessor :api_key
-
-  before_validation :set_uuid, :set_plain_api_key
+  before_validation :set_uuid
 
   def encryptable_api_key
     EncryptableApiKey.new(encrypted_api_key: encrypted_api_key)
@@ -21,10 +19,5 @@ class LlmApiKey < ApplicationRecord
 
   def set_uuid
     self.uuid ||= SecureRandom.uuid
-  end
-
-  def set_plain_api_key
-    self.encryptable_api_key = EncryptableApiKey.new(plain_api_key: api_key) if api_key.present?
-    self.api_key = nil
   end
 end
