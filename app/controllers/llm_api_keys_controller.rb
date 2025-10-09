@@ -67,12 +67,17 @@ class LlmApiKeysController < ApplicationController
 
   def build_llm_api_key_attributes_for_update
     ps = llm_api_key_params
-    {
-      encryptable_api_key: ps[:api_key].present? ?
-                             EncryptableApiKey.new(plain_api_key: ps[:api_key]) :
-                             llm_api_key.encryptable_api_key,
-      description: ps[:description]
-    }
+    attributes = {}
+
+    if ps[:api_key].present?
+      attributes[:encryptable_api_key] = EncryptableApiKey.new(plain_api_key: ps[:api_key])
+    end
+
+    if ps[:description].present?
+      attributes[:description] = ps[:description]
+    end
+
+    attributes
   end
 
   def llm_api_key
