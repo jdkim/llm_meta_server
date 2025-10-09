@@ -12,6 +12,8 @@ class LlmApiKeysController < ApplicationController
     redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter LLM type and API key"
+  rescue ArgumentError => e
+    redirect_to user_llm_api_keys_path, alert: e.message
   rescue ActiveRecord::RecordInvalid => e
     redirect_to user_llm_api_keys_path, method: :get, alert: "Failed to add API key: #{e.message}"
   end
@@ -54,6 +56,8 @@ class LlmApiKeysController < ApplicationController
 
   def build_llm_api_key_attributes_for_create
     ps = llm_api_key_params
+    raise ArgumentError, "API Key can't blank." if ps[:api_key].blank?
+
     {
       llm_type: ps[:llm_type],
       encryptable_api_key: EncryptableApiKey.new(plain_api_key: ps[:api_key]),
