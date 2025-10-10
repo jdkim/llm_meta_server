@@ -8,7 +8,7 @@ class LlmApiKey < ApplicationRecord
   before_validation :set_uuid
   before_validation :initialize_encryptable_api_key
 
-  STRATEGIES = {
+  LLM_SERVICES = {
     "ollama" => :ollama,
     "openai" => :openai,
     "anthropic" => :anthropic,
@@ -27,7 +27,7 @@ class LlmApiKey < ApplicationRecord
   end
 
   def build_llm
-    llm_method = STRATEGIES.fetch self.llm_type.downcase do
+    llm_method = LLM_SERVICES.fetch self.llm_type.downcase do
       raise NotSupportedLlmError, self.llm_type
     end
 
