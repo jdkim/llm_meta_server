@@ -26,7 +26,7 @@ class LlmApiKey < ApplicationRecord
     self.encrypted_api_key = encryptable_api_key.encrypted_api_key
   end
 
-  def select_llm
+  def llm_rb_method
     LLM_SERVICES.fetch self.llm_type.downcase do
       raise NotSupportedLlmError, self.llm_type
     end

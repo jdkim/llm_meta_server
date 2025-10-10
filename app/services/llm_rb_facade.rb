@@ -10,14 +10,14 @@ class LlmRbFacade
     private
 
     def create_llm_client(llm_api_key)
-      llm_method = llm_api_key.select_llm
+      llm_rb_method = llm_api_key.llm_rb_method
 
       # public_send dynamically invokes a public method on an object
       # Example: LLM.public_send(:openai, key: "xxx") is equivalent to LLM.openai(key: "xxx")
       # Unlike send, public_send cannot call private methods (safer)
       # Here, it calls one of :ollama, :openai, :anthropic, or :gemini based on llm_type
       # This eliminates the need for separate files for each LLM service
-      LLM.public_send llm_method, key: llm_api_key.encryptable_api_key.plain_api_key
+      LLM.public_send llm_rb_method, key: llm_api_key.encryptable_api_key.plain_api_key
     end
 
     def find_model_id(llm, model_name)
