@@ -1,4 +1,4 @@
-class LlmAdapter
+class LlmRbFacade
   class << self
     def call(llm_api_key, model_name, prompt)
       llm = llm_api_key.build_llm
