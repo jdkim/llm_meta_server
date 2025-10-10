@@ -45,7 +45,7 @@ class LlmApiKey < ApplicationRecord
   def llm_type_must_be_supported
     return if llm_type.blank?
 
-    unless LLM_SERVICES.keys.include?(llm_type.downcase)
+    unless LLM_SERVICES.keys.include?(llm_type)
       errors.add(:llm_type, "#{llm_type} is not a supported LLM type")
     end
   end
