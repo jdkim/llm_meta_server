@@ -10,7 +10,7 @@ class LlmAdapter
 
   class << self
     def call(llm_type, encryptable_api_key, model_name, prompt)
-      llm = build_llm llm_type.lowercase, encryptable_api_key
+      llm = build_llm llm_type.downcase, encryptable_api_key
       model_id = find_model_id llm, model_name
 
       execute_chat llm, model_id, prompt
@@ -19,15 +19,16 @@ class LlmAdapter
     private
 
     def find_model_id(llm, model_name)
-      model = llm.models.all.find { |m| m.id == model_name }
+      model = llm.models.all.find { _1.id == model_name }
       raise ModelNotFoundError, model_name unless model
 
       model.id
     end
 
     def build_llm(llm_type, encryptable_api_key)
-      llm_method = STRATEGIES[llm_type]
-      raise NotSupportedLlmError, llm_type unless llm_method
+      llm_method = STRATEGIES.fetch llm_type do
+        raise NotSupportedLlmError, llm_type
+      end
 
       # public_send dynamically invokes a public method on an object
       # Example: LLM.public_send(:openai, key: "xxx") is equivalent to LLM.openai(key: "xxx")
@@ -39,9 +40,9 @@ class LlmAdapter
 
     def execute_chat(llm, model_id, prompt)
       bot = LLM::Bot.new llm, model: model_id
-      messages = bot.chat { |p| p.user prompt }
+      messages = bot.chat { _1.user prompt }
 
-      messages.map { _1.content }.join("\n")
+      messages.map { _1.content }.join "\n"
     end
   end
 end
