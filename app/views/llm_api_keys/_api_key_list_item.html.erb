@@ -7,7 +7,7 @@
   <div class="flex-1">
     <div class="flex items-center space-x-3 mb-2">
       <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-black text-white">
-        <%= api_key.llm_type %>
+        <%= api_key.llm_type.capitalize.gsub("Openai", "OpenAI") %>
       </span>
       <% if api_key.description.present? %>
         <span class="text-sm text-gray-600"><%= api_key.description %></span>
