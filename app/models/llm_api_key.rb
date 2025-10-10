@@ -1,5 +1,3 @@
-require "llm"
-
 class LlmApiKey < ApplicationRecord
   belongs_to :user
 

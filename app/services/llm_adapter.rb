@@ -1,5 +1,3 @@
-require "llm"
-
 class LlmAdapter
   class << self
     def call(llm_api_key, model_name, prompt)
