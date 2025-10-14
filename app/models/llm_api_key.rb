@@ -36,7 +36,7 @@ class LlmApiKey < ApplicationRecord
   end
 
   def self.llm_types_for_select
-    LLM_SERVICES.keys.map { |type| [type.capitalize.gsub("Openai", "OpenAI"), type] }
+    LLM_SERVICES.keys.map { |type| [ type.capitalize.gsub("Openai", "OpenAI"), type ] }
   end
 
   private
