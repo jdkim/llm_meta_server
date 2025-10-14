@@ -4,6 +4,23 @@ class LlmApiKeysController < ApplicationController
   # GET /user/:user_id/llm_api_keys
   def index
     @llm_api_keys = current_user.llm_api_keys
+
+    respond_to do |format|
+      format.html
+      format.json do
+        render json: {
+          llms: @llm_api_keys.map { |api_key|
+            {
+              uuid: api_key.uuid,
+              llm_type: api_key.llm_type,
+              description: api_key.description,
+              created_at: api_key.created_at,
+              updated_at: api_key.updated_at
+            }
+          }
+        }
+      end
+    end
   end
 
   # POST /user/:user_id/llm_api_keys
