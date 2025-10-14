@@ -9,7 +9,7 @@ class LlmApiKeysController < ApplicationController
       format.html
       format.json do
         render json: {
-          llms: @llm_api_keys.map { |api_key|
+          llm_api_keys: @llm_api_keys.map { |api_key|
             {
               uuid: api_key.uuid,
               llm_type: api_key.llm_type,
