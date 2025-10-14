@@ -31,6 +31,14 @@ class LlmApiKey < ApplicationRecord
     LLM_SERVICES[self.llm_type.downcase]
   end
 
+  def llm_type_for_display
+    self[:llm_type].capitalize.gsub("Openai", "OpenAI")
+  end
+
+  def self.llm_types_for_select
+    LLM_SERVICES.keys.map { |type| [ type.capitalize.gsub("Openai", "OpenAI"), type ] }
+  end
+
   private
 
   def set_uuid
