@@ -8,7 +8,7 @@ class ApiController < ActionController::API
   private
 
   def record_not_found(exception)
-    render json: { error: "Record not found", message: exception.message }, status: :not_found
+    render json: { error: "Record not found", message: exception.message }, status: :unauthorized
   end
 
   def invalid_token(exception)
