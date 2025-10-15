@@ -7,7 +7,7 @@ class TokenAuthenticationController < ApiController
     jwt_payload = decode_jwt params[:token]
     user = User.find_by!(google_id: jwt_payload["google_id"])
 
-    handle_action jwt_payload["action"], user
+    render_llm_api_keys user
   end
 
   private
@@ -19,15 +19,6 @@ class TokenAuthenticationController < ApiController
       true,
       algorithm: JWT_ALGORITHM
     ).first
-  end
-
-  def handle_action(action, user)
-    case action
-    when "llm_api_keys"
-      render_llm_api_keys user
-    else
-      render json: { error: "Invalid redirect destination" }, status: :bad_request
-    end
   end
 
   def render_llm_api_keys(user)
