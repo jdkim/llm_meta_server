@@ -25,7 +25,7 @@ Rails.application.routes.draw do
     resources :llm_api_keys, only: [ :index, :create, :update, :destroy ]
   end
 
-  post "internal_jwt/handle_jwt", to: "internal_jwt#handle_jwt"
+  post "auth/token", to: "token_authentication#create"
 
   # Defines the root path route ("/")
   root "home#index"

@@ -1,13 +1,13 @@
-class InternalJwtController < ApplicationController
-  skip_before_action :verify_authenticity_token, only: [ :handle_jwt ]
-  skip_before_action :authenticate_user!, only: [ :handle_jwt ]
+class TokenAuthenticationController < ApplicationController
+  skip_before_action :verify_authenticity_token, only: [ :create ]
+  skip_before_action :authenticate_user!, only: [ :create ]
 
-  # POST /internal_jwt/handle_jwt
-  def handle_jwt
+  # POST /auth/token
+  def create
     jwt_payload = decode_jwt(params[:token])
     user = User.find_by!(google_id: jwt_payload["google_id"])
 
-    case jwt_payload["redirect_to"]
+    case jwt_payload["action"]
     when "llm_api_keys"
       @llm_api_keys = user.llm_api_keys
       render json: {
