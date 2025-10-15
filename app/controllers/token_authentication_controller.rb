@@ -4,7 +4,7 @@ class TokenAuthenticationController < ApiController
   JWT_ALGORITHM = "HS256"
 
   def create
-    jwt_payload = decode_jwt params[:token]
+    jwt_payload = decode_jwt extract_token_from_header
     user = User.find_by!(google_id: jwt_payload["google_id"])
 
     render_llm_api_keys user
@@ -12,7 +12,16 @@ class TokenAuthenticationController < ApiController
 
   private
 
+  def extract_token_from_header
+    header = request.headers["Authorization"]
+    return nil unless header.present?
+
+    header.split(" ").last if header.start_with?("Bearer ")
+  end
+
   def decode_jwt(token)
+    raise JWT::DecodeError, "Token is missing" if token.blank?
+
     JWT.decode(
       token,
       Rails.application.credentials.secret_key_base,
