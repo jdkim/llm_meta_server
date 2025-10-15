@@ -25,7 +25,7 @@ Rails.application.routes.draw do
     resources :llm_api_keys, only: [ :index, :create, :update, :destroy ]
   end
 
-  post "auth/token", to: "token_authentication#create"
+  get "/llm_api_keys", to: "token_authentication#llm_api_keys"
 
   # Defines the root path route ("/")
   root "home#index"

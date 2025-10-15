@@ -3,7 +3,7 @@ class TokenAuthenticationController < ApiController
 
   JWT_ALGORITHM = "HS256"
 
-  def create
+  def llm_api_keys
     jwt_payload = decode_jwt extract_token_from_header
     user = User.find_by!(google_id: jwt_payload["google_id"])
 
