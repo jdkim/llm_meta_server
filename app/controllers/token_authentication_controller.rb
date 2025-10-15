@@ -1,6 +1,5 @@
-class TokenAuthenticationController < ApplicationController
-  skip_before_action :verify_authenticity_token, only: [ :create ]
-  skip_before_action :authenticate_user!, only: [ :create ]
+class TokenAuthenticationController < ApiController
+  # No CSRF protection and authentication required for API controller
 
   JWT_ALGORITHM = "HS256"
 
@@ -9,10 +8,6 @@ class TokenAuthenticationController < ApplicationController
     user = User.find_by!(google_id: jwt_payload["google_id"])
 
     handle_action jwt_payload["action"], user
-  rescue JWT::DecodeError => e
-    render json: { error: "Invalid token", message: e.message }, status: :unauthorized
-  rescue ActiveRecord::RecordNotFound
-    render json: { error: "User not found" }, status: :not_found
   end
 
   private
