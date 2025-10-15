@@ -33,7 +33,7 @@ class TokenAuthenticationController < ApiController
   def render_llm_api_keys(user)
     render json: {
       llm_api_keys: user.llm_api_keys.as_json(
-        only: [:uuid, :llm_type, :description, :created_at, :updated_at]
+        only: [ :uuid, :llm_type, :description, :created_at, :updated_at ]
       )
     }
   end
