@@ -5,7 +5,7 @@ class TokenAuthenticationController < ApplicationController
   JWT_ALGORITHM = "HS256"
 
   def create
-    jwt_payload = decode_jwt(params[:token])
+    jwt_payload = decode_jwt params[:token]
     user = User.find_by!(google_id: jwt_payload["google_id"])
 
     handle_action jwt_payload["action"], user
