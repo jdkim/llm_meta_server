@@ -2,7 +2,7 @@ class TokenAuthenticationController < ApiController
   # No CSRF protection and authentication required for API controller
 
   def llm_api_keys
-    jwt_payload = decode_jwt extract_token_from_header
+    jwt_payload = decode_jwt extract_token_from_authorization_header
     user = User.find_by!(google_id: jwt_payload["google_id"])
 
     render_llm_api_keys user

@@ -9,7 +9,7 @@ class ApiController < ActionController::API
 
   private
 
-  def extract_token_from_header
+  def extract_token_from_authorization_header
     header = request.headers["Authorization"]
     return nil unless header.present?
 
