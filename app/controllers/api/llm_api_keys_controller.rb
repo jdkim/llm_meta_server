@@ -5,7 +5,7 @@ class Api::LlmApiKeysController < ApiController
   rescue_from JWT::DecodeError, with: :invalid_token
 
   def index
-    render_llm_api_keys extract_user_from_jwt
+    render_llm_api_keys current_user
   end
 
   private

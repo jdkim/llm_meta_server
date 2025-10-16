@@ -4,10 +4,10 @@ class ApiController < ActionController::API
 
   JWT_ALGORITHM = "HS256"
 
-  def extract_user_from_jwt
+  def current_user
     jwt_payload = decode_jwt extract_token_from_authorization_header
 
-    User.find_by!(google_id: jwt_payload["google_id"])
+    @current_user ||= User.find_by!(google_id: jwt_payload["google_id"])
   end
 
   def record_not_found(exception)
