@@ -5,10 +5,7 @@ class TokenAuthenticationController < ApiController
   rescue_from JWT::DecodeError, with: :invalid_token
 
   def llm_api_keys
-    jwt_payload = decode_jwt extract_token_from_authorization_header
-    user = User.find_by!(google_id: jwt_payload["google_id"])
-
-    render_llm_api_keys user
+    render_llm_api_keys extract_user_from_jwt
   end
 
   private
