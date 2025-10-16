@@ -25,6 +25,10 @@ Rails.application.routes.draw do
     resources :llm_api_keys, only: [ :index, :create, :update, :destroy ]
   end
 
+  namespace :api do
+    resources :llm_api_keys, only: [ :index ]
+  end
+
   # Defines the root path route ("/")
   root "home#index"
 end
