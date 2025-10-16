@@ -1,4 +1,4 @@
-class TokenAuthenticationController < ApiController
+class Api::LlmApiKeysController < ApiController
   # No CSRF protection and authentication required for API controller
 
   rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
