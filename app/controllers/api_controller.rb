@@ -2,12 +2,7 @@ class ApiController < ActionController::API
   # Base controller for API endpoints
   # CSRF protection is not required (using token authentication)
 
-  rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
-  rescue_from JWT::DecodeError, with: :invalid_token
-
   JWT_ALGORITHM = "HS256"
-
-  private
 
   def extract_token_from_authorization_header
     header = request.headers["Authorization"]
