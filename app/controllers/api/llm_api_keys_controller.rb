@@ -4,7 +4,7 @@ class Api::LlmApiKeysController < ApiController
   rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
   rescue_from JWT::DecodeError, with: :invalid_token
 
-  def llm_api_keys
+  def index
     render_llm_api_keys extract_user_from_jwt
   end
 
