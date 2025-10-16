@@ -27,6 +27,7 @@ Rails.application.routes.draw do
 
   namespace :api do
     resources :llm_api_keys, only: [ :index ]
+    resources :llm_gateway, only: [ :create ]
   end
 
   # Defines the root path route ("/")
