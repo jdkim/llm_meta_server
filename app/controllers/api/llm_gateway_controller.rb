@@ -4,7 +4,7 @@ class Api::LlmGatewayController < ApiController
   rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
 
   def create
-    uuid = permitted_params[:uuid]
+    uuid = permitted_params[:llm_api_key_uuid]
     model_name = permitted_params[:model_name]
     prompt = permitted_params[:prompt]
 
@@ -22,6 +22,6 @@ class Api::LlmGatewayController < ApiController
   private
 
   def permitted_params
-    params.permit(:uuid, :model_name, :prompt)
+    params.permit(:llm_api_key_uuid, :model_name, :prompt)
   end
 end

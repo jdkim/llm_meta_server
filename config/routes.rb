@@ -26,8 +26,11 @@ Rails.application.routes.draw do
   end
 
   namespace :api do
-    resources :llm_api_keys, only: [ :index ], param: :uuid
-    post "llm_api_keys/:uuid/models/:model_name/chats", to: "llm_gateway#create"
+    resources :llm_api_keys, only: [ :index ], param: :uuid do
+      resources :models, only: [], param: :name do
+        resources :chats, only: [ :create ], controller: "llm_gateway"
+      end
+    end
   end
 
   # Defines the root path route ("/")
