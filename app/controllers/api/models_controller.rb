@@ -18,10 +18,6 @@ class Api::ModelsController < ApiController
 
   private
 
-  def parameter_missing(exception)
-    render json: { error: "Parameter missing", message: exception.message }, status: :bad_request
-  end
-
   def expected_params
     params.expect(:llm_api_key_uuid)
   end
