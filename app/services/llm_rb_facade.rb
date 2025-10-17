@@ -4,7 +4,7 @@ module LlmRbFacade
       llm = create_llm_client llm_api_key
       model_id = find_model_id llm, model_name
 
-      execute_chat llm, model_id, prompt
+      execute_chat! llm, model_id, prompt
     end
 
     def available_models_for(llm_api_key)
