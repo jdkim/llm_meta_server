@@ -25,7 +25,7 @@ class Api::ModelsController < ApiController
     # fine-tuning された chat 対応モデル
     "ft:gpt-4o",
     "ft:gpt-4o-mini",
-    "ft:gpt-3.5-turbo",
+    "ft:gpt-3.5-turbo"
   ]
 
   def index
