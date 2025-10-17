@@ -35,6 +35,10 @@ class LlmApiKey < ApplicationRecord
     self[:llm_type].capitalize.gsub("Openai", "OpenAI")
   end
 
+  def as_json(options = {})
+    super({ only: %i[uuid llm_type description] }.merge(options))
+  end
+
   def self.llm_types_for_select
     LLM_SERVICES.keys.map { |type| [ type.capitalize.gsub("Openai", "OpenAI"), type ] }
   end

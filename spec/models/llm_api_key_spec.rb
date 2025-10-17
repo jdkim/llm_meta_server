@@ -122,4 +122,55 @@ RSpec.describe LlmApiKey, type: :model do
       is_expected.to eq(encryptable_api_key_B)
     }
   end
+
+  describe '#as_json' do
+    subject { llm_api_key.as_json }
+
+    let(:params) {
+      {
+        llm_type: "openai",
+        description: "Test API Key",
+        encryptable_api_key: encryptable_api_key_A,
+        user: user
+      }
+    }
+
+    before do
+      llm_api_key.save!
+    end
+
+    it 'returns only uuid, llm_type, and description' do
+      expect(subject.keys).to match_array(%w[uuid llm_type description])
+    end
+
+    it 'does not include encrypted_api_key' do
+      expect(subject).not_to have_key('encrypted_api_key')
+    end
+
+    it 'does not include user information' do
+      expect(subject).not_to have_key('user')
+      expect(subject).not_to have_key('user_id')
+    end
+
+    it 'includes the correct values', :aggregate_failures do
+      expect(subject['uuid']).to eq(llm_api_key.uuid)
+      expect(subject['llm_type']).to eq("openai")
+      expect(subject['description']).to eq("Test API Key")
+    end
+
+    context 'when description is nil' do
+      let(:params) {
+        {
+          llm_type: "anthropic",
+          description: nil,
+          encryptable_api_key: encryptable_api_key_A,
+          user: user
+        }
+      }
+
+      it 'includes nil description' do
+        expect(subject['description']).to be_nil
+      end
+    end
+  end
 end
