@@ -1,8 +1,8 @@
 class Api::LlmGatewayController < ApiController
 
-  rescue_from ActionController::ParameterMissing, with: :parameter_missing
   rescue_from JWT::DecodeError, with: :invalid_token
   rescue_from JWT::ExpiredSignature, with: :expired_signature
+  rescue_from ActionController::ParameterMissing, with: :parameter_missing
   rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
 
   def create
