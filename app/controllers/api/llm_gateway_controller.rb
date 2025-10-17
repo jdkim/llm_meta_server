@@ -1,6 +1,6 @@
 class Api::LlmGatewayController < ApiController
 
-  rescue_from ParameterMissing, with: :parameter_missing
+  rescue_from ActionController::ParameterMissing, with: :parameter_missing
   rescue_from JWT::DecodeError, with: :invalid_token
   rescue_from JWT::ExpiredSignature, with: :expired_signature
   rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
@@ -20,19 +20,19 @@ class Api::LlmGatewayController < ApiController
   private
 
   def llm_api_key_uuid
-    raise ParameterMissing, "llm_api_key_uuid is missing" if payload["llm_api_key_uuid"].blank?
+    raise ActionController::ParameterMissing, "llm_api_key_uuid is missing" if payload["llm_api_key_uuid"].blank?
 
     payload["llm_api_key_uuid"]
   end
 
   def model_name
-    raise ParameterMissing, "model_name is missing" if payload["model_name"].blank?
+    raise ActionController::ParameterMissing, "model_name is missing" if payload["model_name"].blank?
 
     payload["model_name"]
   end
 
   def prompt
-    raise ParameterMissing, "prompt is missing" if payload["prompt"].blank?
+    raise ActionController::ParameterMissing, "prompt is missing" if payload["prompt"].blank?
 
     payload["prompt"]
   end
