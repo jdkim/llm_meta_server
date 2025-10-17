@@ -3,6 +3,7 @@ class Api::LlmApiKeysController < ApiController
 
   rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
   rescue_from JWT::DecodeError, with: :invalid_token
+  rescue_from JWT::ExpiredSignature, with: :expired_signature
 
   def index
     render_llm_api_keys current_user

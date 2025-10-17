@@ -18,6 +18,10 @@ class ApiController < ActionController::API
     render json: { error: "Invalid token", message: exception.message }, status: :unauthorized
   end
 
+  def expired_signature(exception)
+    render json: { error: "Token has expired", message: exception.message }, status: :bad_request
+  end
+
   private
 
   def bearer_token
