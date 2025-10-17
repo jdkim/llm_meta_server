@@ -14,19 +14,19 @@ class Api::LlmGatewayController < ApiController
   private
 
   def llm_api_key_uuid
-    raise JWT::DecodeError, "llm_api_key_uuid is missing" if payload["llm_api_key_uuid"].blank?
+    raise ParameterMissing, "llm_api_key_uuid is missing" if payload["llm_api_key_uuid"].blank?
 
     payload["llm_api_key_uuid"]
   end
 
   def model_name
-    raise JWT::DecodeError, "model_name is missing" if payload["model_name"].blank?
+    raise ParameterMissing, "model_name is missing" if payload["model_name"].blank?
 
     payload["model_name"]
   end
 
   def prompt
-    raise JWT::DecodeError, "prompt is missing" if payload["prompt"].blank?
+    raise ParameterMissing, "prompt is missing" if payload["prompt"].blank?
 
     payload["prompt"]
   end
