@@ -1,4 +1,9 @@
 class Api::LlmGatewayController < ApiController
+
+  rescue_from ParameterMissing, with: :parameter_missing
+  rescue_from JWT::DecodeError, with: :invalid_token
+  rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
+
   def create
     uuid = llm_api_key_uuid
     llm_api_key = current_user.llm_api_keys.find_by!(uuid: uuid)
@@ -33,5 +38,9 @@ class Api::LlmGatewayController < ApiController
 
   def payload
     @payload ||= jwt_payload bearer_token
+  end
+
+  def parameter_missing(exception)
+    render json: { error: "Parameter missing", message: exception.message }, status: :bad_request
   end
 end
