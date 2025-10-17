@@ -8,7 +8,7 @@ class ApiController < ActionController::API
     @current_user ||= User.find_by!(google_id: google_id)
   end
 
-  def record_not_found(exception)
+  def unauthorized(exception)
     render json: { error: "Unauthorized" }, status: :unauthorized
   end
 
