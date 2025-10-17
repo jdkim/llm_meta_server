@@ -32,7 +32,7 @@ class Api::ModelsController < ApiController
     uuid = expected_params
 
     llm_api_key = current_user.find_llm_api_key uuid
-    models = LlmRbFacade.models llm_api_key
+    models = LlmRbFacade.available_models_for llm_api_key
 
     render json: {
       llm_models: models.filter { |model| CHAT_COMPATIBLE_MODELS.include?(model) }
