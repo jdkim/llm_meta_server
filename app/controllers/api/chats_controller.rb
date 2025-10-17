@@ -1,7 +1,7 @@
 class Api::ChatsController < ApiController
   rescue_from JWT::DecodeError, with: :invalid_token
   rescue_from JWT::ExpiredSignature, with: :expired_signature
-  rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
+  rescue_from ActiveRecord::RecordNotFound, with: :unauthorized
 
   def create
     uuid = expected_params[0]
