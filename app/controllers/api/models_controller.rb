@@ -31,7 +31,7 @@ class Api::ModelsController < ApiController
   def index
     uuid = expected_params
 
-    llm_api_key = current_user.find_llm_api_key uuid
+    llm_api_key = current_user.find_llm_api_key! uuid
     models = LlmRbFacade.available_models_for llm_api_key
 
     render json: {

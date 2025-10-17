@@ -13,7 +13,7 @@ class User < ApplicationRecord
     end
   end
 
-  def find_llm_api_key(uuid)
+  def find_llm_api_key!(uuid)
     llm_api_keys.find_by!(uuid: uuid)
   end
 
