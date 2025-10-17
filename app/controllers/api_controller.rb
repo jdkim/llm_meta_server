@@ -5,9 +5,7 @@ class ApiController < ActionController::API
   JWT_ALGORITHM = "HS256"
 
   def current_user
-    payload = jwt_payload(bearer_token)
-
-    @current_user ||= User.find_by!(google_id: payload["google_id"])
+    @current_user ||= User.find_by!(google_id: google_id)
   end
 
   def record_not_found(exception)
@@ -23,6 +21,13 @@ class ApiController < ActionController::API
   end
 
   private
+
+  def google_id
+    payload = jwt_payload bearer_token
+    raise ActionController::ParameterMissing, "google_id is missing" if payload["google_id"].blank?
+
+    payload["google_id"]
+  end
 
   def bearer_token
     header = request.headers["Authorization"]
