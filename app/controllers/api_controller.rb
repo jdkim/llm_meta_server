@@ -9,7 +9,7 @@ class ApiController < ActionController::API
   end
 
   def record_not_found(exception)
-    render json: { error: "Record not found", message: exception.message }, status: :unauthorized
+    render json: { error: "Record not found", message: sanitize_error_message(exception.message) }, status: :unauthorized
   end
 
   def invalid_token(exception)
@@ -21,6 +21,11 @@ class ApiController < ActionController::API
   end
 
   private
+
+  def sanitize_error_message(message)
+    # Remove SQL query part that starts with "with" (case-insensitive)
+    message.gsub(/\s+with\s+.+$/i, '')
+  end
 
   def google_id
     payload = jwt_payload bearer_token
