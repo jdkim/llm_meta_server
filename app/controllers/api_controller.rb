@@ -22,11 +22,6 @@ class ApiController < ActionController::API
 
   private
 
-  def sanitize_error_message(message)
-    # Remove SQL query part that starts with "with" (case-insensitive)
-    message.gsub(/\s+with\s+.+$/i, "")
-  end
-
   def google_id
     payload = jwt_payload bearer_token
     raise ActionController::ParameterMissing, "google_id is missing" if payload["google_id"].blank?
