@@ -4,10 +4,8 @@ class Api::ChatsController < ApiController
   rescue_from ActiveRecord::RecordNotFound, with: :unauthorized
 
   def create
-
     uuid, model_name, prompt = expected_params
     llm_api_key = current_user.llm_api_keys.find_by!(uuid: uuid)
-
     message = LlmRbFacade.call llm_api_key, model_name, prompt
 
     render json: {
