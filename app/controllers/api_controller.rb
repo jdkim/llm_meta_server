@@ -24,7 +24,7 @@ class ApiController < ActionController::API
 
   def sanitize_error_message(message)
     # Remove SQL query part that starts with "with" (case-insensitive)
-    message.gsub(/\s+with\s+.+$/i, '')
+    message.gsub(/\s+with\s+.+$/i, "")
   end
 
   def google_id
