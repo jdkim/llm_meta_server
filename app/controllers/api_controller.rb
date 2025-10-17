@@ -5,20 +5,34 @@ class ApiController < ActionController::API
   JWT_ALGORITHM = "HS256"
 
   def current_user
-    payload = jwt_payload(bearer_token)
-
-    @current_user ||= User.find_by!(google_id: payload["google_id"])
+    @current_user ||= User.find_by!(google_id: google_id)
   end
 
   def record_not_found(exception)
-    render json: { error: "Record not found", message: exception.message }, status: :unauthorized
+    render json: { error: "Record not found", message: sanitize_error_message(exception.message) }, status: :unauthorized
   end
 
   def invalid_token(exception)
     render json: { error: "Invalid token", message: exception.message }, status: :unauthorized
   end
 
+  def expired_signature(exception)
+    render json: { error: "Token has expired", message: exception.message }, status: :bad_request
+  end
+
   private
+
+  def sanitize_error_message(message)
+    # Remove SQL query part that starts with "with" (case-insensitive)
+    message.gsub(/\s+with\s+.+$/i, "")
+  end
+
+  def google_id
+    payload = jwt_payload bearer_token
+    raise ActionController::ParameterMissing, "google_id is missing" if payload["google_id"].blank?
+
+    payload["google_id"]
+  end
 
   def bearer_token
     header = request.headers["Authorization"]
