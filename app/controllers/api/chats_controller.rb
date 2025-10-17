@@ -4,9 +4,9 @@ class Api::ChatsController < ApiController
   rescue_from ActiveRecord::RecordNotFound, with: :record_not_found
 
   def create
-    uuid = permitted_params[:llm_api_key_uuid]
-    model_name = permitted_params[:model_name]
-    prompt = permitted_params[:prompt]
+    uuid = expected_params[0]
+    model_name = expected_params[1]
+    prompt = expected_params[2]
 
     llm_api_key = current_user.llm_api_keys.find_by!(uuid: uuid)
 
@@ -21,7 +21,7 @@ class Api::ChatsController < ApiController
 
   private
 
-  def permitted_params
-    params.permit(:llm_api_key_uuid, :model_name, :prompt)
+  def expected_params
+    params.expect(:llm_api_key_uuid, :model_name, :prompt)
   end
 end
