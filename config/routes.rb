@@ -31,6 +31,7 @@ Rails.application.routes.draw do
         resources :chats, only: [ :create ]
       end
     end
+    resources :llm_models, only: [ :index ]
   end
 
   # Defines the root path route ("/")
