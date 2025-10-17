@@ -1,10 +1,16 @@
 module LlmRbFacade
   class << self
-    def call(llm_api_key, model_name, prompt)
+    def call!(llm_api_key, model_name, prompt)
       llm = create_llm_client llm_api_key
       model_id = find_model_id llm, model_name
 
-      execute_chat llm, model_id, prompt
+      execute_chat! llm, model_id, prompt
+    end
+
+    def available_models_for(llm_api_key)
+      llm = create_llm_client llm_api_key
+
+      llm.models.all.map { _1.id || _1.name.gsub(/^models\//, "") } # Google LLM uses 'name' instead of 'id' and prefixes model_id with 'models/'
     end
 
     def create_llm_client(llm_api_key)
@@ -19,13 +25,13 @@ module LlmRbFacade
     end
 
     def find_model_id(llm, model_name)
-      model = llm.models.all.find { _1.id == model_name }
+      model = llm.models.all.find { _1.id == model_name || _1.name == "models/" + model_name }
       raise ModelNotFoundError, model_name unless model
 
-      model.id
+      model.id || model.name.gsub(/^models\//, "") # Google LLM uses 'name' instead of 'id' and prefixes model_id with 'models/'
     end
 
-    def execute_chat(llm, model_id, prompt)
+    def execute_chat!(llm, model_id, prompt)
       bot = LLM::Bot.new llm, model: model_id
       messages = bot.chat { _1.user prompt }
 

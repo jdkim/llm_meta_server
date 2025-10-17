@@ -20,6 +20,10 @@ class ApiController < ActionController::API
     render json: { error: "Token has expired", message: exception.message }, status: :bad_request
   end
 
+  def parameter_missing(exception)
+    render json: { error: "Parameter missing", message: exception.message }, status: :bad_request
+  end
+
   private
 
   def google_id
