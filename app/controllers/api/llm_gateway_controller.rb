@@ -1,5 +1,4 @@
 class Api::LlmGatewayController < ApiController
-
   rescue_from JWT::DecodeError, with: :invalid_token
   rescue_from JWT::ExpiredSignature, with: :expired_signature
   rescue_from ActionController::ParameterMissing, with: :parameter_missing
