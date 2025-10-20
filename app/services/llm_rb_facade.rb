@@ -24,7 +24,7 @@ module LlmRbFacade
     end
 
     def find_model_id(llm, model_name)
-      model = llm.models.all.find { _1.id == model_name }
+      model = llm.models.all.find { it.id == model_name }
       raise ModelNotFoundError, model_name unless model
 
       model.id
@@ -32,9 +32,9 @@ module LlmRbFacade
 
     def execute_chat!(llm, model_id, prompt)
       bot = LLM::Bot.new llm, model: model_id
-      messages = bot.chat { _1.user prompt }
+      messages = bot.chat { it.user prompt }
 
-      messages.map { _1.content }.join "\n"
+      messages.map { it.content }.join "\n"
     end
   end
 end
