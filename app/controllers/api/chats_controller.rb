@@ -19,7 +19,7 @@ class Api::ChatsController < ApiController
   private
 
   def rate_limit_error(exception)
-    render json: { error: "Rate limit exceeded", message: exception.message }, status: :too_many_requests
+    render json: { error: "LLM API Rate limit exceeded", message: exception.message }, status: :too_many_requests
   end
 
   def expected_params
