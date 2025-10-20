@@ -12,6 +12,8 @@ module LlmRbFacade
       llm.models.all.map { it.id }
     end
 
+    private
+
     def create_llm_client(llm_api_key)
       llm_rb_method = llm_api_key.llm_rb_method
 
