@@ -10,7 +10,7 @@ module LlmRbFacade
     def available_models_for(llm_api_key)
       llm = create_llm_client llm_api_key
 
-      llm.models.all.map { _1.id }
+      llm.models.all.map { it.id }
     end
 
     def create_llm_client(llm_api_key)
