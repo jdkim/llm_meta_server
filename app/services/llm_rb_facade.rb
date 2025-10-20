@@ -1,10 +1,10 @@
 module LlmRbFacade
   class << self
-    def call(llm_api_key, model_name, prompt)
+    def call!(llm_api_key, model_name, prompt)
       llm = create_llm_client llm_api_key
       model_id = find_model_id llm, model_name
 
-      execute_chat llm, model_id, prompt
+      execute_chat! llm, model_id, prompt
     end
 
     def available_models_for(llm_api_key)
@@ -30,7 +30,7 @@ module LlmRbFacade
       model.id
     end
 
-    def execute_chat(llm, model_id, prompt)
+    def execute_chat!(llm, model_id, prompt)
       bot = LLM::Bot.new llm, model: model_id
       messages = bot.chat { _1.user prompt }
 
