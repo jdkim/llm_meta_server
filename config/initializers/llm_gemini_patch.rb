@@ -26,3 +26,20 @@ module LLM
     end
   end
 end
+
+module LLM::Gemini::Response
+  module Models
+    include ::Enumerable
+    def each(&)
+      return enum_for(:each) unless block_given?
+      models.each do
+        it.id = it.name.delete_prefix("models/") if it.respond_to?(:name) && !it.respond_to?(:id)
+        yield(it)
+      end
+    end
+
+    def models
+      body.models || []
+    end
+  end
+end
