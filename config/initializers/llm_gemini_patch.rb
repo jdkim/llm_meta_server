@@ -27,6 +27,7 @@ module LLM
   end
 end
 
+# Original code: https://github.com/llmrb/llm/blob/d9a126c89df698f29a156229db8d4a6fd049f330/lib/llm/providers/gemini/response/models.rb#L3-L15
 module LLM::Gemini::Response
   module Models
     include ::Enumerable
