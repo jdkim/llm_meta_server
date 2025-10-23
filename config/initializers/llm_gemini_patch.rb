@@ -1,14 +1,8 @@
 # frozen_string_literal: true
+require "llm/providers/gemini"
 
 module LLM
-  require "llm/provider"
   class Gemini < LLM::Provider
-    require "llm/providers/gemini"
-
-    def initialize(**)
-      super(host: HOST, **)
-    end
-
     def complete(prompt, params = {})
       params = { role: :user, model: default_model }.merge!(params)
       params = [ params, format_schema(params), format_tools(params) ].inject({}, &:merge!).compact
