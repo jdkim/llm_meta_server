@@ -11,6 +11,7 @@ module LLM
       action = stream ? "streamGenerateContent?key=#{@key}&alt=sse" : "generateContent?key=#{@key}"
 
       # It seems strange that there's no left operand in an expression using a ternary operator.
+      # https://github.com/llmrb/llm/blob/d92c133f48accac5f15e3c5090b4e0d8ba41cdf5/lib/llm/providers/gemini.rb#L74
       model = model.respond_to?(:id) ? model.id : model
 
       path = [ "/v1beta/models/#{model}", action ].join(":")
