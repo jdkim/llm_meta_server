@@ -27,7 +27,7 @@ Rails.application.routes.draw do
 
   namespace :api do
     resources :llm_api_keys, only: [ :index ], param: :uuid do
-      resources :models, only: [], param: :name do
+      resources :models, only: [ ], param: :name, constraints: { model_name: /[^\/]+/ } do
         resources :chats, only: [ :create ]
       end
     end
