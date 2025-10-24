@@ -1,8 +1,8 @@
 module LlmRbFacade
   class << self
-    def call!(llm_api_key, model_name, prompt)
+    def call!(llm_api_key, model_id, prompt)
       llm = create_llm_client llm_api_key
-      model_id = find_model_id llm, model_name
+      model_id = "models/" + model_id if llm_api_key.llm_type == "google" && !model_id.start_with?("models/")
 
       execute_chat! llm, model_id, prompt
     end
