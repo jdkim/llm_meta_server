@@ -7,7 +7,8 @@ class Api::ChatsController < ApiController
   def create
     uuid, model_name, prompt = expected_params
     llm_api_key = current_user.find_llm_api_key! uuid
-    message = LlmRbFacade.call! llm_api_key, model_name, prompt
+    model_id = LlmModelMap.fetch! model_name
+    message = LlmRbFacade.call! llm_api_key, model_id, prompt
 
     render json: {
       response: {
