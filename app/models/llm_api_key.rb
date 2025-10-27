@@ -37,7 +37,7 @@ class LlmApiKey < ApplicationRecord
 
   def as_json(options = {})
     super({ only: %i[uuid llm_type description] }.merge(options)).tap do |json|
-      json[:available_models] = LlmModelMap.available_models_for llm_type
+      json["available_models"] = LlmModelMap.available_models_for llm_type
     end
   end
 

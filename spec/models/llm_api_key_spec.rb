@@ -136,11 +136,17 @@ RSpec.describe LlmApiKey, type: :model do
     }
 
     before do
+      allow(LlmModelMap).to receive(:available_models_for).with("openai").and_return([
+        "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"
+      ])
+      allow(LlmModelMap).to receive(:available_models_for).with("anthropic").and_return([
+        "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"
+      ])
       llm_api_key.save!
     end
 
-    it 'returns only uuid, llm_type, and description' do
-      expect(subject.keys).to match_array(%w[uuid llm_type description])
+    it 'returns uuid, llm_type, description, and available_models' do
+      expect(subject.keys).to match_array(%w[uuid llm_type description available_models])
     end
 
     it 'does not include encrypted_api_key' do
@@ -156,6 +162,7 @@ RSpec.describe LlmApiKey, type: :model do
       expect(subject['uuid']).to eq(llm_api_key.uuid)
       expect(subject['llm_type']).to eq("openai")
       expect(subject['description']).to eq("Test API Key")
+      expect(subject['available_models']).to eq([ "gpt-4o", "gpt-4o-mini", "gpt-4-turbo" ])
     end
 
     context 'when description is nil' do
@@ -170,6 +177,7 @@ RSpec.describe LlmApiKey, type: :model do
 
       it 'includes nil description' do
         expect(subject['description']).to be_nil
+        expect(subject['available_models']).to eq([ "claude-3-5-sonnet-20241022", "claude-3-opus-20240229" ])
       end
     end
   end
