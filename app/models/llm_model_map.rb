@@ -42,4 +42,6 @@ class LlmModelMap
   }
 
   def self.fetch!(llm_type, meta_id) = MODEL_MAP.fetch(llm_type).fetch meta_id
+
+  def self.available_models_for(llm_type) = MODEL_MAP.fetch(llm_type).keys
 end
