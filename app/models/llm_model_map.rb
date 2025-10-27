@@ -43,5 +43,12 @@ class LlmModelMap
 
   def self.fetch!(llm_type, meta_id) = MODEL_MAP.fetch(llm_type).fetch meta_id
 
-  def self.available_models_for(llm_type) = MODEL_MAP.fetch(llm_type).keys
+  def self.available_models_for(llm_type)
+    MODEL_MAP.fetch(llm_type).map do |key, value|
+      {
+        "label" => value, # Display name: Show the official model name
+        "value" => key # Internal ID: Model ID to pass to API (without dots)
+      }
+    end
+  end
 end
