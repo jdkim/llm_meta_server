@@ -1,9 +1,7 @@
 module LlmRbFacade
   class << self
-    def call!(llm_api_key, model_name, prompt)
+    def call!(llm_api_key, model_id, prompt)
       llm = create_llm_client llm_api_key
-      model_id = find_model_id llm, model_name
-
       execute_chat! llm, model_id, prompt
     end
 
