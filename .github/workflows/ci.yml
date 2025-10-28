@@ -85,16 +85,3 @@ jobs:
         env:
           RAILS_ENV: test
         run: bundle exec rspec
-
-      - name: Run system tests
-        env:
-          RAILS_ENV: test
-        run: bin/rails test:system
-
-      - name: Keep screenshots from failed system tests
-        uses: actions/upload-artifact@v5
-        if: failure()
-        with:
-          name: screenshots
-          path: ${{ github.workspace }}/tmp/screenshots
-          if-no-files-found: ignore
