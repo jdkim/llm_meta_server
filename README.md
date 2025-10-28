@@ -91,7 +91,11 @@ No external middleware services (Redis, PostgreSQL, etc.) are required for basic
    bin/dev
    ```
    
-   The application will be available at `http://localhost:3000`
+   This command starts all development services defined in `Procfile.dev`, including:
+   - Rails web server (available at `http://localhost:3000`)
+   - Tailwind CSS watch mode (for automatic stylesheet compilation)
+   
+   All services will run in a single terminal with color-coded output.
 
 ### Alternative: Using Rails commands separately
 

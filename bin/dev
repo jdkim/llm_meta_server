@@ -1,2 +1,16 @@
 #!/usr/bin/env ruby
-exec "./bin/rails", "server", *ARGV
+
+# Ensure foreman is available
+require "bundler/setup"
+
+# Path to the Procfile
+APP_ROOT = File.expand_path("..", __dir__)
+PROCFILE = File.join(APP_ROOT, "Procfile.dev")
+
+unless File.exist?(PROCFILE)
+  puts "Procfile.dev not found"
+  exit 1
+end
+
+# Start all processes defined in Procfile.dev using foreman
+exec "foreman", "start", "-f", PROCFILE, *ARGV
