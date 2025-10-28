@@ -141,6 +141,8 @@ GEM
       logger
     faraday-net_http (3.4.1)
       net-http (>= 0.5.0)
+    foreman (0.90.0)
+      thor (~> 1.4)
     fugit (1.11.2)
       et-orbi (~> 1, >= 1.2.11)
       raabro (~> 1.4)
@@ -478,6 +480,7 @@ DEPENDENCIES
   debug
   devise
   dotenv-rails
+  foreman
   httparty
   importmap-rails
   jbuilder
