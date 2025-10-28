@@ -62,7 +62,7 @@ aliases:
   dbc: app exec --interactive --reuse "bin/rails dbconsole"
 
 
-# Use a persistent storage volume for sqlite database files and local Active Storage files.
+# Use a persistent storage volume for sqlite database files.
 # Recommended to change this to a mounted volume path that is backed up off server.
 volumes:
   - "llm_api_call_meta_server_storage:/rails/storage"
