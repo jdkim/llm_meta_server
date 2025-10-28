@@ -80,17 +80,11 @@ No external middleware services (Redis, PostgreSQL, etc.) are required for basic
    AWS_KMS_KEY_ID=your_kms_key_id
    ```
 
-4. **Set up the database**
+4. **Start the development environment**
    ```bash
-   bin/rails db:create
-   bin/rails db:migrate
+   bin/setup
    ```
-
-5. **Start the development server**
-   ```bash
-   bin/dev
-   ```
-   
+ 
    This command starts all development services defined in `Procfile.dev`, including:
    - Rails web server (available at `http://localhost:3000`)
    - Tailwind CSS watch mode (for automatic stylesheet compilation)
