@@ -122,8 +122,6 @@ GEM
     ed25519 (1.4.0)
     erb (5.1.3)
     erubi (1.13.1)
-    et-orbi (1.3.0)
-      tzinfo
     faraday (2.13.4)
       faraday-net_http (>= 2.0, < 3.5)
       json
@@ -132,9 +130,6 @@ GEM
       net-http (>= 0.5.0)
     foreman (0.90.0)
       thor (~> 1.4)
-    fugit (1.11.2)
-      et-orbi (~> 1, >= 1.2.11)
-      raabro (~> 1.4)
     globalid (1.3.0)
       activesupport (>= 6.1)
     hashie (5.0.0)
@@ -263,7 +258,6 @@ GEM
       stringio
     puma (7.1.0)
       nio4r (~> 2.0)
-    raabro (1.4.0)
     racc (1.8.1)
     rack (3.2.3)
     rack-protection (4.1.1)
@@ -369,17 +363,6 @@ GEM
     snaky_hash (2.0.3)
       hashie (>= 0.1.0, < 6)
       version_gem (>= 1.1.8, < 3)
-    solid_cache (1.0.8)
-      activejob (>= 7.2)
-      activerecord (>= 7.2)
-      railties (>= 7.2)
-    solid_queue (1.2.1)
-      activejob (>= 7.1)
-      activerecord (>= 7.1)
-      concurrent-ruby (>= 1.3.1)
-      fugit (~> 1.11.0)
-      railties (>= 7.1)
-      thor (>= 1.3.1)
     sqlite3 (2.7.4-aarch64-linux-gnu)
     sqlite3 (2.7.4-aarch64-linux-musl)
     sqlite3 (2.7.4-arm-linux-gnu)
@@ -470,8 +453,6 @@ DEPENDENCIES
   rails (~> 8.0.3)
   rspec-rails
   rubocop-rails-omakase
-  solid_cache
-  solid_queue
   sqlite3 (>= 2.1)
   stimulus-rails
   tailwindcss-rails
