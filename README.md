@@ -38,7 +38,6 @@ This application is built with Rails 8.0 and uses the following key dependencies
   - Import maps for JavaScript
 - **Background Jobs**: Solid Queue (database-backed)
 - **Caching**: Solid Cache (database-backed)
-- **WebSockets**: ActionCable with async adapter
 - **LLM Interface**: llm.rb gem
 - **Encryption**: AWS KMS for API key encryption
 
