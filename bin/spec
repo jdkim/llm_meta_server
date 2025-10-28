@@ -1,5 +1,5 @@
-#!/usr/bin/env ruby
-require "rubygems"
-require "bundler/setup"
+#!/usr/bin/env bash
 
-load Gem.bin_path("rspec-core", "rspec")
+set -e
+cd "$(dirname "$0")/.."
+bundle exec rspec "$@"
