@@ -36,12 +36,10 @@ This application is built with Rails 8.0 and uses the following key dependencies
   - Hotwire (Turbo & Stimulus)
   - Tailwind CSS
   - Import maps for JavaScript
-- **Background Jobs**: Solid Queue (database-backed)
-- **Caching**: Solid Cache (database-backed)
 - **LLM Interface**: llm.rb gem
 - **Encryption**: AWS KMS for API key encryption
 
-No external middleware services (Redis, PostgreSQL, etc.) are required for basic operation as Rails 8.0 uses Solid Queue and Solid Cache with SQLite.
+No external middleware services (Redis, PostgreSQL, etc.) are required for basic operation.
 
 ## Environment Setup
 
@@ -100,9 +98,6 @@ bin/rails server
 
 # Run Tailwind CSS watch (in a separate terminal)
 bin/rails tailwindcss:watch
-
-# Run Solid Queue (in a separate terminal, if needed)
-bin/jobs
 ```
 
 ## Running Tests
