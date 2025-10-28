@@ -1,24 +1,2 @@
 #!/usr/bin/env ruby
-
-# Ensure foreman is available
-require "bundler/setup"
-
-# Path to the Procfile
-APP_ROOT = File.expand_path("..", __dir__)
-PROCFILE = File.join(APP_ROOT, "Procfile.dev")
-
-unless File.exist?(PROCFILE)
-  puts "Procfile.dev not found at #{PROCFILE}"
-  exit 1
-end
-
-# Check if foreman is available
-begin
-  require "foreman"
-rescue LoadError
-  puts "Foreman is not installed. Please run 'bundle install' first."
-  exit 1
-end
-
-# Start all processes defined in Procfile.dev using foreman
-exec "foreman", "start", "-f", PROCFILE, *ARGV
+exec "foreman", "start", "-f", "Procfile.dev", *ARGV
