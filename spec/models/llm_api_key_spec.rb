@@ -136,11 +136,30 @@ RSpec.describe LlmApiKey, type: :model do
     }
 
     before do
+      allow(LlmModelMap).to receive(:available_models_for).with("openai").and_return([
+        { "label" => "gpt-4o", "value" => "gpt-4o" },
+        { "label" => "gpt-4o-mini", "value" => "gpt-4o-mini" },
+        { "label" => "gpt-4-turbo", "value" => "gpt-4-turbo" },
+        { "label" => "gpt-3.5-turbo", "value" => "gpt-3-5-turbo" },
+        { "label" => "gpt-3.5-turbo-16k", "value" => "gpt-3-5-turbo-16k" }
+      ])
+      allow(LlmModelMap).to receive(:available_models_for).with("anthropic").and_return([
+        { "label" => "claude-opus-4-20250514", "value" => "claude-opus-4-20250514" },
+        { "label" => "claude-opus-4-1-20250513", "value" => "claude-opus-4-1-20250513" },
+        { "label" => "claude-sonnet-4-20250514", "value" => "claude-sonnet-4-20250514" },
+        { "label" => "claude-sonnet-4-5-20250929", "value" => "claude-sonnet-4-5-20250929" },
+        { "label" => "claude-3-5-sonnet-20241022", "value" => "claude-3-5-sonnet-20241022" },
+        { "label" => "claude-3-5-sonnet-20240620", "value" => "claude-3-5-sonnet-20240620" },
+        { "label" => "claude-3-5-haiku-20241022", "value" => "claude-3-5-haiku-20241022" },
+        { "label" => "claude-3-opus-20240229", "value" => "claude-3-opus-20240229" },
+        { "label" => "claude-3-sonnet-20240229", "value" => "claude-3-sonnet-20240229" },
+        { "label" => "claude-3-haiku-20240307", "value" => "claude-3-haiku-20240307" }
+      ])
       llm_api_key.save!
     end
 
-    it 'returns only uuid, llm_type, and description' do
-      expect(subject.keys).to match_array(%w[uuid llm_type description])
+    it 'returns uuid, llm_type, description, and available_models' do
+      expect(subject.keys).to match_array(%w[uuid llm_type description available_models])
     end
 
     it 'does not include encrypted_api_key' do
@@ -156,6 +175,13 @@ RSpec.describe LlmApiKey, type: :model do
       expect(subject['uuid']).to eq(llm_api_key.uuid)
       expect(subject['llm_type']).to eq("openai")
       expect(subject['description']).to eq("Test API Key")
+      expect(subject['available_models']).to eq([
+        { "label" => "gpt-4o", "value" => "gpt-4o" },
+        { "label" => "gpt-4o-mini", "value" => "gpt-4o-mini" },
+        { "label" => "gpt-4-turbo", "value" => "gpt-4-turbo" },
+        { "label" => "gpt-3.5-turbo", "value" => "gpt-3-5-turbo" },
+        { "label" => "gpt-3.5-turbo-16k", "value" => "gpt-3-5-turbo-16k" }
+      ])
     end
 
     context 'when description is nil' do
@@ -170,6 +196,18 @@ RSpec.describe LlmApiKey, type: :model do
 
       it 'includes nil description' do
         expect(subject['description']).to be_nil
+        expect(subject['available_models']).to eq([
+          { "label" => "claude-opus-4-20250514", "value" => "claude-opus-4-20250514" },
+          { "label" => "claude-opus-4-1-20250513", "value" => "claude-opus-4-1-20250513" },
+          { "label" => "claude-sonnet-4-20250514", "value" => "claude-sonnet-4-20250514" },
+          { "label" => "claude-sonnet-4-5-20250929", "value" => "claude-sonnet-4-5-20250929" },
+          { "label" => "claude-3-5-sonnet-20241022", "value" => "claude-3-5-sonnet-20241022" },
+          { "label" => "claude-3-5-sonnet-20240620", "value" => "claude-3-5-sonnet-20240620" },
+          { "label" => "claude-3-5-haiku-20241022", "value" => "claude-3-5-haiku-20241022" },
+          { "label" => "claude-3-opus-20240229", "value" => "claude-3-opus-20240229" },
+          { "label" => "claude-3-sonnet-20240229", "value" => "claude-3-sonnet-20240229" },
+          { "label" => "claude-3-haiku-20240307", "value" => "claude-3-haiku-20240307" }
+        ])
       end
     end
   end

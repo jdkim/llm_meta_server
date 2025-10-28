@@ -37,6 +37,7 @@ class LlmApiKey < ApplicationRecord
 
   def as_json(options = {})
     super({ only: %i[uuid llm_type description] }.merge(options))
+      .merge("available_models" => LlmModelMap.available_models_for(llm_type))
   end
 
   def self.llm_types_for_select
