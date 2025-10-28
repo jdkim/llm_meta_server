@@ -22,7 +22,7 @@ This application serves as an **LLM API Call Meta-server** that:
 ## System Requirements
 
 ### Ruby Version
-- Ruby 3.4.5 (or compatible version as specified in `.ruby-version`)
+- Ruby 3.4.7 (or compatible version as specified in `.ruby-version`)
 
 ### Middleware Dependencies
 
@@ -45,7 +45,7 @@ No external middleware services (Redis, PostgreSQL, etc.) are required for basic
 
 ### Prerequisites
 
-1. Install Ruby 3.4.5 (or use a Ruby version manager like rbenv or rvm)
+1. Install Ruby 3.4.7 (or use a Ruby version manager like rbenv or rvm)
 2. Install SQLite 3
 3. Install Node.js (for asset compilation)
 
