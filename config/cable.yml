@@ -9,4 +9,6 @@ test:
   adapter: test
 
 production:
+  # Using async adapter. Note: This adapter only works within the same process.
+  # For multi-server deployments, consider using Redis adapter instead.
   adapter: async
