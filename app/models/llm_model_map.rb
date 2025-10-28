@@ -42,7 +42,7 @@ class LlmModelMap
   }
 
   def self.fetch!(llm_type, meta_id)
-    model_data = MODEL_MAP.fetch(llm_type).fetch(meta_id)
+    model_data = MODEL_MAP.dig(llm_type, meta_id)
     model_data.is_a?(Hash) ? model_data[:api_id] : model_data
   end
 
