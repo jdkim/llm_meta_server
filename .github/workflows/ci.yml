@@ -84,4 +84,4 @@ jobs:
       - name: Run RSpec unit tests
         env:
           RAILS_ENV: test
-        run: bundle exec rspec
+        run: bin/spec

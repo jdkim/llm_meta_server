@@ -112,13 +112,13 @@ This project uses RSpec for testing.
 
 ```bash
 # Run all tests
-bundle exec rspec
+bin/spec
 
 # Run specific test file
-bundle exec rspec spec/models/llm_api_key_spec.rb
+bin/spec spec/models/llm_api_key_spec.rb
 
 # Run tests with coverage
-COVERAGE=true bundle exec rspec
+COVERAGE=true bin/spec
 ```
 
 ## Usage
