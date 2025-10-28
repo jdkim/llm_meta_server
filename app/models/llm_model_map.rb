@@ -43,12 +43,12 @@ class LlmModelMap
 
   def self.fetch!(llm_type, meta_id)
     model_data = MODEL_MAP.dig(llm_type, meta_id)
-    model_data.is_a?(Hash) ? model_data[:api_id] : model_data
+    model_data[:api_id]
   end
 
   def self.available_models_for(llm_type)
     MODEL_MAP.fetch(llm_type).map do |key, value|
-      display_name = value.is_a?(Hash) ? value[:display_name] : value
+      display_name = value[:display_name]
       {
         "label" => display_name, # Display name: Show the official model name
         "value" => key # Internal ID: Model ID to pass to API (without dots)
