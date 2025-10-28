@@ -1,2 +1,6 @@
 #!/usr/bin/env ruby
-exec "foreman", "start", "-f", "Procfile.dev", *ARGV
+
+# Pass arguments to Rails server via environment variable
+ENV["RAILS_SERVER_ARGS"] = ARGV.join(" ") unless ARGV.empty?
+
+exec "foreman", "start", "-f", "Procfile.dev"
