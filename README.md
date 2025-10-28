@@ -164,22 +164,6 @@ curl -X POST "https://your-server.com/api/llm_api_keys/{uuid}/models/gpt-4/chats
   -d '{"prompt": "Hello, how are you?"}'
 ```
 
-## Deployment
-
-This application is configured for deployment using [Kamal](https://kamal-deploy.org/), Rails 8's recommended deployment tool.
-
-### Deployment Steps
-
-1. Configure your deployment settings in `config/deploy.yml`
-2. Set up your secrets in `.kamal/secrets`
-3. Deploy using Kamal:
-   ```bash
-   bin/kamal setup    # First time setup
-   bin/kamal deploy   # Deploy application
-   ```
-
-For detailed deployment instructions, refer to the [Kamal documentation](https://kamal-deploy.org/).
-
 ## Security
 
 - API keys are encrypted using AWS KMS before storage
