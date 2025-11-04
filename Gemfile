@@ -61,6 +61,9 @@ gem "llm.rb"
 # for AWS Key ManagementService (KMS)
 gem "aws-sdk-kms"
 
+# Workaround for OpenSSL 3.6.0 CRL bug
+gem "openssl", "~> 3.3", ">= 3.3.1"
+
 # Load environment variables from .env file
 gem "dotenv-rails"
 
