@@ -34,7 +34,8 @@ module LlmRbFacade
       bot = LLM::Bot.new llm, model: model_id
       messages = bot.chat { it.user prompt }
 
-      messages.map { it.content }.join "\n"
+      # messages[0] is the prompt so skip it, messages[1] represents the response message
+      messages[1]&.content || ""
     end
   end
 end
