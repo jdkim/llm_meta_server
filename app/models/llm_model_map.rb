@@ -17,7 +17,7 @@ class LlmModelMap
     "claude-sonnet-3-7" => { api_id: "claude-3-7-sonnet-latest", display_name: "Claude Sonnet 3.7" },
     "claude-opus-4-0" => { api_id: "claude-opus-4-0", display_name: "Claude Opus 4" },
     "claude-3-5-haiku-latest" => { api_id: "claude-3-5-haiku-latest", display_name: "Claude 3.5 Haiku" },
-    "claude-3-haiku" => { api_id: "claude-3-haiku-20240307", display_name: "Claude 3 Haiku" },
+    "claude-3-haiku" => { api_id: "claude-3-haiku-20240307", display_name: "Claude 3 Haiku" }
   }
   MODEL_MAP_GOOGLE = {
     # Google Gemini Models
