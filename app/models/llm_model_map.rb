@@ -10,16 +10,14 @@ class LlmModelMap
   }
   MODEL_MAP_ANTHROPIC = {
     # Anthropic Models
-    "claude-opus-4-20250514" => { api_id: "claude-opus-4-20250514", display_name: "Claude Opus 4" },
-    "claude-opus-4-1-20250513" => { api_id: "claude-opus-4-1-20250513", display_name: "Claude Opus 4.1" },
-    "claude-sonnet-4-20250514" => { api_id: "claude-sonnet-4-20250514", display_name: "Claude Sonnet 4" },
-    "claude-sonnet-4-5-20250929" => { api_id: "claude-sonnet-4-5-20250929", display_name: "Claude Sonnet 4.5" },
-    "claude-3-5-sonnet-20241022" => { api_id: "claude-3-5-sonnet-20241022", display_name: "Claude 3.5 Sonnet" },
-    "claude-3-5-sonnet-20240620" => { api_id: "claude-3-5-sonnet-20240620", display_name: "Claude 3.5 Sonnet (Legacy)" },
-    "claude-3-5-haiku-20241022" => { api_id: "claude-3-5-haiku-20241022", display_name: "Claude 3.5 Haiku" },
-    "claude-3-opus-20240229" => { api_id: "claude-3-opus-20240229", display_name: "Claude 3 Opus" },
-    "claude-3-sonnet-20240229" => { api_id: "claude-3-sonnet-20240229", display_name: "Claude 3 Sonnet" },
-    "claude-3-haiku-20240307" => { api_id: "claude-3-haiku-20240307", display_name: "Claude 3 Haiku" }
+    "claude-sonnet-4-5" => { api_id: "claude-sonnet-4-5", display_name: "Claude Sonnet 4.5" },
+    "claude-haiku-4-5" => { api_id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5" },
+    "claude-opus-4-1" => { api_id: "claude-opus-4-1", display_name: "Claude Opus 4.1" },
+    "claude-sonnet-4-0" => { api_id: "claude-sonnet-4-0", display_name: "Claude Sonnet 4" },
+    "claude-sonnet-3-7" => { api_id: "claude-3-7-sonnet-latest", display_name: "Claude Sonnet 3.7" },
+    "claude-opus-4-0" => { api_id: "claude-opus-4-0", display_name: "Claude Opus 4" },
+    "claude-3-5-haiku-latest" => { api_id: "claude-3-5-haiku-latest", display_name: "Claude 3.5 Haiku" },
+    "claude-3-haiku" => { api_id: "claude-3-haiku-20240307", display_name: "Claude 3 Haiku" },
   }
   MODEL_MAP_GOOGLE = {
     # Google Gemini Models
