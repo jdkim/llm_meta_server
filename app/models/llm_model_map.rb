@@ -23,11 +23,11 @@ class LlmModelMap
   }
   MODEL_MAP_GOOGLE = {
     # Google Gemini Models
-    "gemini-2-5-pro" => { api_id: "models/gemini-2.5-pro", display_name: "Gemini 2.5 Pro" },
-    "gemini-2-5-flash" => { api_id: "models/gemini-2.5-flash", display_name: "Gemini 2.5 Flash" },
-    "gemini-2-5-flash-lite" => { api_id: "models/gemini-2.5-flash-lite", display_name: "Gemini 2.5 Flash Lite" },
-    "gemini-2-0-flash" => { api_id: "models/gemini-2.0-flash", display_name: "Gemini 2.0 Flash" },
-    "gemini-2-0-flash-lite" => { api_id: "models/gemini-2.0-flash-lite", display_name: "Gemini 2.0 Flash Lite" }
+    "gemini-2-5-pro" => { api_id: "gemini-2.5-pro", display_name: "Gemini 2.5 Pro" },
+    "gemini-2-5-flash" => { api_id: "gemini-2.5-flash", display_name: "Gemini 2.5 Flash" },
+    "gemini-2-5-flash-lite" => { api_id: "gemini-2.5-flash-lite", display_name: "Gemini 2.5 Flash Lite" },
+    "gemini-2-0-flash" => { api_id: "gemini-2.0-flash", display_name: "Gemini 2.0 Flash" },
+    "gemini-2-0-flash-lite" => { api_id: "gemini-2.0-flash-lite", display_name: "Gemini 2.0 Flash Lite" }
   }
   MODEL_MAP_OLLAMA = {
     # Ollama Models
