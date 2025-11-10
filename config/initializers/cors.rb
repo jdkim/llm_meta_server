@@ -11,7 +11,7 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
 
     resource "/api/*",
       headers: :any,
-      methods: [ :get, :post, :put, :patch, :delete, :options, :head ],
+      methods: [ :get, :post ],
       expose: [ "Content-Type", "Authorization" ],
       credentials: false  # Corresponds to credentials: 'omit'
   end
