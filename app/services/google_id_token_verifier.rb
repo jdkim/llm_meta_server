@@ -33,8 +33,6 @@ class GoogleIdTokenVerifier
     raise Google::Auth::IDTokens::VerificationError, "Token verification failed: #{last_error&.message}"
   rescue ArgumentError
     raise  # Re-raise ArgumentError as is
-  rescue StandardError => e
-    raise Google::Auth::IDTokens::VerificationError, "Unexpected error: #{e.message}"
   end
 
   private
