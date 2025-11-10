@@ -1,6 +1,6 @@
 class GoogleIdTokenVerifier
-  def initialize(client_ids: nil)
-    @client_ids = client_ids || parse_client_ids
+  def initialize
+    @client_ids = parse_client_ids
   end
 
   def verify(token)
