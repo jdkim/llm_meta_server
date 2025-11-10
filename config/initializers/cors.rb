@@ -4,9 +4,7 @@
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
     # Development environment
-    origins "localhost:3001",
-            "127.0.0.1:3001",
-            "http://localhost:3001",
+    origins "http://localhost:3001",
             "http://127.0.0.1:3001"
 
     resource "/api/*",
