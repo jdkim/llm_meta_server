@@ -30,11 +30,11 @@ class GoogleIdTokenVerifier
     end
 
     # If verification failed with all CLIENT_IDs
-    raise GoogleIdTokenError, "Token verification failed: #{last_error&.message}"
+    raise Google::Auth::IDTokens::VerificationError, "Token verification failed: #{last_error&.message}"
   rescue ArgumentError
     raise  # Re-raise ArgumentError as is
   rescue StandardError => e
-    raise GoogleIdTokenError, "Unexpected error: #{e.message}"
+    raise Google::Auth::IDTokens::VerificationError, "Unexpected error: #{e.message}"
   end
 
   private
@@ -55,12 +55,12 @@ class GoogleIdTokenVerifier
   def validate_payload(payload)
     # Check email verification status
     unless payload["email_verified"]
-      raise GoogleIdTokenError, "Email is not verified"
+      raise Google::Auth::IDTokens::VerificationError, "Email is not verified"
     end
 
     # Check existence of sub field (Google Provider ID)
     if payload["sub"].blank?
-      raise GoogleIdTokenError, "Google Provider ID (sub) is missing"
+      raise Google::Auth::IDTokens::VerificationError, "Google Provider ID (sub) is missing"
     end
   end
 end
