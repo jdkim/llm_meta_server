@@ -1,6 +1,3 @@
-require "googleauth"
-require "googleauth/id_tokens"
-
 class GoogleIdTokenVerifier
   def initialize(client_ids: nil)
     @client_ids = client_ids || parse_client_ids
