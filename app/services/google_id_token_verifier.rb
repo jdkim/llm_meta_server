@@ -27,14 +27,9 @@ class GoogleIdTokenVerifier
   private
 
   def parse_client_ids
-    # Use ALLOWED_GOOGLE_CLIENT_IDS if configured, otherwise use only GOOGLE_CLIENT_ID
-    if ENV["ALLOWED_GOOGLE_CLIENT_IDS"].present?
-      ENV["ALLOWED_GOOGLE_CLIENT_IDS"].split(",").map(&:strip)
-    elsif ENV["GOOGLE_CLIENT_ID"].present?
-      [ ENV["GOOGLE_CLIENT_ID"] ]
-    else
-      []
-    end
+    # Use ALLOWED_GOOGLE_CLIENT_IDS if configured, otherwise raise error
+    raise ArgumentError, "ALLOWED_GOOGLE_CLIENT_IDS environment variable is not set" if ENV["ALLOWED_GOOGLE_CLIENT_IDS"].blank?
+    ENV["ALLOWED_GOOGLE_CLIENT_IDS"].split(",").map(&:strip)
   end
 
   private
