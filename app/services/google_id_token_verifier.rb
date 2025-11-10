@@ -7,29 +7,21 @@ class GoogleIdTokenVerifier
     raise ArgumentError, "Token is required" if token.blank?
     raise ArgumentError, "Google OAuth client ID is not configured" if @client_ids.blank?
 
-    # Try verification with each CLIENT_ID
-    last_error = nil
-    @client_ids.each do |client_id|
+    payload = @client_ids.detect do |client_id|
       begin
-        # Use official googleauth gem functionality
-        payload = Google::Auth::IDTokens.verify_oidc(token, aud: client_id)
-
-        # Additional validation
-        validate_payload(payload)
-
+        found = Google::Auth::IDTokens.verify_oidc token, aud: client_id
+        validate_payload found
         Rails.logger.debug "Token verified successfully with client_id: #{client_id}"
-        return payload
+        true
       rescue Google::Auth::IDTokens::VerificationError => e
-        last_error = e
         Rails.logger.debug "Verification failed with client_id #{client_id}: #{e.message}"
-        next
+        false
       end
     end
 
     # If verification failed with all CLIENT_IDs
-    raise Google::Auth::IDTokens::VerificationError, "Token verification failed: #{last_error&.message}"
-  rescue ArgumentError
-    raise  # Re-raise ArgumentError as is
+    raise Google::Auth::IDTokens::VerificationError, "Token verification failed: #{last_error&.message}" unless payload
+    payload
   end
 
   private
