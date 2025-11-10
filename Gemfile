@@ -58,6 +58,9 @@ gem "httparty"
 # JWT token
 gem "jwt"
 
+# Google Auth library for ID token verification
+gem "googleauth"
+
 # LLM interface
 gem "llm.rb"
 
