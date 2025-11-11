@@ -11,10 +11,12 @@ class GoogleIdTokenVerifier
       payload = Google::Auth::IDTokens.verify_oidc @token, aud: @client_id
       validate_payload payload
       Rails.logger.debug "Token verified successfully with client_id: #{@client_id}"
-      true
+      payload
+    rescue Google::Auth::IDTokens::AudienceMismatchError => e
+      nil
     rescue Google::Auth::IDTokens::VerificationError => e
       Rails.logger.debug "Verification failed with client_id #{@client_id}: #{e.message}"
-      false
+      nil
     end
   end
 
@@ -23,10 +25,12 @@ class GoogleIdTokenVerifier
     def verify_all(token)
       raise ArgumentError, "Token is required" if token.blank?
 
+      payload = nil
       client_ids = parse_client_ids
       client_ids.any? do |client_id|
-        new(client_id, token).verify
+        payload = new(client_id, token).verify
       end
+      payload
     end
 
     private
