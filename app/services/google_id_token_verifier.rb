@@ -18,13 +18,24 @@ class GoogleIdTokenVerifier
     end
   end
 
-  # Verify token with all client_ids set in environment variables
-  def self.verify_all(token)
-    raise ArgumentError, "Token is required" if token.blank?
+  class << self
+    # Verify token with all client_ids set in environment variables
+    def verify_all(token)
+      raise ArgumentError, "Token is required" if token.blank?
 
-    client_ids = parse_client_ids
-    client_ids.any? do |client_id|
-      new(client_id, token).verify
+      client_ids = parse_client_ids
+      client_ids.any? do |client_id|
+        new(client_id, token).verify
+      end
+    end
+
+    private
+
+    def parse_client_ids
+      ids = ENV["ALLOWED_GOOGLE_CLIENT_IDS"]
+      # Use ALLOWED_GOOGLE_CLIENT_IDS if configured, otherwise raise error
+      raise ArgumentError, "ALLOWED_GOOGLE_CLIENT_IDS environment variable is not set" if ids.blank?
+      ids.split(",").map(&:strip)
     end
   end
 
@@ -40,12 +51,5 @@ class GoogleIdTokenVerifier
     if payload["sub"].blank?
       raise Google::Auth::IDTokens::VerificationError, "Google Provider ID (sub) is missing"
     end
-  end
-
-  def self.parse_client_ids
-    ids = ENV["ALLOWED_GOOGLE_CLIENT_IDS"]
-    # Use ALLOWED_GOOGLE_CLIENT_IDS if configured, otherwise raise error
-    raise ArgumentError, "ALLOWED_GOOGLE_CLIENT_IDS environment variable is not set" if ids.blank?
-    ids.split(",").map(&:strip)
   end
 end
