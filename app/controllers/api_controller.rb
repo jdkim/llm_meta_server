@@ -5,8 +5,7 @@ class ApiController < ActionController::API
   # CSRF protection is not required (using Google ID Token authentication)
   # CORS is handled by Rack::Cors middleware (see config/initializers/cors.rb)
 
-  rescue_from JWT::DecodeError, with: :invalid_token
-  rescue_from JWT::ExpiredSignature, with: :expired_signature
+  rescue_from Google::Auth::IDTokens::VerificationError, with: :unauthorized
   rescue_from ActionController::ParameterMissing, with: :parameter_missing
   rescue_from ActiveRecord::RecordNotFound, with: :unauthorized
 
@@ -16,14 +15,6 @@ class ApiController < ActionController::API
 
   def unauthorized(exception)
     render json: { error: "Unauthorized" }, status: :unauthorized
-  end
-
-  def invalid_token(exception)
-    render json: { error: "Invalid token", message: exception.message }, status: :unauthorized
-  end
-
-  def expired_signature(exception)
-    render json: { error: "Token has expired", message: exception.message }, status: :bad_request
   end
 
   def parameter_missing(exception)
