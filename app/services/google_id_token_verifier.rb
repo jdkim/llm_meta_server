@@ -28,16 +28,6 @@ class GoogleIdTokenVerifier
 
   private
 
-  def self.parse_client_ids
-    ids = ENV["ALLOWED_GOOGLE_CLIENT_IDS"]
-    # Use ALLOWED_GOOGLE_CLIENT_IDS if configured, otherwise raise error
-    raise ArgumentError, "ALLOWED_GOOGLE_CLIENT_IDS environment variable is not set" if ids.blank?
-    ids.split(",").map(&:strip)
-  end
-
-  private
-
-
   def validate_payload(payload)
     # Check email verification status
     unless payload["email_verified"]
@@ -48,5 +38,12 @@ class GoogleIdTokenVerifier
     if payload["sub"].blank?
       raise Google::Auth::IDTokens::VerificationError, "Google Provider ID (sub) is missing"
     end
+  end
+
+  def self.parse_client_ids
+    ids = ENV["ALLOWED_GOOGLE_CLIENT_IDS"]
+    # Use ALLOWED_GOOGLE_CLIENT_IDS if configured, otherwise raise error
+    raise ArgumentError, "ALLOWED_GOOGLE_CLIENT_IDS environment variable is not set" if ids.blank?
+    ids.split(",").map(&:strip)
   end
 end
