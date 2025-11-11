@@ -13,6 +13,13 @@ class GoogleIdTokenVerifier
       Rails.logger.debug "Token verified successfully with client_id: #{@client_id}"
       payload
     rescue Google::Auth::IDTokens::AudienceMismatchError => e
+      Rails.logger.debug "Token audience mismatch for client_id #{@client_id}: #{e.message}"
+      nil
+    rescue Google::Auth::IDTokens::AuthorizedPartyMismatchError => e
+      Rails.logger.debug "Token authorized party mismatch for client_id #{@client_id}: #{e.message}"
+      nil
+    rescue Google::Auth::IDTokens::IssuerMismatchError => e
+      Rails.logger.debug "Token issuer mismatch for client_id #{@client_id}: #{e.message}"
       nil
     rescue Google::Auth::IDTokens::VerificationError => e
       Rails.logger.debug "Verification failed with client_id #{@client_id}: #{e.message}"
