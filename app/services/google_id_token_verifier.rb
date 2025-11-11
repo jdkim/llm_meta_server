@@ -1,35 +1,14 @@
 class GoogleIdTokenVerifier
-  def initialize
-    @client_ids = parse_client_ids
+  attr_reader :client, :token
+  def initialize(client, token)
+    @client = client
+    @token = token
   end
 
-  def verify(token)
-    raise ArgumentError, "Token is required" if token.blank?
-    raise ArgumentError, "Google OAuth client ID is not configured" if @client_ids.blank?
-
-    payload = @client_ids.detect do |client_id|
-      verify_with? client_id, token
-    end
-
-    # If verification failed with all CLIENT_IDs
-    raise Google::Auth::IDTokens::VerificationError, "Token verification failed: #{last_error&.message}" unless payload
-    payload
-  end
-
-  private
-
-  def parse_client_ids
-    # Use ALLOWED_GOOGLE_CLIENT_IDS if configured, otherwise raise error
-    raise ArgumentError, "ALLOWED_GOOGLE_CLIENT_IDS environment variable is not set" if ENV["ALLOWED_GOOGLE_CLIENT_IDS"].blank?
-    ENV["ALLOWED_GOOGLE_CLIENT_IDS"].split(",").map(&:strip)
-  end
-
-  private
-
-  def verify_with?(client_id, token)
+  def verify
     begin
-      found = Google::Auth::IDTokens.verify_oidc token, aud: client_id
-      validate_payload found
+      payload = Google::Auth::IDTokens.verify_oidc @token, aud: @client_id
+      validate_payload payload
       Rails.logger.debug "Token verified successfully with client_id: #{client_id}"
       true
     rescue Google::Auth::IDTokens::VerificationError => e
@@ -37,6 +16,27 @@ class GoogleIdTokenVerifier
       false
     end
   end
+
+  def self.verify_all(token)
+    raise ArgumentError, "Token is required" if token.blank?
+
+    client_ids = parse_client_ids
+    client_ids.any? do |client_id|
+      new(client_id, token).verify
+    end
+  end
+
+  private
+
+  def self.parse_client_ids
+    ids = ENV["ALLOWED_GOOGLE_CLIENT_IDS"]
+    # Use ALLOWED_GOOGLE_CLIENT_IDS if configured, otherwise raise error
+    raise ArgumentError, "ALLOWED_GOOGLE_CLIENT_IDS environment variable is not set" if ids.blank?
+    ids.split(",").map(&:strip)
+  end
+
+  private
+
 
   def validate_payload(payload)
     # Check email verification status
