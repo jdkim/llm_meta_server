@@ -1,23 +1,20 @@
+require_relative "../services/google_id_token_verifier"
+
 class ApiController < ActionController::API
   # Base controller for API endpoints
-  # CSRF protection is not required (using token authentication)
+  # CSRF protection is not required (using Google ID Token authentication)
+  # CORS is handled by Rack::Cors middleware (see config/initializers/cors.rb)
 
-  JWT_ALGORITHM = "HS256"
+  rescue_from Google::Auth::IDTokens::VerificationError, with: :unauthorized
+  rescue_from ActionController::ParameterMissing, with: :parameter_missing
+  rescue_from ActiveRecord::RecordNotFound, with: :unauthorized
 
   def current_user
-    @current_user ||= User.find_by!(google_id: google_id)
+    @current_user ||= User.find_by!(google_id: google_provider_id)
   end
 
   def unauthorized(exception)
     render json: { error: "Unauthorized" }, status: :unauthorized
-  end
-
-  def invalid_token(exception)
-    render json: { error: "Invalid token", message: exception.message }, status: :unauthorized
-  end
-
-  def expired_signature(exception)
-    render json: { error: "Token has expired", message: exception.message }, status: :bad_request
   end
 
   def parameter_missing(exception)
@@ -26,11 +23,12 @@ class ApiController < ActionController::API
 
   private
 
-  def google_id
-    payload = jwt_payload bearer_token
-    raise ActionController::ParameterMissing, "google_id is missing" if payload["google_id"].blank?
+  def google_provider_id
+    payload = verify_google_id_token bearer_token
+    sub = payload["sub"]
+    raise ActionController::ParameterMissing, "Google Provider ID (sub) is missing" if sub.blank?
 
-    payload["google_id"]
+    sub
   end
 
   def bearer_token
@@ -40,14 +38,8 @@ class ApiController < ActionController::API
     header.split(" ").last if header.start_with?("Bearer ")
   end
 
-  def jwt_payload(token)
-    raise JWT::DecodeError, "Token is missing" if token.blank?
-
-    JWT.decode(
-      token,
-      Rails.application.credentials.secret_key_base,
-      true,
-      algorithm: JWT_ALGORITHM
-    ).first
+  def verify_google_id_token(token)
+    raise ActionController::ParameterMissing, "Token is missing" if token.blank?
+    GoogleIdTokenVerifier.verify_all token
   end
 end

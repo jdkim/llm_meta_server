@@ -1,7 +1,5 @@
 class Api::ChatsController < ApiController
-  rescue_from JWT::DecodeError, with: :invalid_token
-  rescue_from JWT::ExpiredSignature, with: :expired_signature
-  rescue_from ActiveRecord::RecordNotFound, with: :unauthorized
+  # Google ID Token authentication required
   rescue_from LLM::RateLimitError, with: :rate_limit_error
 
   def create
