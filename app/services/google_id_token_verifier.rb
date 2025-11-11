@@ -5,6 +5,7 @@ class GoogleIdTokenVerifier
     @token = token
   end
 
+  # Verify token with a single client_id
   def verify
     begin
       payload = Google::Auth::IDTokens.verify_oidc @token, aud: @client_id
@@ -17,6 +18,7 @@ class GoogleIdTokenVerifier
     end
   end
 
+  # Verify token with all client_ids set in environment variables
   def self.verify_all(token)
     raise ArgumentError, "Token is required" if token.blank?
 
