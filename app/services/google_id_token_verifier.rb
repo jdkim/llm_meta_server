@@ -1,7 +1,7 @@
 class GoogleIdTokenVerifier
   attr_reader :client, :token
-  def initialize(client, token)
-    @client = client
+  def initialize(client_id, token)
+    @client_id = client_id
     @token = token
   end
 
@@ -10,10 +10,10 @@ class GoogleIdTokenVerifier
     begin
       payload = Google::Auth::IDTokens.verify_oidc @token, aud: @client_id
       validate_payload payload
-      Rails.logger.debug "Token verified successfully with client_id: #{client_id}"
+      Rails.logger.debug "Token verified successfully with client_id: #{@client_id}"
       true
     rescue Google::Auth::IDTokens::VerificationError => e
-      Rails.logger.debug "Verification failed with client_id #{client_id}: #{e.message}"
+      Rails.logger.debug "Verification failed with client_id #{@client_id}: #{e.message}"
       false
     end
   end
