@@ -32,6 +32,8 @@ class GoogleIdTokenVerifier
     def verify_all(token)
       raise ArgumentError, "Token is required" if token.blank?
 
+      pre_verify token
+
       payload = nil
       client_ids = parse_client_ids
       client_ids.any? do |client_id|
@@ -41,6 +43,59 @@ class GoogleIdTokenVerifier
     end
 
     private
+
+    # Pre-verify JWT token
+    #
+    # This method performs basic JWT validation (signature, expiration, issuer, etc.)
+    # before calling Google::Auth::IDTokens.verify_oidc.
+    # This enables early detection of exceptions such as JWT::DecodeError and
+    # JWT::ExpiredSignature, allowing for more detailed error handling.
+    #
+    # @param token [String] The Google ID token to verify (in JWT format)
+    # @return [nil] Returns nil if verification succeeds (only when no exception is raised)
+    # @raise [JWT::DecodeError] If token decoding fails
+    # @raise [JWT::ExpiredSignature] If token has expired
+    # @raise [JWT::VerificationError] If signature verification fails
+    # @raise [RuntimeError] If fetching Google's public keys fails
+    def pre_verify(token)
+      # Decode and verify the JWT token
+      # - algorithms: Only allow RS256 algorithm (signature method used by Google)
+      # - jwks: Use the fetched public key set to verify the signature
+      # - verify_iss: Enable issuer verification
+      # - iss: Expected issuer (only allow Google)
+      # - verify_aud: Disable audience verification (validated separately in the verify method)
+      JWT.decode token,
+                 nil,
+                 true,
+                 algorithms: [ "RS256" ],
+                 jwks: google_cert_jwks,
+                 verify_iss: true,
+                 iss: "https://accounts.google.com",
+                 verify_aud: false
+      Rails.logger.debug "JWT token pre-verification passed"
+    end
+
+    # Fetch Google's public keys
+    # Google provides public keys via a JWKS (JSON Web Key Set) endpoint,
+    # which is used to verify the token's signature
+    # TODO: Implement certificate caching to improve performance
+    def google_cert_jwks
+      url = URI.parse("https://www.googleapis.com/oauth2/v3/certs")
+      http = Net::HTTP.new(url.host, url.port)
+      http.use_ssl = true
+      request = Net::HTTP::Get.new(url.request_uri)
+      response = http.request(request)
+
+      # Verify that the HTTP request was successful
+      unless response.code.to_i == 200
+        raise "Failed to fetch Google's public keys: HTTP #{response.code}"
+      end
+
+      # Parse the response body and create a JWKS object
+      body = JSON.parse(response.body)
+
+      JWT::JWK::Set.new(body)
+    end
 
     def parse_client_ids
       ids = ENV["ALLOWED_GOOGLE_CLIENT_IDS"]
