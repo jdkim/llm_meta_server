@@ -78,6 +78,7 @@ class GoogleIdTokenVerifier
     # Fetch Google's public keys
     # Google provides public keys via a JWKS (JSON Web Key Set) endpoint,
     # which is used to verify the token's signature
+    # TODO: Implement certificate caching to improve performance
     def google_cert_jwks
       url = URI.parse("https://www.googleapis.com/oauth2/v3/certs")
       http = Net::HTTP.new(url.host, url.port)
