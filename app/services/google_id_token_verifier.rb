@@ -58,9 +58,27 @@ class GoogleIdTokenVerifier
     # @raise [JWT::VerificationError] If signature verification fails
     # @raise [RuntimeError] If fetching Google's public keys fails
     def pre_verify(token)
-      # Fetch Google's public keys
-      # Google provides public keys via a JWKS (JSON Web Key Set) endpoint,
-      # which is used to verify the token's signature
+      # Decode and verify the JWT token
+      # - algorithms: Only allow RS256 algorithm (signature method used by Google)
+      # - jwks: Use the fetched public key set to verify the signature
+      # - verify_iss: Enable issuer verification
+      # - iss: Expected issuer (only allow Google)
+      # - verify_aud: Disable audience verification (validated separately in the verify method)
+      JWT.decode token,
+                 nil,
+                 true,
+                 algorithms: [ "RS256" ],
+                 jwks: google_cert_jwks,
+                 verify_iss: true,
+                 iss: "https://accounts.google.com",
+                 verify_aud: false
+      Rails.logger.debug "JWT token pre-verification passed"
+    end
+
+    # Fetch Google's public keys
+    # Google provides public keys via a JWKS (JSON Web Key Set) endpoint,
+    # which is used to verify the token's signature
+    def google_cert_jwks
       url = URI.parse("https://www.googleapis.com/oauth2/v3/certs")
       http = Net::HTTP.new(url.host, url.port)
       http.use_ssl = true
@@ -74,23 +92,8 @@ class GoogleIdTokenVerifier
 
       # Parse the response body and create a JWKS object
       body = JSON.parse(response.body)
-      jwks = JWT::JWK::Set.new(body)
 
-      # Decode and verify the JWT token
-      # - algorithms: Only allow RS256 algorithm (signature method used by Google)
-      # - jwks: Use the fetched public key set to verify the signature
-      # - verify_iss: Enable issuer verification
-      # - iss: Expected issuer (only allow Google)
-      # - verify_aud: Disable audience verification (validated separately in the verify method)
-      JWT.decode token,
-                 nil,
-                 true,
-                 algorithms: [ "RS256" ],
-                 jwks: jwks,
-                 verify_iss: true,
-                 iss: "https://accounts.google.com",
-                 verify_aud: false
-      Rails.logger.debug "JWT token pre-verification passed"
+      JWT::JWK::Set.new(body)
     end
 
     def parse_client_ids
