@@ -85,10 +85,10 @@ class GoogleIdTokenVerifier
       JWT.decode token,
                  nil,
                  true,
-                 algorithms: ['RS256'],
+                 algorithms: [ "RS256" ],
                  jwks: jwks,
                  verify_iss: true,
-                 iss: 'https://accounts.google.com',
+                 iss: "https://accounts.google.com",
                  verify_aud: false
       Rails.logger.debug "JWT token pre-verification passed"
     end
