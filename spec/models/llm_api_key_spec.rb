@@ -174,7 +174,7 @@ RSpec.describe LlmApiKey, type: :model do
     it 'includes the correct values', :aggregate_failures do
       expect(subject['uuid']).to eq(llm_api_key.uuid)
       expect(subject['llm_type']).to eq("openai")
-      expect(subject['description']).to eq("Test API Key")
+      expect(subject['description']).to eq("[OpenAI] Test API Key")
       expect(subject['available_models']).to eq([
         { "label" => "gpt-4o", "value" => "gpt-4o" },
         { "label" => "gpt-4o-mini", "value" => "gpt-4o-mini" },
@@ -195,7 +195,7 @@ RSpec.describe LlmApiKey, type: :model do
       }
 
       it 'includes nil description' do
-        expect(subject['description']).to be_nil
+        expect(subject['description']).to eq("[Anthropic] ")
         expect(subject['available_models']).to eq([
           { "label" => "claude-opus-4-20250514", "value" => "claude-opus-4-20250514" },
           { "label" => "claude-opus-4-1-20250513", "value" => "claude-opus-4-1-20250513" },
