@@ -31,13 +31,14 @@ class LlmApiKey < ApplicationRecord
     LLM_SERVICES[self.llm_type.downcase]
   end
 
-  def llm_type_for_display
-    self[:llm_type].capitalize.gsub("Openai", "OpenAI")
+  def llm_type_for_display(llm_type = self[:llm_type])
+    llm_type.capitalize.gsub("Openai", "OpenAI")
   end
 
   def as_json(options = {})
-    super({ only: %i[uuid llm_type description] }.merge(options))
-      .merge("available_models" => LlmModelMap.available_models_for(llm_type))
+    json = super({ only: %i[uuid llm_type description] }.merge(options))
+    json["description"] = "[#{llm_type_for_display llm_type}] #{description}"
+    json.merge("available_models" => LlmModelMap.available_models_for(llm_type))
   end
 
   def self.llm_types_for_select
