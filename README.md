@@ -64,18 +64,94 @@ No external middleware services (Redis, PostgreSQL, etc.) are required for basic
 
 3. **Set up environment variables**
    
-   Create a `.env` file in the root directory with the following variables:
+   Create a `.env` file in the root directory with the following required variables:
+   
    ```bash
-   # Google OAuth (for user authentication)
+   # AWS Configuration (required for API key encryption)
+   AWS_ACCESS_KEY_ID=your_aws_access_key_id
+   AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+   AWS_REGION=your_aws_region
+   
+   # AWS KMS Key for encryption (required)
+   # Use Key ID format (recommended): 1234abcd-12ab-34cd-56ef-1234567890ab
+   # or Alias format: alias/llm-api-meta-server-key
+   KMS_KEY_ID=your_kms_key_id
+   
+   # Google OAuth2 Configuration (required for user authentication)
    GOOGLE_CLIENT_ID=your_google_client_id
    GOOGLE_CLIENT_SECRET=your_google_client_secret
    
-   # AWS KMS (for API key encryption)
-   AWS_ACCESS_KEY_ID=your_aws_access_key
-   AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-   AWS_REGION=your_aws_region
-   AWS_KMS_KEY_ID=your_kms_key_id
+   # Allowed Google Client IDs (comma-separated, required)
+   # Include all Google client IDs of external services authorized to use this LLM Meta Server
+   ALLOWED_GOOGLE_CLIENT_IDS=external_service_1_client_id,external_service_2_client_id
+   
+   # Application Host (required)
+   # The base URL where your application is hosted
+   APP_HOST=http://localhost:3000
    ```
+   
+   **Environment Variable Descriptions:**
+   
+   | Variable | Required | Description |
+   |----------|----------|-------------|
+   | `AWS_ACCESS_KEY_ID` | Yes | AWS access key for KMS encryption |
+   | `AWS_SECRET_ACCESS_KEY` | Yes | AWS secret key for KMS encryption |
+   | `AWS_REGION` | Yes | AWS region where your KMS key is located |
+   | `KMS_KEY_ID` | Yes | AWS KMS key ID or alias for encrypting API keys |
+   | `GOOGLE_CLIENT_ID` | Yes | Google OAuth2 client ID for user authentication |
+   | `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth2 client secret |
+   | `ALLOWED_GOOGLE_CLIENT_IDS` | Yes | Comma-separated list of Google client IDs for external services authorized to use this LLM Meta Server |
+   | `APP_HOST` | Yes | Base URL of your application |
+   
+   ### Google OAuth2 Setup Instructions
+   
+   To obtain the required Google OAuth2 credentials:
+   
+   1. **Create a Google Cloud Project** (if you don't have one):
+      - Go to [Google Cloud Console](https://console.cloud.google.com/)
+      - Create a new project or select an existing one
+   
+   2. **Enable Google+ API**:
+      - Navigate to "APIs & Services" > "Library"
+      - Search for "Google+ API" and enable it
+   
+   3. **Create OAuth 2.0 Credentials**:
+      - Go to "APIs & Services" > "Credentials"
+      - Click "Create Credentials" > "OAuth 2.0 Client IDs"
+      - Choose "Web application" as the application type
+   
+   4. **Configure Authorized Redirect URIs**:
+      
+      Add the following redirect URIs to your OAuth client configuration:
+      
+      **For Development (localhost):**
+      ```
+      http://localhost:3000/users/auth/google_oauth2/callback
+      ```
+      
+      **For Production:**
+      ```
+      https://yourdomain.com/users/auth/google_oauth2/callback
+      ```
+      
+      Replace `yourdomain.com` with your actual production domain.
+   
+   5. **Get Your Credentials**:
+      - After creating the OAuth client, copy the "Client ID" and "Client Secret"
+      - Use these values for `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
+   
+   6. **Configure Allowed Client IDs**:
+      - The `ALLOWED_GOOGLE_CLIENT_IDS` should include Google client IDs of external services that are authorized to use this LLM Meta Server
+      - This is different from `GOOGLE_CLIENT_ID` which is used for user authentication on this server
+      - Include client IDs of all external applications/services that will consume this meta-server's API:
+        ```bash
+        ALLOWED_GOOGLE_CLIENT_IDS=external_app_client_id,mobile_app_client_id,web_service_client_id
+        ```
+   
+   **Important Security Notes:**
+   - Never commit OAuth credentials to version control
+   - Use different OAuth clients for development and production environments
+   - Regularly rotate your client secrets for production applications
 
 4. **Start the development environment**
    ```bash
