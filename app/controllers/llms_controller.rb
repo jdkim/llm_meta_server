@@ -29,4 +29,3 @@ class LlmsController < ApplicationController
     end
   end
 end
-
