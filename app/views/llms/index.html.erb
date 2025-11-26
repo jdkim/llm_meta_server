@@ -1,0 +1,92 @@
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="mb-6">
+    <div class="flex justify-between items-center">
+      <h2 class="text-2xl font-bold text-gray-900">Available LLM Platforms and Models</h2>
+      <% if user_signed_in? %>
+        <%= link_to "Back to Profile", user_path(current_user), class: "text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-200 transition-colors" %>
+      <% else %>
+        <%= link_to "Home", root_path, class: "text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-200 transition-colors" %>
+      <% end %>
+    </div>
+    <p class="mt-2 text-sm text-gray-600">
+      List of supported LLM platforms and their available models
+    </p>
+  </div>
+
+  <div class="space-y-6">
+    <% if @llms.any? %>
+      <% @llms.each do |llm| %>
+        <div class="bg-white shadow-md rounded-lg overflow-hidden">
+          <div class="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xl font-semibold text-gray-900">
+                <%= llm.name %>
+              </h3>
+              <span class="text-xs text-gray-500 bg-white px-3 py-1 rounded-full">
+                <%= pluralize(llm.llm_models.count, 'model') %>
+              </span>
+            </div>
+          </div>
+          <div class="px-6 py-4">
+            <% if llm.llm_models.any? %>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <% llm.llm_models.each do |model| %>
+                  <div class="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-sm transition-all">
+                    <div class="flex items-start">
+                      <div class="flex-shrink-0">
+                        <i class="fas fa-robot text-blue-500"></i>
+                      </div>
+                      <div class="ml-3 flex-1">
+                        <p class="text-sm font-medium text-gray-900">
+                          <%= model.display_name.presence || model.name %>
+                        </p>
+                        <p class="text-xs text-gray-500 mt-1">
+                          ID: <code class="bg-gray-200 px-1 rounded"><%= model.name %></code>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+            <% else %>
+              <div class="p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                <p class="text-gray-500 text-center text-sm">No models available for this platform</p>
+              </div>
+            <% end %>
+          </div>
+          <div class="px-6 py-3 bg-gray-50 border-t border-gray-200">
+            <div class="flex items-center justify-between text-xs text-gray-500">
+              <span>Created: <%= llm.created_at.strftime("%Y-%m-%d") %></span>
+              <span>Updated: <%= llm.updated_at.strftime("%Y-%m-%d") %></span>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    <% else %>
+      <div class="bg-white shadow-md rounded-lg overflow-hidden">
+        <div class="px-6 py-8">
+          <div class="text-center">
+            <i class="fas fa-inbox text-gray-300 text-6xl mb-4"></i>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">No LLM Platforms Available</h3>
+            <p class="text-gray-500">There are currently no LLM platforms registered in the system.</p>
+          </div>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
+    <div class="flex items-start">
+      <div class="flex-shrink-0">
+        <i class="fas fa-info-circle text-blue-500 mt-1"></i>
+      </div>
+      <div class="ml-3">
+        <h4 class="text-sm font-medium text-blue-900 mb-1">API Access</h4>
+        <p class="text-sm text-blue-700">
+          You can also access this information as JSON by requesting with <code class="bg-blue-100 px-2 py-0.5 rounded">Accept: application/json</code> header or by adding <code class="bg-blue-100 px-2 py-0.5 rounded">.json</code> to the URL.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
