@@ -176,6 +176,33 @@ bin/rails server
 bin/rails tailwindcss:watch
 ```
 
+## Database Seeding
+
+The project provides `db/seeds.rb` to populate required master data (LLM providers and their models). The seed script is idempotent and safe to rerun.
+
+### Run seeds (development)
+```bash
+bin/rails db:seed
+```
+
+### First-time setup (create DB + migrate + seed)
+```bash
+bin/rails db:setup
+```
+
+### Run seeds for a specific environment
+```bash
+RAILS_ENV=production bin/rails db:seed
+```
+
+### What gets created
+- LLM platforms: OpenAI, Anthropic, Google, Ollama
+- Their available models based on `LlmModelMap`
+
+Notes:
+- Ensure your database is migrated before seeding (`bin/rails db:migrate`).
+- Seeding does not require API keys; it only creates platform and model records.
+
 ## Running Tests
 
 This project uses RSpec for testing.
