@@ -8,22 +8,7 @@ class LlmsController < ApplicationController
       format.html # renders index.html.erb
       format.json do
         render json: {
-          llms: @llms.map do |llm|
-            {
-              id: llm.id,
-              name: llm.name,
-              created_at: llm.created_at,
-              updated_at: llm.updated_at,
-              models: llm.llm_models.map do |model|
-                {
-                  name: model.name,
-                  display_name: model.display_name,
-                  created_at: model.created_at,
-                  updated_at: model.updated_at
-                }
-              end
-            }
-          end
+          llms: @llms.map(&:as_json)
         }
       end
     end
