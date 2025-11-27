@@ -20,7 +20,13 @@ module LlmRbFacade
       # Unlike send, public_send cannot call private methods (safer)
       # Here, it calls one of :ollama, :openai, :anthropic, or :gemini based on llm_type
       # This eliminates the need for separate files for each LLM service
-      LLM.public_send llm_rb_method, key: llm_api_key.encryptable_api_key.plain_api_key
+
+      # Ollama doesn't require an API key (local service)
+      if llm_rb_method == :ollama
+        LLM.public_send llm_rb_method
+      else
+        LLM.public_send llm_rb_method, key: llm_api_key.encryptable_api_key.plain_api_key
+      end
     end
 
     def find_model_id(llm, model_name)
