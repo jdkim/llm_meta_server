@@ -76,11 +76,12 @@ RSpec.describe LlmApiKey, type: :model do
       }
     end
 
-    context 'when updating with nil encryptable_api_key, raises an error' do
+    context 'when updating with nil encryptable_api_key for Ollama' do
       let(:params) {
         {
-          llm_type: "openai",
+          llm_type: "ollama",
           encryptable_api_key: encryptable_api_key_A,
+          description: "Hoge",
           user: user
         }
       }
@@ -89,10 +90,11 @@ RSpec.describe LlmApiKey, type: :model do
         llm_api_key.save!
       end
 
-      it 'raises an ArgumentError' do
+      it 'allows nil and clears encrypted_api_key' do
         expect {
           llm_api_key.encryptable_api_key = nil
-        }.to raise_error(ArgumentError, "encryptable_api_key cannot be nil")
+        }.not_to raise_error
+        expect(llm_api_key.encrypted_api_key).to be_nil
       end
     end
   end
@@ -208,6 +210,70 @@ RSpec.describe LlmApiKey, type: :model do
           { "label" => "claude-3-sonnet-20240229", "value" => "claude-3-sonnet-20240229" },
           { "label" => "claude-3-haiku-20240307", "value" => "claude-3-haiku-20240307" }
         ])
+      end
+    end
+  end
+
+  describe 'Ollama support' do
+    describe '#ollama?' do
+      context 'when llm_type is ollama' do
+        let(:params) {
+          {
+            llm_type: "ollama",
+            description: "Local Ollama",
+            user: user
+          }
+        }
+
+        it 'returns true' do
+          expect(llm_api_key.ollama?).to be true
+        end
+      end
+
+      context 'when llm_type is not ollama' do
+        let(:params) {
+          {
+            llm_type: "openai",
+            encryptable_api_key: encryptable_api_key_A,
+            user: user
+          }
+        }
+
+        it 'returns false' do
+          expect(llm_api_key.ollama?).to be false
+        end
+      end
+    end
+
+    describe '#valid? with ollama' do
+      context 'when llm_type is ollama without encrypted_api_key' do
+        let(:params) {
+          {
+            llm_type: "ollama",
+            description: "Local Ollama (no API key required)",
+            user: user
+          }
+        }
+
+        it 'is valid without encrypted_api_key' do
+          expect(llm_api_key).to be_valid
+          expect(llm_api_key.encrypted_api_key).to be_nil
+        end
+      end
+
+      context 'when llm_type is not ollama without encrypted_api_key' do
+        let(:params) {
+          {
+            llm_type: "openai",
+            description: "Test API Key",
+            user: user
+          }
+        }
+
+        it 'is invalid without encrypted_api_key' do
+          expect(llm_api_key).not_to be_valid
+          expect(llm_api_key.errors[:encrypted_api_key]).to include("can't be blank")
+        end
       end
     end
   end
