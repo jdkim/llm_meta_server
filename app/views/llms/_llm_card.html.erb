@@ -12,9 +12,7 @@
   <div class="px-6 py-4">
     <% if llm.llm_models.any? %>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        <% llm.llm_models.each do |model| %>
-          <%= render partial: 'llms/model_card', locals: { model: model } %>
-        <% end %>
+        <%= llm.llm_models.map { |model| render partial: 'llms/model_card', locals: { model: model } }.join.html_safe %>
       </div>
     <% else %>
       <div class="p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
