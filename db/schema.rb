@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_09_18_082501) do
+ActiveRecord::Schema[8.0].define(version: 2025_11_26_090301) do
   create_table "llm_api_keys", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "llm_type", null: false
@@ -29,6 +29,8 @@ ActiveRecord::Schema[8.0].define(version: 2025_09_18_082501) do
     t.string "name", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "display_name"
+    t.string "api_id"
     t.index ["llm_id"], name: "index_llm_models_on_llm_id"
   end
 

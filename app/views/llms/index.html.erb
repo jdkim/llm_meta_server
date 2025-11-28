@@ -1,0 +1,26 @@
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="mb-6">
+    <div class="flex justify-between items-center">
+      <h2 class="text-2xl font-bold text-gray-900">Available LLM Platforms and Models</h2>
+      <% if user_signed_in? %>
+        <%= link_to "Back to Profile", user_path(current_user), class: "text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-200 transition-colors" %>
+      <% else %>
+        <%= link_to "Home", root_path, class: "text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-200 transition-colors" %>
+      <% end %>
+    </div>
+    <p class="mt-2 text-sm text-gray-600">
+      List of supported LLM platforms and their available models
+    </p>
+  </div>
+
+  <div class="space-y-6">
+    <% if @llms.any? %>
+      <%= safe_join(@llms.map { |llm| render partial: 'llm_card', locals: { llm: llm } }) %>
+    <% else %>
+      <%= render partial: 'empty_state' %>
+    <% end %>
+  </div>
+
+  <%= render partial: 'api_info' %>
+</div>
+
