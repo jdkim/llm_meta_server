@@ -5,7 +5,7 @@ class LlmApiKey < ApplicationRecord
   validates :llm_type, presence: true
   validate :llm_type_must_be_supported
   validates :description, length: { maximum: 255 }, allow_blank: true
-  validates :encrypted_api_key, presence: true, unless: :ollama?
+  validates :encrypted_api_key, presence: true, unless: -> { llm_type == "ollama" }
 
   before_validation :set_uuid
   before_validation :initialize_encryptable_api_key

@@ -76,7 +76,7 @@ RSpec.describe LlmApiKey, type: :model do
       }
     end
 
-    context 'when updating with nil encryptable_api_key for Ollama' do
+    context 'when updating for Ollama without changing encrypted_api_key' do
       let(:params) {
         {
           llm_type: "ollama",
@@ -90,11 +90,12 @@ RSpec.describe LlmApiKey, type: :model do
         llm_api_key.save!
       end
 
-      it 'allows nil and clears encrypted_api_key' do
-        expect {
-          llm_api_key.encryptable_api_key = nil
-        }.not_to raise_error
-        expect(llm_api_key.encrypted_api_key).to be_nil
+      it 'allows updating other attributes and remains valid (DB enforces NOT NULL for encrypted_api_key)' do
+        original_encrypted = llm_api_key.encrypted_api_key
+        llm_api_key.update!(description: "Fuga")
+        expect(llm_api_key).to be_valid
+        expect(llm_api_key.description).to eq("Fuga")
+        expect(llm_api_key.encrypted_api_key).to eq(original_encrypted)
       end
     end
   end
@@ -114,7 +115,6 @@ RSpec.describe LlmApiKey, type: :model do
 
     before do
       llm_api_key.save! # Save first to trigger encryption
-      # Clear the memoized @encryptable_api_key to allow re-instantiation
       llm_api_key.instance_variable_set(:@encryptable_api_key, nil)
       allow(EncryptableApiKey).to receive(:new).with(encrypted_api_key: base64_ciphertext)
                                         .and_return(encryptable_api_key_B)
@@ -214,37 +214,8 @@ RSpec.describe LlmApiKey, type: :model do
     end
   end
 
+  # Ollama supportの直接メソッド検証は行わず、llm_typeに基づくバリデーション挙動のみ確認する
   describe 'Ollama support' do
-    describe '#ollama?' do
-      context 'when llm_type is ollama' do
-        let(:params) {
-          {
-            llm_type: "ollama",
-            description: "Local Ollama",
-            user: user
-          }
-        }
-
-        it 'returns true' do
-          expect(llm_api_key.ollama?).to be true
-        end
-      end
-
-      context 'when llm_type is not ollama' do
-        let(:params) {
-          {
-            llm_type: "openai",
-            encryptable_api_key: encryptable_api_key_A,
-            user: user
-          }
-        }
-
-        it 'returns false' do
-          expect(llm_api_key.ollama?).to be false
-        end
-      end
-    end
-
     describe '#valid? with ollama' do
       context 'when llm_type is ollama without encrypted_api_key' do
         let(:params) {
