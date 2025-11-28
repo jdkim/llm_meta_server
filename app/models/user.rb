@@ -14,7 +14,8 @@ class User < ApplicationRecord
   end
 
   def find_llm_api_key!(uuid)
-    llm_api_keys.find_by!(uuid: uuid)
+    # If there is no llm_api_key corresponding to the uuid, return nil and use Ollama
+    llm_api_keys.find_by(uuid: uuid)
   end
 
   def key_for(uuid)
