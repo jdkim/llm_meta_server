@@ -24,4 +24,21 @@ class User < ApplicationRecord
 
     llm_api_key.encryptable_api_key
   end
+
+  def llm_api_keys_with_ollama
+    keys = llm_api_keys.map(&:as_json)
+    unless llm_api_keys.any? { |key| key.llm_type == "ollama" }
+      keys << default_ollama_json
+    end
+    keys
+  end
+
+  def default_ollama_json
+    {
+      llm_type: "ollama",
+      description: "[Ollama] Local Ollama (no API key required)",
+      uuid: "ollama-local",
+      available_models: LlmModelMap.available_models_for("ollama")
+    }
+  end
 end
