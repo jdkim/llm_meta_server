@@ -41,6 +41,25 @@ RSpec.describe LlmApiKey, type: :model do
         expect(llm_api_key.errors[:llm_type]).to include("can't be blank")
       end
     end
+
+    context 'with ollama type (no API key required)' do
+      let(:params) {
+        {
+          llm_type: "ollama",
+          user: user,
+          description: "Local Ollama"
+        }
+      }
+      it 'is valid without encryptable_api_key' do
+        is_expected.to be_valid
+        expect(llm_api_key).to have_attributes(
+                                 user: user,
+                                 uuid: kind_of(String),
+                                 llm_type: "ollama",
+                                 encrypted_api_key: nil
+                               )
+      end
+    end
   end
 
   describe '#update' do
