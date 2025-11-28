@@ -24,8 +24,6 @@ RSpec.describe Api::LlmApiKeysController, type: :controller do
       end
 
       it 'automatically includes default Ollama key' do
-        allow(LlmModelMap).to receive(:available_models_for).and_return([])
-
         get :index
 
         expect(response).to have_http_status(:success)
@@ -53,8 +51,6 @@ RSpec.describe Api::LlmApiKeysController, type: :controller do
       end
 
       it 'always includes default Ollama key' do
-        allow(LlmModelMap).to receive(:available_models_for).and_return([])
-
         get :index
 
         expect(response).to have_http_status(:success)
