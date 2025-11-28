@@ -23,8 +23,9 @@ class Api::LlmApiKeysController < ApiController
   def build_default_ollama_json
     {
       llm_type: "ollama",
-      description: "Local Ollama (no API key required)",
-      uuid: "ollama-local"
+      description: "[Ollama] Local Ollama (no API key required)",
+      uuid: "ollama-local",
+      available_models: LlmModelMap.available_models_for("ollama")
     }
   end
 end
