@@ -18,16 +18,7 @@ class Api::ChatsController < ApiController
   private
 
   def find_or_build_llm_api_key(uuid)
-    # Ollama is a local service without persistence requirement
-    if uuid == "ollama-local"
-      LlmApiKey.new(
-        user: current_user,
-        llm_type: "ollama",
-        uuid: "ollama-local"
-      )
-    else
-      current_user.find_llm_api_key!(uuid)
-    end
+    LlmApiKey.find_or_build_by_uuid current_user, uuid
   end
 
   def rate_limit_error(exception)

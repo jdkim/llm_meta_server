@@ -51,6 +51,18 @@ class LlmApiKey < ApplicationRecord
     LLM_SERVICES.keys.map { |type| [ type.capitalize.gsub("Openai", "OpenAI"), type ] }
   end
 
+  def self.find_or_build_by_uuid(user, uuid)
+    if uuid == "ollama-local"
+      new(
+        user: user,
+        llm_type: "ollama",
+        uuid: "ollama-local"
+      )
+    else
+      user.find_llm_api_key! uuid
+    end
+  end
+
   private
 
   def set_uuid
