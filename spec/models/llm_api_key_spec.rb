@@ -214,7 +214,7 @@ RSpec.describe LlmApiKey, type: :model do
     end
   end
 
-  # Ollama supportの直接メソッド検証は行わず、llm_typeに基づくバリデーション挙動のみ確認する
+  # Verify only validation behavior based on llm_type, not direct method checks for Ollama support
   describe 'Ollama support' do
     describe '#valid? with ollama' do
       context 'when llm_type is ollama without encrypted_api_key' do
