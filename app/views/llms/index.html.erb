@@ -15,9 +15,7 @@
 
   <div class="space-y-6">
     <% if @llms.any? %>
-      <% @llms.each do |llm| %>
-        <%= render partial: 'llm_card', locals: { llm: llm } %>
-      <% end %>
+      <%= safe_join(@llms.map { |llm| render partial: 'llm_card', locals: { llm: llm } }) %>
     <% else %>
       <%= render partial: 'empty_state' %>
     <% end %>
