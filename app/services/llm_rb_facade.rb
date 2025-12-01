@@ -14,7 +14,7 @@ module LlmRbFacade
       # Here, it calls one of :ollama, :openai, :anthropic, or :gemini based on llm_type
       # This eliminates the need for separate files for each LLM service
 
-      if llm_api_key.nil? && LlmModelMap.ollama_model_value?(model_id)
+      if llm_api_key.nil? && LlmModelMap.ollama_model?(model_id)
         # Ollama doesn't require an API key (local service)
         LLM.public_send :ollama
       else

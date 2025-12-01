@@ -58,7 +58,7 @@ class LlmModelMap
     end
   end
 
-  def self.ollama_model_value?(model_id)
+  def self.ollama_model?(model_id)
     MODEL_MAP_OLLAMA.values.any? { |m| m[:api_id] == model_id }
   end
 end
