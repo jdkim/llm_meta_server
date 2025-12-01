@@ -1,4 +1,3 @@
-
 class LlmModelMap
   MODEL_MAP_OPENAI = {
     # OpenAI Models
