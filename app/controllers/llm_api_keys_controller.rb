@@ -56,8 +56,7 @@ class LlmApiKeysController < ApplicationController
 
   def build_llm_api_key_attributes_for_create
     ps = llm_api_key_params
-    # For non-Ollama, API key is required; Ollama can omit it
-    raise ArgumentError, "API Key can't blank." if ps[:api_key].blank? && ps[:llm_type].to_s.downcase != "ollama"
+    raise ArgumentError, "API Key can't blank." if ps[:api_key].blank?
 
     encryptable = if ps[:llm_type].to_s.downcase == "ollama" && ps[:api_key].blank?
       EncryptableApiKey.new(allow_nil: true)
