@@ -71,9 +71,6 @@ class LlmApiKeysController < ApplicationController
 
     if ps[:api_key].present?
       attributes[:encryptable_api_key] = EncryptableApiKey.new(plain_api_key: ps[:api_key])
-    elsif ps[:llm_type].to_s.downcase == "ollama"
-      # Allow clearing API key for Ollama
-      attributes[:encryptable_api_key] = nil
     end
 
     # Allow description to be updated with empty value
