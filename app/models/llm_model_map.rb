@@ -44,6 +44,11 @@ class LlmModelMap
     model_data[:api_id]
   end
 
+  def self.fetch_from_api_key!(llm_api_key, model_name)
+    llm_type = llm_api_key&.llm_type || "ollama"
+    fetch! llm_type, model_name
+  end
+
   def self.available_models_for(llm_type)
     MODEL_MAP.fetch(llm_type).map do |key, value|
       display_name = value[:display_name]
