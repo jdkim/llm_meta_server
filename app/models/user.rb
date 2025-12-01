@@ -26,11 +26,7 @@ class User < ApplicationRecord
   end
 
   def llm_api_keys_with_ollama
-    keys = llm_api_keys.map(&:as_json)
-    unless llm_api_keys.any? { |key| key.llm_type == "ollama" }
-      keys << default_ollama_json
-    end
-    keys
+    llm_api_keys.map(&:as_json) << default_ollama_json
   end
 
   def default_ollama_json
