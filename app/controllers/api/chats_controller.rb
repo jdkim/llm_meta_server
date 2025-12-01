@@ -4,7 +4,7 @@ class Api::ChatsController < ApiController
 
   def create
     uuid, model_name, prompt = expected_params
-    llm_api_key = find_or_build_llm_api_key(uuid)
+    llm_api_key = current_user.find_llm_api_key uuid
     llm_type = llm_api_key&.llm_type || "ollama"
     model_id = LlmModelMap.fetch! llm_type, model_name
     message = LlmRbFacade.call! llm_api_key, model_id, prompt
@@ -17,10 +17,6 @@ class Api::ChatsController < ApiController
   end
 
   private
-
-  def find_or_build_llm_api_key(uuid)
-    LlmApiKey.find_or_build_by_uuid current_user, uuid
-  end
 
   def rate_limit_error(exception)
     render json: { error: "LLM API Rate limit exceeded", message: exception.message }, status: :too_many_requests
