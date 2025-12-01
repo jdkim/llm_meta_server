@@ -52,7 +52,7 @@ class LlmApiKey < ApplicationRecord
   end
 
   def self.find_or_build_by_uuid(user, uuid)
-    user.find_llm_api_key! uuid
+    user.find_llm_api_key uuid
   end
 
   private
