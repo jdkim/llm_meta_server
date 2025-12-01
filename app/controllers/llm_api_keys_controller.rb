@@ -8,7 +8,7 @@ class LlmApiKeysController < ApplicationController
 
   # POST /user/:user_id/llm_api_keys
   def create
-    current_user.llm_api_keys.create!(build_llm_api_key_attributes_for_create)
+    current_user.llm_api_keys.create! build_llm_api_key_attributes_for_create
     redirect_to user_llm_api_keys_path, notice: "API key has been added successfully"
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter LLM type and API key"
@@ -58,15 +58,9 @@ class LlmApiKeysController < ApplicationController
     ps = llm_api_key_params
     raise ArgumentError, "API Key can't blank." if ps[:api_key].blank?
 
-    encryptable = if ps[:llm_type].to_s.downcase == "ollama" && ps[:api_key].blank?
-      EncryptableApiKey.new(allow_nil: true)
-    else
-      EncryptableApiKey.new(plain_api_key: ps[:api_key])
-    end
-
     {
       llm_type: ps[:llm_type],
-      encryptable_api_key: encryptable,
+      encryptable_api_key: EncryptableApiKey.new(plain_api_key: ps[:api_key]),
       description: ps[:description]
     }
   end
