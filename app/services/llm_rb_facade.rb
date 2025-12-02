@@ -1,11 +1,24 @@
 module LlmRbFacade
   class << self
     def call!(llm_api_key, model_id, prompt)
+      # Validate arguments at the entry point
+      validate_arguments! llm_api_key, model_id, prompt
+
       llm = create_llm_client llm_api_key, model_id
       execute_chat! llm, model_id, prompt
     end
 
     private
+
+    def validate_arguments!(llm_api_key, model_id, prompt)
+      raise ArgumentError, "model_id is required" if model_id.blank?
+      raise ArgumentError, "prompt is required" if prompt.blank?
+
+      # API key is required for non-Ollama models
+      if llm_api_key.nil? && !LlmModelMap.ollama_model?(model_id)
+        raise LlmApiKeyRequiredError, model_id
+      end
+    end
 
     def create_llm_client(llm_api_key, model_id)
       # public_send dynamically invokes a public method on an object
@@ -14,8 +27,9 @@ module LlmRbFacade
       # Here, it calls one of :ollama, :openai, :anthropic, or :gemini based on llm_type
       # This eliminates the need for separate files for each LLM service
 
-      if llm_api_key.nil? && LlmModelMap.ollama_model?(model_id)
-        # Ollama doesn't require an API key (local service)
+      # Ollama doesn't require an API key (local service)
+      # Arguments are already validated by validate_arguments!
+      if LlmModelMap.ollama_model?(model_id)
         LLM.public_send :ollama
       else
         llm_rb_method = llm_api_key.llm_rb_method
