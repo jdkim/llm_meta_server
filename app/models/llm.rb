@@ -13,4 +13,13 @@ class Llm < ApplicationRecord
       models: llm_models.map(&:as_json)
     }
   end
+
+  def self.default_ollama_json
+    {
+      llm_type: "ollama",
+      description: "[Ollama] Local Ollama (no API key required)",
+      uuid: "ollama-local",
+      available_models: LlmModelMap.available_models_for("ollama")
+    }
+  end
 end

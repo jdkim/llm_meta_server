@@ -13,8 +13,9 @@ class User < ApplicationRecord
     end
   end
 
-  def find_llm_api_key!(uuid)
-    llm_api_keys.find_by!(uuid: uuid)
+  def find_llm_api_key(uuid)
+    # If there is no llm_api_key corresponding to the uuid, return nil and use Ollama
+    llm_api_keys.find_by(uuid: uuid)
   end
 
   def key_for(uuid)
@@ -22,5 +23,9 @@ class User < ApplicationRecord
     return nil unless llm_api_key
 
     llm_api_key.encryptable_api_key
+  end
+
+  def llm_api_keys_with_ollama
+    llm_api_keys.map(&:as_json) << Llm.default_ollama_json
   end
 end

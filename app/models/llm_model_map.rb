@@ -1,4 +1,3 @@
-
 class LlmModelMap
   MODEL_MAP_OPENAI = {
     # OpenAI Models
@@ -29,7 +28,7 @@ class LlmModelMap
   }
   MODEL_MAP_OLLAMA = {
     # Ollama Models
-    # :
+    "gpt-oss-20b" => { api_id: "gpt-oss:20b", display_name: "gpt-oss:20b" }
   }
 
   MODEL_MAP = {
@@ -40,7 +39,7 @@ class LlmModelMap
   }
 
   def self.fetch!(llm_type, meta_id)
-    model_data = MODEL_MAP.dig(llm_type, meta_id)
+    model_data = MODEL_MAP.dig(llm_type || "ollama", meta_id)
     model_data[:api_id]
   end
 
@@ -52,5 +51,9 @@ class LlmModelMap
         "value" => key # Internal ID: Model ID to pass to API (without dots)
       }
     end
+  end
+
+  def self.ollama_model?(model_id)
+    MODEL_MAP_OLLAMA.values.any? { |m| m[:api_id] == model_id }
   end
 end

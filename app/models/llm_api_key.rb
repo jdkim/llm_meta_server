@@ -10,7 +10,6 @@ class LlmApiKey < ApplicationRecord
   before_validation :initialize_encryptable_api_key
 
   LLM_SERVICES = {
-    "ollama" => :ollama,
     "openai" => :openai,
     "anthropic" => :anthropic,
     "google" => :gemini

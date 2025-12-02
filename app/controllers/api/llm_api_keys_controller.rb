@@ -8,8 +8,7 @@ class Api::LlmApiKeysController < ApiController
   private
 
   def render_llm_api_keys(user)
-    render json: {
-      llm_api_keys: user.llm_api_keys.as_json
-    }
+    llm_api_keys = user.llm_api_keys_with_ollama
+    render json: { llm_api_keys: }
   end
 end
