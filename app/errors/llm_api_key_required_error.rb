@@ -3,4 +3,3 @@ class LlmApiKeyRequiredError < StandardError
     super("LLM API key is required for paid model: #{model_id}")
   end
 end
-
