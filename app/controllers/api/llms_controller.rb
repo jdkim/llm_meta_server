@@ -19,4 +19,3 @@ class Api::LlmsController < ApiController
     registered_llms << ollama_service
   end
 end
-
