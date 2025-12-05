@@ -14,12 +14,26 @@ class Llm < ApplicationRecord
     }
   end
 
-  def self.default_ollama_json
-    {
-      llm_type: "ollama",
-      description: "[Ollama] Local Ollama (no API key required)",
-      uuid: "ollama-local",
-      available_models: LlmModelMap.available_models_for("ollama")
-    }
+  class << self
+    def all_services_with_ollama
+      # Get all registered LLM services with their models
+      registered_llms = Llm.includes(:llm_models).all.map(&:as_json)
+
+      # Add Ollama as a special service (no API key required)
+      ollama_service = default_ollama_json
+
+      registered_llms << ollama_service
+    end
+
+    private
+
+    def default_ollama_json
+      {
+        llm_type: "ollama",
+        description: "[Ollama] Local Ollama (no API key required)",
+        uuid: "ollama-local",
+        available_models: LlmModelMap.available_models_for("ollama")
+      }
+    end
   end
 end

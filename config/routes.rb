@@ -29,6 +29,9 @@ Rails.application.routes.draw do
   end
 
   namespace :api do
+    # LLM services and models information
+    resources :llms, only: [ :index ]
+
     resources :llm_api_keys, only: [ :index ], param: :uuid do
       resources :models, only: [], param: :name do # These constraints allow to include dot in model_name
         resources :chats, only: [ :create ]

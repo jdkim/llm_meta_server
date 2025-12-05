@@ -24,8 +24,4 @@ class User < ApplicationRecord
 
     llm_api_key.encryptable_api_key
   end
-
-  def llm_api_keys_with_ollama
-    llm_api_keys.map(&:as_json) << Llm.default_ollama_json
-  end
 end
