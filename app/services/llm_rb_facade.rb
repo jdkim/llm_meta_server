@@ -1,8 +1,8 @@
 module LlmRbFacade
   class << self
-    def call!(llm_api_key, model_id, prompt)
+    def call!(model_id, prompt, llm_api_key: nil)
       # Validate arguments at the entry point
-      validate_arguments! llm_api_key, model_id, prompt
+      validate_arguments! model_id, prompt, llm_api_key
 
       llm = create_llm_client llm_api_key, model_id
       execute_chat! llm, model_id, prompt
@@ -10,7 +10,7 @@ module LlmRbFacade
 
     private
 
-    def validate_arguments!(llm_api_key, model_id, prompt)
+    def validate_arguments!(model_id, prompt, llm_api_key)
       raise ArgumentError, "model_id is required" if model_id.blank?
       raise ArgumentError, "prompt is required" if prompt.blank?
 
