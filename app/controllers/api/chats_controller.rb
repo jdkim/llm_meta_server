@@ -6,7 +6,7 @@ class Api::ChatsController < ApiController
 
   def create
     uuid, model_name, prompt = expected_params
-    llm_api_key = current_user.find_llm_api_key uuid if !bearer_token.nil?
+    llm_api_key = current_user.find_llm_api_key uuid unless bearer_token.nil?
     model_id = LlmModelMap.fetch! llm_api_key&.llm_type, model_name
     message = LlmRbFacade.call! llm_api_key, model_id, prompt
 
