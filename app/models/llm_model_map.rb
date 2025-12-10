@@ -38,7 +38,7 @@ class LlmModelMap
     "ollama" => MODEL_MAP_OLLAMA
   }
 
-  def self.fetch!(llm_type, meta_id)
+  def self.fetch!(meta_id, llm_type: nil)
     model_data = MODEL_MAP.dig(llm_type || "ollama", meta_id)
     model_data[:api_id]
   end

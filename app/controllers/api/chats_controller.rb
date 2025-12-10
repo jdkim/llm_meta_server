@@ -8,11 +8,11 @@ class Api::ChatsController < ApiController
     uuid, model_name, prompt = expected_params
     if bearer_token
       llm_api_key = current_user.find_llm_api_key uuid
-      model_id = LlmModelMap.fetch! llm_api_key.llm_type, model_name
-      message = LlmRbFacade.call! llm_api_key, model_id, prompt
+      model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key.llm_type
+      message = LlmRbFacade.call! model_id, prompt, llm_api_key: llm_api_key
     else
-      model_id = LlmModelMap.fetch! nil, model_name
-      message = LlmRbFacade.call! nil, model_id, prompt
+      model_id = LlmModelMap.fetch! model_name
+      message = LlmRbFacade.call! model_id, prompt
     end
 
     render json: {
