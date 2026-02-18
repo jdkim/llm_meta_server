@@ -1,7 +1,7 @@
 require 'rails_helper'
 
 RSpec.describe LlmModel, type: :model do
-  let(:llm) { Llm.create!(name: "Test LLM") }
+  let(:llm) { Llm.create!(name: "Test LLM", llm_type: "test") }
   let(:llm_model) { LlmModel.new(params) }
 
   describe '#valid?' do

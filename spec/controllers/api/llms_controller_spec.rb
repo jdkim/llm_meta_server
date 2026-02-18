@@ -29,11 +29,11 @@ RSpec.describe Api::LlmsController, type: :controller do
     context 'when there are registered LLM services' do
       before do
         # Create LLM services with models
-        openai = Llm.create!(name: 'OpenAI')
+        openai = Llm.create!(name: 'OpenAI', llm_type: 'openai')
         openai.llm_models.create!(name: 'gpt-4', display_name: 'GPT-4', api_id: 'gpt-4')
         openai.llm_models.create!(name: 'gpt-3.5-turbo', display_name: 'GPT-3.5 Turbo', api_id: 'gpt-3.5-turbo')
 
-        anthropic = Llm.create!(name: 'Anthropic')
+        anthropic = Llm.create!(name: 'Anthropic', llm_type: 'anthropic')
         anthropic.llm_models.create!(name: 'claude-3', display_name: 'Claude 3 Opus', api_id: 'claude-3-opus-20240229')
       end
 
