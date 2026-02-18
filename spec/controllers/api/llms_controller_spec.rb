@@ -19,7 +19,7 @@ RSpec.describe Api::LlmsController, type: :controller do
         expect(json_response['llms'].length).to eq(1)
 
         ollama = json_response['llms'].first
-        expect(ollama['llm_type']).to eq('ollama')
+        expect(ollama['family']).to eq('ollama')
         expect(ollama['description']).to include('Local Ollama')
         expect(ollama['uuid']).to eq('ollama-local')
         expect(ollama['available_models']).to be_an(Array)
@@ -29,11 +29,11 @@ RSpec.describe Api::LlmsController, type: :controller do
     context 'when there are registered LLM services' do
       before do
         # Create LLM services with models
-        openai = Llm.create!(name: 'OpenAI')
+        openai = Llm.create!(name: 'OpenAI', family: 'openai')
         openai.llm_models.create!(name: 'gpt-4', display_name: 'GPT-4', api_id: 'gpt-4')
         openai.llm_models.create!(name: 'gpt-3.5-turbo', display_name: 'GPT-3.5 Turbo', api_id: 'gpt-3.5-turbo')
 
-        anthropic = Llm.create!(name: 'Anthropic')
+        anthropic = Llm.create!(name: 'Anthropic', family: 'anthropic')
         anthropic.llm_models.create!(name: 'claude-3', display_name: 'Claude 3 Opus', api_id: 'claude-3-opus-20240229')
       end
 
@@ -45,7 +45,7 @@ RSpec.describe Api::LlmsController, type: :controller do
 
         expect(json_response['llms'].length).to eq(3)
 
-        llm_names = json_response['llms'].map { |llm| llm['name'] || llm['llm_type'] }
+        llm_names = json_response['llms'].map { |llm| llm['name'] || llm['family'] }
         expect(llm_names).to include('OpenAI', 'Anthropic', 'ollama')
       end
 
@@ -66,7 +66,7 @@ RSpec.describe Api::LlmsController, type: :controller do
         expect(response).to have_http_status(:success)
         json_response = JSON.parse(response.body)
 
-        ollama = json_response['llms'].find { |llm| llm['llm_type'] == 'ollama' }
+        ollama = json_response['llms'].find { |llm| llm['family'] == 'ollama' }
         expect(ollama).not_to be_nil
         expect(ollama['available_models']).to be_an(Array)
         expect(ollama['uuid']).to eq('ollama-local')
