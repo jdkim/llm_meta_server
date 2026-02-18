@@ -1,18 +1,18 @@
 class AddLlmTypeToLlms < ActiveRecord::Migration[8.0]
   def up
-    add_column :llms, :llm_type, :string
+    add_column :llms, :family, :string
 
-    # Backfill llm_type from name (e.g., "OpenAI" -> "openai")
+    # Backfill family from name (e.g., "OpenAI" -> "openai")
     execute <<~SQL
-      UPDATE llms SET llm_type = LOWER(name)
+      UPDATE llms SET family = LOWER(name)
     SQL
 
-    change_column_null :llms, :llm_type, false
-    add_index :llms, :llm_type, unique: true
+    change_column_null :llms, :family, false
+    add_index :llms, :family, unique: true
   end
 
   def down
-    remove_index :llms, :llm_type
-    remove_column :llms, :llm_type
+    remove_index :llms, :family
+    remove_column :llms, :family
   end
 end

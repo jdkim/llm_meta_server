@@ -38,8 +38,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_02_17_000000) do
     t.string "name", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.string "llm_type", null: false
-    t.index ["llm_type"], name: "index_llms_on_llm_type", unique: true
+    t.string "family", null: false
+    t.index ["family"], name: "index_llms_on_family", unique: true
   end
 
   create_table "users", force: :cascade do |t|
