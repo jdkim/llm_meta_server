@@ -6,17 +6,21 @@ puts "Starting seed data creation..."
 
 # Create LLMs and their models based on LlmModelMap
 llm_configs = {
-  "OpenAI" => LlmModelMap::MODEL_MAP_OPENAI,
-  "Anthropic" => LlmModelMap::MODEL_MAP_ANTHROPIC,
-  "Google" => LlmModelMap::MODEL_MAP_GOOGLE,
-  "Ollama" => LlmModelMap::MODEL_MAP_OLLAMA
+  "OpenAI" => { models: LlmModelMap::MODEL_MAP_OPENAI, llm_type: "openai" },
+  "Anthropic" => { models: LlmModelMap::MODEL_MAP_ANTHROPIC, llm_type: "anthropic" },
+  "Google" => { models: LlmModelMap::MODEL_MAP_GOOGLE, llm_type: "google" },
+  "Ollama" => { models: LlmModelMap::MODEL_MAP_OLLAMA, llm_type: "ollama" }
 }
 
-llm_configs.each do |llm_name, model_map|
+llm_configs.each do |llm_name, config|
+  model_map = config[:models]
   # Create or find LLM platform
-  llm = Llm.find_or_create_by!(name: llm_name) do
+  llm = Llm.find_or_create_by!(name: llm_name) do |l|
+    l.llm_type = config[:llm_type]
     puts "  Creating LLM platform: #{llm_name}"
   end
+  # Ensure llm_type is set for existing records
+  llm.update!(llm_type: config[:llm_type]) if llm.llm_type != config[:llm_type]
   puts "  ✓ LLM platform: #{llm_name} (ID: #{llm.id})"
 
   # Create models for this LLM platform
