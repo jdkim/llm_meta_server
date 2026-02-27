@@ -46,10 +46,9 @@ module LlmRbFacade
 
     def execute_chat!(llm, model_id, prompt)
       bot = LLM::Bot.new llm, model: model_id
-      messages = bot.chat { it.user prompt }
+      messages = bot.chat prompt
 
-      # messages[0] is the prompt so skip it, messages[1] represents the response message
-      messages[1]&.content || ""
+      messages&.res&.body&.choices&.dig(0)&.message&.content || ""
     end
   end
 end
