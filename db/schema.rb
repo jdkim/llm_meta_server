@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_02_17_000000) do
+ActiveRecord::Schema[8.0].define(version: 2026_03_02_000002) do
   create_table "llm_api_keys", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "llm_type", null: false
@@ -42,6 +42,36 @@ ActiveRecord::Schema[8.0].define(version: 2026_02_17_000000) do
     t.index ["family"], name: "index_llms_on_family", unique: true
   end
 
+  create_table "mcp_servers", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.string "uuid", null: false
+    t.string "name", null: false
+    t.string "url", null: false
+    t.boolean "active", default: true, null: false
+    t.string "server_name"
+    t.string "server_version"
+    t.string "protocol_version"
+    t.datetime "last_fetched_at"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id", "url"], name: "index_mcp_servers_on_user_id_and_url", unique: true
+    t.index ["user_id"], name: "index_mcp_servers_on_user_id"
+    t.index ["uuid"], name: "index_mcp_servers_on_uuid", unique: true
+  end
+
+  create_table "mcp_tools", force: :cascade do |t|
+    t.integer "mcp_server_id", null: false
+    t.string "name", null: false
+    t.text "description"
+    t.json "input_schema", null: false
+    t.boolean "active", default: true, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["mcp_server_id", "name"], name: "index_mcp_tools_on_mcp_server_id_and_name", unique: true
+    t.index ["mcp_server_id"], name: "index_mcp_tools_on_mcp_server_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "email", default: "", null: false
     t.string "google_id"
@@ -53,4 +83,6 @@ ActiveRecord::Schema[8.0].define(version: 2026_02_17_000000) do
 
   add_foreign_key "llm_api_keys", "users"
   add_foreign_key "llm_models", "llms"
+  add_foreign_key "mcp_servers", "users"
+  add_foreign_key "mcp_tools", "mcp_servers"
 end
