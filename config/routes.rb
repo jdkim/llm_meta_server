@@ -47,6 +47,17 @@ Rails.application.routes.draw do
         resources :chats, only: [ :create ]
       end
     end
+
+    resources :mcp_servers, only: [ :index, :create, :update, :destroy ], param: :uuid do
+      member do
+        patch :toggle
+      end
+      resources :tools, only: [ :index ], controller: "mcp_tools" do
+        member do
+          patch :toggle
+        end
+      end
+    end
   end
 
   # Defines the root path route ("/")
