@@ -26,6 +26,16 @@ Rails.application.routes.draw do
   # User profile routes
   resources :user, only: [ :show ] do
     resources :llm_api_keys, only: [ :index, :create, :update, :destroy ]
+    resources :mcp_servers, only: [ :index, :create, :update, :destroy ] do
+      member do
+        patch :toggle
+      end
+      resources :mcp_tools, only: [ :index ] do
+        member do
+          patch :toggle
+        end
+      end
+    end
   end
 
   namespace :api do
