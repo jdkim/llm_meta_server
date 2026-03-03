@@ -1,0 +1,175 @@
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="mb-6">
+    <div class="flex justify-between items-center">
+      <h2 class="text-2xl font-bold text-gray-900">MCP Server Management</h2>
+      <%= link_to "Back to Profile", user_path(current_user), class: "text-sm bg-gray-100 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-200 transition-colors" %>
+    </div>
+  </div>
+
+  <div class="space-y-6">
+    <!-- Existing MCP Servers List -->
+    <div class="bg-white shadow-md rounded-lg overflow-hidden">
+      <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+        <h4 class="text-lg font-semibold text-gray-900">Registered MCP Servers</h4>
+      </div>
+      <div class="px-6 py-4">
+        <% if @mcp_servers.any? %>
+          <div class="space-y-4">
+            <% @mcp_servers.each_with_index do |server, index| %>
+              <div class="p-4 bg-gray-50 rounded-lg border">
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center space-x-3">
+                    <h5 class="font-medium text-gray-900"><%= server.name %></h5>
+                    <% if server.active? %>
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
+                    <% else %>
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Inactive</span>
+                    <% end %>
+                  </div>
+                  <div class="flex space-x-2">
+                    <%= link_to (server.active? ? "Deactivate" : "Activate"),
+                                toggle_user_mcp_server_path(current_user, server),
+                                class: "text-sm #{server.active? ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' : 'bg-green-100 text-green-700 hover:bg-green-200'} px-3 py-1 rounded-md transition-colors",
+                                data: { turbo_method: :patch } %>
+                    <%= link_to "Fetch Tools",
+                                user_mcp_server_mcp_tools_path(current_user, server),
+                                class: "text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-md hover:bg-blue-200 transition-colors" %>
+                    <button type="button" class="text-sm bg-yellow-100 text-yellow-700 px-3 py-1 rounded-md hover:bg-yellow-200 transition-colors"
+                            popovertarget="updateServerModal-<%= index %>">
+                      Edit
+                    </button>
+                    <%= link_to "Delete",
+                                user_mcp_server_path(current_user, server),
+                                class: "text-sm bg-red-100 text-red-700 px-3 py-1 rounded-md hover:bg-red-200 transition-colors",
+                                data: { turbo_method: :delete, turbo_confirm: "Are you sure you want to delete this MCP server?" } %>
+                  </div>
+                </div>
+
+                <div class="space-y-1 text-sm text-gray-600 mb-3">
+                  <div><span class="font-medium text-gray-700">URL:</span> <%= server.url %></div>
+                  <% if server.server_name.present? %>
+                    <div><span class="font-medium text-gray-700">Server:</span> <%= server.server_name %> <%= "(v#{server.server_version})" if server.server_version.present? %></div>
+                  <% end %>
+                  <% if server.protocol_version.present? %>
+                    <div><span class="font-medium text-gray-700">Protocol:</span> <%= server.protocol_version %></div>
+                  <% end %>
+                  <% if server.last_fetched_at.present? %>
+                    <div><span class="font-medium text-gray-700">Last Fetched:</span> <%= server.last_fetched_at.strftime("%Y/%m/%d %H:%M") %></div>
+                  <% end %>
+                  <% if server.last_error.present? %>
+                    <div class="text-red-600"><span class="font-medium">Last Error:</span> <%= server.last_error %></div>
+                  <% end %>
+                </div>
+
+                <!-- Tools -->
+                <% if server.mcp_tools.any? %>
+                  <div class="mt-3 border-t pt-3">
+                    <h6 class="text-sm font-medium text-gray-700 mb-2">Tools (<%= server.mcp_tools.count %>)</h6>
+                    <div class="space-y-2">
+                      <% server.mcp_tools.each do |tool| %>
+                        <div class="flex items-center justify-between p-2 bg-white rounded border">
+                          <div class="flex-1">
+                            <div class="flex items-center gap-2">
+                              <span class="text-sm font-medium text-gray-900"><%= tool.name %></span>
+                              <% if tool.active? %>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
+                              <% else %>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Inactive</span>
+                              <% end %>
+                            </div>
+                            <% if tool.description.present? %>
+                              <p class="text-xs text-gray-500 mt-1"><%= tool.description %></p>
+                            <% end %>
+                          </div>
+                          <%= link_to (tool.active? ? "Deactivate" : "Activate"),
+                                      toggle_user_mcp_server_mcp_tool_path(current_user, server, tool),
+                                      class: "text-xs #{tool.active? ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' : 'bg-green-100 text-green-700 hover:bg-green-200'} px-2 py-1 rounded transition-colors ml-2",
+                                      data: { turbo_method: :patch } %>
+                        </div>
+                      <% end %>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+
+              <!-- Update Server Modal -->
+              <div id="updateServerModal-<%= index %>" popover class="m-0 p-0 border-0 bg-transparent max-w-none max-h-none">
+                <div class="fixed inset-0 bg-white/30 backdrop-blur-md flex items-center justify-center">
+                  <div class="relative p-5 border w-96 shadow-lg rounded-md bg-white">
+                    <%= form_with url: user_mcp_server_path(current_user, server), method: :patch, local: true do |form| %>
+                      <div class="mb-4">
+                        <h5 class="text-lg font-semibold text-gray-900 mb-4">Update MCP Server</h5>
+                      </div>
+                      <div class="mb-6">
+                        <div class="mb-4">
+                          <label class="block font-medium text-gray-700 mb-2">Server Name</label>
+                          <%= text_field_tag "mcp_server[name]", server.name,
+                                             class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                             placeholder: "Enter server name",
+                                             required: true %>
+                        </div>
+                        <div class="mb-4">
+                          <label class="block font-medium text-gray-700 mb-2">Server URL</label>
+                          <%= url_field_tag "mcp_server[url]", server.url,
+                                            class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                            placeholder: "https://example.com/mcp",
+                                            required: true %>
+                        </div>
+                      </div>
+                      <div class="flex justify-end space-x-3">
+                        <button type="button" class="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                                popovertarget="updateServerModal-<%= index %>" popovertargetaction="hide">
+                          Cancel
+                        </button>
+                        <%= submit_tag "Update", class: "px-4 py-2 text-sm bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors" %>
+                      </div>
+                    <% end %>
+                  </div>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% else %>
+          <div class="p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+            <p class="text-gray-500 text-center mb-2">No MCP servers have been registered yet.</p>
+            <p class="text-gray-500 text-center">Please add a new MCP server using the form below.</p>
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <!-- Add New MCP Server Form -->
+    <div class="bg-white shadow-md rounded-lg overflow-hidden">
+      <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+        <h5 class="font-semibold text-gray-900">Add New MCP Server</h5>
+      </div>
+      <div class="px-6 py-4">
+        <%= form_with url: user_mcp_servers_path(current_user), method: :post, local: true do |form| %>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block font-medium text-gray-700 mb-2">Server Name</label>
+              <%= text_field_tag "mcp_server[name]", "",
+                                 class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                 placeholder: "Enter a display name for this server",
+                                 required: true %>
+            </div>
+            <div>
+              <label class="block font-medium text-gray-700 mb-2">Server URL</label>
+              <%= url_field_tag "mcp_server[url]", "",
+                                class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                placeholder: "https://example.com/mcp",
+                                required: true %>
+              <p class="text-sm text-gray-500 mt-1">
+                Enter the MCP server endpoint URL (HTTP or HTTPS).
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end">
+            <%= submit_tag "Add MCP Server", class: "bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors" %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  </div>
+</div>
