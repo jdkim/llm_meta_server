@@ -63,7 +63,7 @@ module LlmRbFacade
 
     def build_response_with_tools(response, session)
       content = response.choices[-1]&.content || ""
-      tool_calls = extract_tool_calls(session)
+      tool_calls = session.extract_tool_calls
 
       if tool_calls.any?
         {
@@ -72,22 +72,6 @@ module LlmRbFacade
         }
       else
         content
-      end
-    end
-
-    def extract_tool_calls(session)
-      session.messages
-        .select { it.respond_to?(:assistant?) && it.assistant? }
-        .select { it.respond_to?(:tool_call?) && it.tool_call? }
-        .flat_map { it.to_h[:tools] || [] }
-        .map { normalize_tool_call(it) }
-    end
-
-    def normalize_tool_call(tc)
-      if tc.respond_to?(:id)
-        { id: tc.id, name: tc.name, arguments: tc.arguments }
-      else
-        { id: tc[:id] || tc["id"], name: tc[:name] || tc["name"], arguments: tc[:arguments] || tc["arguments"] }
       end
     end
   end
