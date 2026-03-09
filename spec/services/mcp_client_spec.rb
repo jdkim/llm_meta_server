@@ -147,6 +147,93 @@ RSpec.describe McpClient do
     end
   end
 
+  describe '#call_tool!' do
+    let(:init_response) do
+      instance_double(
+        HTTParty::Response,
+        success?: true,
+        code: 200,
+        headers: { "content-type" => "application/json", "mcp-session-id" => "session-123" },
+        body: {
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            protocolVersion: "2025-03-26",
+            serverInfo: { name: "test-server", version: "1.0.0" },
+            capabilities: {}
+          }
+        }.to_json
+      )
+    end
+
+    let(:notification_response) do
+      instance_double(
+        HTTParty::Response,
+        success?: true,
+        code: 200,
+        headers: {},
+        body: ""
+      )
+    end
+
+    let(:call_tool_response) do
+      instance_double(
+        HTTParty::Response,
+        success?: true,
+        code: 200,
+        headers: { "content-type" => "application/json", "mcp-session-id" => "session-123" },
+        body: {
+          jsonrpc: "2.0",
+          id: 2,
+          result: {
+            content: [
+              { type: "text", text: "Hello, World!" }
+            ]
+          }
+        }.to_json
+      )
+    end
+
+    before do
+      allow(HTTParty).to receive(:post).and_return(init_response, notification_response, call_tool_response)
+      client.initialize_connection!
+    end
+
+    it 'calls a tool and returns the result' do
+      result = client.call_tool!("greet", { name: "World" })
+
+      expect(result["content"][0]["type"]).to eq("text")
+      expect(result["content"][0]["text"]).to eq("Hello, World!")
+    end
+
+    context 'when tool call fails with JSON-RPC error' do
+      let(:error_response) do
+        instance_double(
+          HTTParty::Response,
+          success?: true,
+          code: 200,
+          headers: { "content-type" => "application/json" },
+          body: {
+            jsonrpc: "2.0",
+            id: 3,
+            error: { code: -32602, message: "Invalid params" }
+          }.to_json
+        )
+      end
+
+      before do
+        allow(HTTParty).to receive(:post).and_return(init_response, notification_response, error_response)
+        client.initialize_connection!
+      end
+
+      it 'raises McpProtocolError' do
+        expect { client.call_tool!("bad_tool", {}) }.to raise_error(
+          McpClient::McpProtocolError, /Invalid params/
+        )
+      end
+    end
+  end
+
   describe '#list_tools!' do
     let(:init_response) do
       instance_double(
