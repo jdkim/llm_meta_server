@@ -1,11 +1,16 @@
 module LlmRbFacade
   class << self
-    def call!(model_id, prompt, llm_api_key: nil)
+    def call!(model_id, prompt, llm_api_key: nil, tools: [])
       # Validate arguments at the entry point
       validate_arguments! model_id, prompt, llm_api_key
 
       llm = create_llm_client llm_api_key, model_id
-      execute_chat! llm, model_id, prompt
+
+      if tools.any?
+        execute_chat_with_tools! llm, model_id, prompt, tools
+      else
+        execute_chat! llm, model_id, prompt
+      end
     end
 
     private
@@ -21,14 +26,6 @@ module LlmRbFacade
     end
 
     def create_llm_client(llm_api_key, model_id)
-      # public_send dynamically invokes a public method on an object
-      # Example: LLM.public_send(:openai, key: "xxx") is equivalent to LLM.openai(key: "xxx")
-      # Unlike send, public_send cannot call private methods (safer)
-      # Here, it calls one of :ollama, :openai, :anthropic, or :gemini based on llm_type
-      # This eliminates the need for separate files for each LLM service
-
-      # Ollama doesn't require an API key (local service)
-      # Arguments are already validated by validate_arguments!
       if LlmModelMap.ollama_model?(model_id)
         LLM.public_send :ollama
       else
@@ -45,10 +42,37 @@ module LlmRbFacade
     end
 
     def execute_chat!(llm, model_id, prompt)
-      bot = LLM::Bot.new llm, model: model_id
+      bot = LLM::Session.new llm, model: model_id
       messages = bot.chat prompt
 
-      messages&.res&.body&.choices&.dig(0)&.message&.content || ""
+      messages.choices[-1]&.content || ""
+    end
+
+    def execute_chat_with_tools!(llm, model_id, prompt, tools)
+      session = LLM::Session.new llm, model: model_id, tools: tools
+      response = session.chat prompt
+
+      # If LLM requested tool calls, execute them and send results back
+      if session.functions.any?
+        tool_results = session.functions.map(&:call)
+        response = session.chat tool_results
+      end
+
+      build_response_with_tools(response, session)
+    end
+
+    def build_response_with_tools(response, session)
+      content = response.choices[-1]&.content || ""
+      tool_calls = session.extract_tool_calls
+
+      if tool_calls.any?
+        {
+          message: content,
+          tool_calls: tool_calls
+        }
+      else
+        content
+      end
     end
   end
 end
