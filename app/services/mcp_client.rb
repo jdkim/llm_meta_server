@@ -42,6 +42,11 @@ class McpClient
     result["tools"] || []
   end
 
+  def call_tool!(name, arguments = {})
+    response = send_request("tools/call", { name: name, arguments: arguments })
+    parse_result(response)
+  end
+
   private
 
   def next_request_id
