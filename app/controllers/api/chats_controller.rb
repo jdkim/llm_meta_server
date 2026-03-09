@@ -56,12 +56,7 @@ class Api::ChatsController < ApiController
     tool_ids = params[:tool_ids]
     return [] if tool_ids.blank?
 
-    mcp_tools = current_user.mcp_servers.active
-      .joins(:mcp_tools)
-      .merge(McpTool.active.where(id: tool_ids))
-      .flat_map { it.mcp_tools.active.where(id: tool_ids).includes(:mcp_server) }
-
-    McpToolAdapter.to_llm_functions(mcp_tools)
+    McpToolAdapter.to_llm_functions(current_user.find_mcp_tools(tool_ids))
   end
 
   def format_response(result)
