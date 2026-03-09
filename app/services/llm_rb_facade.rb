@@ -58,10 +58,10 @@ module LlmRbFacade
         response = session.chat tool_results
       end
 
-      build_tool_response(response, session)
+      build_response_with_tools(response, session)
     end
 
-    def build_tool_response(response, session)
+    def build_response_with_tools(response, session)
       content = response.choices[-1]&.content || ""
       tool_calls = extract_tool_calls(session)
 
