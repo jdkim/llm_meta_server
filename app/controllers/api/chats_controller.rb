@@ -68,7 +68,7 @@ class Api::ChatsController < ApiController
     if result.is_a?(Hash)
       result
     else
-      { message: result }
+      { message: result.to_s }
     end
   end
 end
