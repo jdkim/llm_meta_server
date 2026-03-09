@@ -13,7 +13,9 @@ class McpToolAdapter
       LLM::Function.new(tool_name) do |fn|
         fn.description mcp_tool.description
         set_params(fn, mcp_tool.input_schema)
-        fn.define McpToolRunner.new(server_url, tool_name)
+        fn.define ->(**arguments) {
+          McpClient.new(server_url).tap(&:initialize_connection!).call_tool!(tool_name, arguments)
+        }
       end
     end
 
@@ -22,19 +24,6 @@ class McpToolAdapter
 
       schema = input_schema.deep_symbolize_keys
       fn.instance_variable_set(:@params, schema)
-    end
-  end
-
-  class McpToolRunner
-    def initialize(server_url, tool_name)
-      @server_url = server_url
-      @tool_name = tool_name
-    end
-
-    def call(**arguments)
-      client = McpClient.new(@server_url)
-      client.initialize_connection!
-      client.call_tool!(@tool_name, arguments)
     end
   end
 end
