@@ -6,6 +6,8 @@ class Api::ChatsController < ApiController
   rescue_from McpClient::McpConnectionError, with: :mcp_connection_error
   rescue_from McpClient::McpProtocolError, with: :mcp_protocol_error
 
+  GENERATION_PARAM_KEYS = %i[temperature top_p top_k max_tokens].freeze
+
   def create
     uuid, model_name, prompt = expected_params
 
@@ -15,10 +17,12 @@ class Api::ChatsController < ApiController
       tools = selected_tools
       message = LlmRbFacade.call! model_id, prompt,
         llm_api_key: llm_api_key,
-        tools: tools
+        tools: tools,
+        generation_params: generation_params
     else
       model_id = LlmModelMap.fetch! model_name
-      message = LlmRbFacade.call! model_id, prompt
+      message = LlmRbFacade.call! model_id, prompt,
+        generation_params: generation_params
     end
 
     render json: {
@@ -57,6 +61,10 @@ class Api::ChatsController < ApiController
     return [] if tool_ids.blank?
 
     McpToolAdapter.to_llm_functions(current_user.find_mcp_tools(tool_ids))
+  end
+
+  def generation_params
+    params.permit(*GENERATION_PARAM_KEYS).to_h.symbolize_keys
   end
 
   def format_response(result)
