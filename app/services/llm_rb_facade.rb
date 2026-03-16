@@ -1,15 +1,15 @@
 module LlmRbFacade
   class << self
-    def call!(model_id, prompt, llm_api_key: nil, tools: [])
+    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {})
       # Validate arguments at the entry point
       validate_arguments! model_id, prompt, llm_api_key
 
       llm = create_llm_client llm_api_key, model_id
 
       if tools.any?
-        execute_chat_with_tools! llm, model_id, prompt, tools
+        execute_chat_with_tools! llm, model_id, prompt, tools, generation_params
       else
-        execute_chat! llm, model_id, prompt
+        execute_chat! llm, model_id, prompt, generation_params
       end
     end
 
@@ -41,15 +41,15 @@ module LlmRbFacade
       model.id
     end
 
-    def execute_chat!(llm, model_id, prompt)
-      bot = LLM::Session.new llm, model: model_id
+    def execute_chat!(llm, model_id, prompt, generation_params)
+      bot = LLM::Session.new llm, model: model_id, **generation_params
       messages = bot.chat prompt
 
       messages.choices[-1]&.content || ""
     end
 
-    def execute_chat_with_tools!(llm, model_id, prompt, tools)
-      session = LLM::Session.new llm, model: model_id, tools: tools
+    def execute_chat_with_tools!(llm, model_id, prompt, tools, generation_params)
+      session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
       response = session.chat prompt
 
       # If LLM requested tool calls, execute them and send results back
