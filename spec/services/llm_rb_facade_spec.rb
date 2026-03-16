@@ -3,7 +3,7 @@ require 'rails_helper'
 RSpec.describe LlmRbFacade do
   let(:llm_client) { instance_double("LLM::Provider") }
   let(:session) { instance_double("LLM::Session") }
-  let(:messages) { instance_double("Messages", choices: [choice]) }
+  let(:messages) { instance_double("Messages", choices: [ choice ]) }
   let(:choice) { instance_double("Choice", content: "Hello!") }
   let(:model_id) { "llama3.2" }
   let(:prompt) { "Hi there" }
@@ -39,7 +39,7 @@ RSpec.describe LlmRbFacade do
     end
 
     context "with tools and generation_params" do
-      let(:tools) { [double("tool")] }
+      let(:tools) { [ double("tool") ] }
       let(:generation_params) { { temperature: 0.5 } }
       let(:functions) { [] }
 
