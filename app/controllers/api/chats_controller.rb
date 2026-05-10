@@ -1,4 +1,8 @@
 class Api::ChatsController < ApiController
+  # JSON requests already send flat top-level keys; skip resource wrapping
+  # so :chat doesn't appear as a duplicated, unpermitted parameter.
+  wrap_parameters false
+
   # Google ID Token authentication required
   rescue_from LLM::RateLimitError, with: :rate_limit_error
   rescue_from LlmApiKeyRequiredError, with: :api_key_required_error
@@ -53,11 +57,14 @@ class Api::ChatsController < ApiController
   end
 
   def expected_params
+    # permit first so the strong-params logger doesn't flag these as
+    # unpermitted; expect still enforces presence + shape.
+    params.permit(:llm_api_key_uuid, :model_name, :prompt, tool_ids: [])
     params.expect(:llm_api_key_uuid, :model_name, :prompt)
   end
 
   def selected_tools
-    tool_ids = params[:tool_ids]
+    tool_ids = params.permit(tool_ids: [])[:tool_ids]
     return [] if tool_ids.blank?
 
     McpToolAdapter.to_llm_functions(current_user.find_mcp_tools(tool_ids))

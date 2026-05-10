@@ -28,7 +28,8 @@ class LlmModelMap
   }
   MODEL_MAP_OLLAMA = {
     # Ollama Models
-    "gpt-oss-20b" => { api_id: "gpt-oss:20b", display_name: "gpt-oss:20b" }
+    "qwen3-6-35b" => { api_id: "qwen3.6:35b", display_name: "qwen3.6:35b" },
+    "gemma3-27b" => { api_id: "gemma3:27b", display_name: "gemma3:27b" }
   }
 
   MODEL_MAP = {

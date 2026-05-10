@@ -20,10 +20,12 @@ class User < ApplicationRecord
   end
 
   def find_mcp_tools(tool_ids)
-    mcp_servers.active
-      .joins(:mcp_tools)
-      .merge(McpTool.active.where(id: tool_ids))
-      .flat_map { it.mcp_tools.active.where(id: tool_ids).includes(:mcp_server) }
+    McpTool.active
+      .where(id: tool_ids)
+      .joins(:mcp_server)
+      .merge(McpServer.active)
+      .where(mcp_servers: { user_id: id })
+      .includes(:mcp_server)
   end
 
   def key_for(uuid)
