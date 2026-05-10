@@ -101,3 +101,6 @@ yarn-debug.log*
 .idea/copilotDiffState.xml
 .kamal/secrets
 .idea
+
+# vim backup files
+*~
