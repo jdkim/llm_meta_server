@@ -99,7 +99,7 @@ module LlmRbFacade
 
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
-      response = session.chat prompt # turn 1: not streamed (tool selection)
+      response = session.chat prompt, stream: false # turn 1: explicitly non-streamed
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
 
       if session.functions.any?
