@@ -23,15 +23,18 @@ module LlmRbFacade
     #
     # Returns the assembled string when no tools were called, or
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
-    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil)
+    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil)
       validate_arguments! model_id, prompt, llm_api_key
 
       llm = create_llm_client llm_api_key, model_id
 
       if tools.any?
-        stream_chat_with_tools! llm, model_id, prompt, tools, generation_params, sink, on_tool_calls
+        stream_chat_with_tools! llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change
       else
         session = LLM::Session.new llm, model: model_id, **generation_params
+        # Controller already emitted "thinking" at the top. The model may
+        # still think for a while before emitting content; the client flips
+        # the indicator to "streaming" on the first content delta.
         response = session.chat prompt, stream: sink
         response.choices[-1]&.content || ""
       end
@@ -97,7 +100,7 @@ module LlmRbFacade
       build_response_with_tools(response, session)
     end
 
-    def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls)
+    def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
       response = session.chat prompt, stream: false # turn 1: explicitly non-streamed
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
@@ -106,6 +109,10 @@ module LlmRbFacade
         on_tool_calls&.call(session.extract_tool_calls)
         tool_results = session.functions.map(&:call)
         emit_tool_errors_to_sink(tool_results, sink)
+        # Turn 2 may itself think before emitting content — re-signal thinking
+        # so the indicator reappears after the tool-call bubble. The client
+        # flips it to "streaming" on the first content delta.
+        on_phase_change&.call("thinking")
         response = session.chat tool_results, stream: sink # turn 2: streamed
       else
         text = response.choices[-1]&.content || ""

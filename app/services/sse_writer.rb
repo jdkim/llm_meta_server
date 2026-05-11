@@ -13,4 +13,14 @@ class SseWriter
   def event(name, data = {})
     @stream.write "event: #{name}\ndata: #{data.to_json}\n\n"
   end
+
+  def phase(name)
+    event("phase", { name: name })
+  end
+
+  # SSE comment line. Clients (EventSource) ignore it, but the bytes keep
+  # the connection warm through buffering proxies and TCP idle timeouts.
+  def heartbeat
+    @stream.write ": keepalive\n\n"
+  end
 end

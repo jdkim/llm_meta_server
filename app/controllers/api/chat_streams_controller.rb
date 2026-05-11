@@ -14,6 +14,13 @@ class Api::ChatStreamsController < ApiController
 
     sink = SseWriter.new(response.stream)
     on_tool_calls = ->(tool_calls) { sink.event("tool_calls", { tool_calls: tool_calls }) }
+    on_phase_change = ->(name) { sink.phase(name) }
+
+    # Tell the UI we've started — without this the bubble shows nothing while
+    # turn 1 (tool selection, model thinking) is in progress. Keepalive thread
+    # also keeps the connection warm through proxies and proves liveness.
+    sink.phase("thinking")
+    heartbeat = start_heartbeat(sink)
 
     if bearer_token
       llm_api_key = current_user.find_llm_api_key uuid
@@ -23,13 +30,15 @@ class Api::ChatStreamsController < ApiController
         llm_api_key: llm_api_key,
         tools: selected_tools,
         generation_params: generation_params,
-        on_tool_calls: on_tool_calls
+        on_tool_calls: on_tool_calls,
+        on_phase_change: on_phase_change
     else
       model_id = LlmModelMap.fetch! model_name
       LlmRbFacade.stream! model_id, prompt,
         sink: sink,
         generation_params: generation_params,
-        on_tool_calls: on_tool_calls
+        on_tool_calls: on_tool_calls,
+        on_phase_change: on_phase_change
     end
 
     sink.event("done")
@@ -45,6 +54,7 @@ class Api::ChatStreamsController < ApiController
     Rails.logger.error "[ChatStreams] #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
     safe_emit_error(sink, "internal_error", e.message)
   ensure
+    heartbeat&.kill
     response.stream.close
   end
 
@@ -54,6 +64,22 @@ class Api::ChatStreamsController < ApiController
     sink.event("error", { code: code, message: message })
   rescue IOError, ActionController::Live::ClientDisconnected
     # Stream already closed; nothing to do.
+  end
+
+  # Background thread that emits an SSE comment line every 5s. Keeps the
+  # connection warm during synchronous waits (tool selection turn, tool
+  # execution) so proxies don't time out and the client knows we're alive.
+  def start_heartbeat(sink)
+    Thread.new do
+      loop do
+        sleep 5
+        begin
+          sink.heartbeat
+        rescue IOError, ActionController::Live::ClientDisconnected, StandardError
+          break
+        end
+      end
+    end
   end
 
   def expected_params
