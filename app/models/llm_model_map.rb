@@ -1,34 +1,25 @@
 class LlmModelMap
   MODEL_MAP_OPENAI = {
     # OpenAI Models
-    "gpt-4o" => { api_id: "gpt-4o", display_name: "GPT-4o" },
-    "gpt-4o-mini" => { api_id: "gpt-4o-mini", display_name: "GPT-4o Mini" },
-    "gpt-4-turbo" => { api_id: "gpt-4-turbo", display_name: "GPT-4 Turbo" },
-    "gpt-3-5-turbo" => { api_id: "gpt-3.5-turbo", display_name: "GPT-3.5 Turbo" },
-    "gpt-3-5-turbo-16k" => { api_id: "gpt-3.5-turbo-16k", display_name: "GPT-3.5 Turbo 16K" }
+    "gpt-5" => { api_id: "gpt-5", display_name: "GPT-5" },
+    "gpt-5-mini" => { api_id: "gpt-5-mini", display_name: "GPT-5 Mini" }
   }
   MODEL_MAP_ANTHROPIC = {
     # Anthropic Models
-    "claude-sonnet-4-5" => { api_id: "claude-sonnet-4-5", display_name: "Claude Sonnet 4.5" },
-    "claude-haiku-4-5" => { api_id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5" },
-    "claude-opus-4-1" => { api_id: "claude-opus-4-1", display_name: "Claude Opus 4.1" },
-    "claude-sonnet-4-0" => { api_id: "claude-sonnet-4-0", display_name: "Claude Sonnet 4" },
-    "claude-sonnet-3-7" => { api_id: "claude-3-7-sonnet-latest", display_name: "Claude Sonnet 3.7" },
-    "claude-opus-4-0" => { api_id: "claude-opus-4-0", display_name: "Claude Opus 4" },
-    "claude-3-5-haiku-latest" => { api_id: "claude-3-5-haiku-latest", display_name: "Claude 3.5 Haiku" },
-    "claude-3-haiku" => { api_id: "claude-3-haiku-20240307", display_name: "Claude 3 Haiku" }
+    "claude-opus-4-7" => { api_id: "claude-opus-4-7", display_name: "Claude Opus 4.7" },
+    "claude-sonnet-4-6" => { api_id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6" },
+    "claude-haiku-4-5" => { api_id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5" }
   }
   MODEL_MAP_GOOGLE = {
     # Google Gemini Models
-    "gemini-2-5-pro" => { api_id: "gemini-2.5-pro", display_name: "Gemini 2.5 Pro" },
-    "gemini-2-5-flash" => { api_id: "gemini-2.5-flash", display_name: "Gemini 2.5 Flash" },
-    "gemini-2-5-flash-lite" => { api_id: "gemini-2.5-flash-lite", display_name: "Gemini 2.5 Flash Lite" },
-    "gemini-2-0-flash" => { api_id: "gemini-2.0-flash", display_name: "Gemini 2.0 Flash" },
-    "gemini-2-0-flash-lite" => { api_id: "gemini-2.0-flash-lite", display_name: "Gemini 2.0 Flash Lite" }
+    "gemini-3-pro" => { api_id: "gemini-3-pro", display_name: "Gemini 3 Pro" },
+    "gemini-3-flash" => { api_id: "gemini-3-flash", display_name: "Gemini 3 Flash" }
   }
   MODEL_MAP_OLLAMA = {
     # Ollama Models
     "qwen3-6-35b" => { api_id: "qwen3.6:35b", display_name: "qwen3.6:35b" },
+    "qwen3-5-9b" => { api_id: "qwen3.5:9b", display_name: "qwen3.5:9b" },
+    "qwen3-5-4b" => { api_id: "qwen3.5:4b", display_name: "qwen3.5:4b" },
     "gemma3-27b" => { api_id: "gemma3:27b", display_name: "gemma3:27b" }
   }
 

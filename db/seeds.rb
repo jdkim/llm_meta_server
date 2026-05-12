@@ -40,6 +40,12 @@ llm_configs.each do |llm_name, config|
     puts "    ✓ Model: #{model_info[:display_name]} (API ID: #{model_info[:api_id]})"
   end
 
+  orphans = llm.llm_models.where.not(name: model_map.keys)
+  if orphans.any?
+    puts "    Removing #{orphans.count} orphaned model(s): #{orphans.pluck(:name).inspect}"
+    orphans.destroy_all
+  end
+
   puts ""
 end
 
