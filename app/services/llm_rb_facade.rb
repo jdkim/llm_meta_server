@@ -3,11 +3,13 @@ module LlmRbFacade
     def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {})
       # Validate arguments at the entry point
       validate_arguments! model_id, prompt, llm_api_key
+      generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
+      all_tools = tools + native_server_tools(llm)
 
-      if tools.any?
-        execute_chat_with_tools! llm, model_id, prompt, tools, generation_params
+      if all_tools.any?
+        execute_chat_with_tools! llm, model_id, prompt, all_tools, generation_params
       else
         execute_chat! llm, model_id, prompt, generation_params
       end
@@ -25,11 +27,23 @@ module LlmRbFacade
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
     def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil)
       validate_arguments! model_id, prompt, llm_api_key
+      generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
+      native = native_server_tools(llm)
 
       if tools.any?
-        stream_chat_with_tools! llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change
+        # MCP function tools present — needs the turn1/turn2 execution loop.
+        # Native server tools ride along in the same array; the gem's
+        # adapt_tools splits ServerTools from Functions for the request.
+        stream_chat_with_tools! llm, model_id, prompt, tools + native, generation_params, sink, on_tool_calls, on_phase_change
+      elsif native.any?
+        # Native-only (e.g. Gemini grounding / url_context): provider-side
+        # tools, no function round-trip — stream the grounded answer directly.
+        session = LLM::Session.new llm, model: model_id, tools: native, **generation_params
+        response = session.chat prompt, stream: sink
+        log_finish_diagnostics(response, "native")
+        response.choices[-1]&.content || ""
       else
         session = LLM::Session.new llm, model: model_id, **generation_params
         # Controller already emitted "thinking" at the top. The model may
@@ -42,6 +56,20 @@ module LlmRbFacade
 
     private
 
+    # llm.rb's Anthropic provider hard-defaults max_tokens to 1024, which
+    # truncates longer answers (stop_reason "max_tokens"). Other providers
+    # don't cap this low and use a different param shape, so scope the
+    # override to Anthropic and only when the user hasn't set their own.
+    ANTHROPIC_DEFAULT_MAX_TOKENS = 8192
+
+    def apply_provider_defaults(generation_params, llm_api_key)
+      params = (generation_params || {}).to_h.symbolize_keys
+      if llm_api_key&.llm_type == "anthropic" && params[:max_tokens].blank?
+        params[:max_tokens] = ANTHROPIC_DEFAULT_MAX_TOKENS
+      end
+      params
+    end
+
     def validate_arguments!(model_id, prompt, llm_api_key)
       raise ArgumentError, "model_id is required" if model_id.blank?
       raise ArgumentError, "prompt is required" if prompt.blank?
@@ -50,6 +78,37 @@ module LlmRbFacade
       if llm_api_key.nil? && !LlmModelMap.ollama_model?(model_id)
         raise LlmApiKeyRequiredError, model_id
       end
+    end
+
+    # Native (provider-executed) server tools to attach implicitly based on
+    # the selected model's provider. Picking a Gemini model is itself the
+    # signal that grounding is wanted — no separate toggle. These are
+    # LLM::ServerTool objects; llm.rb merges them with MCP functions.
+    NATIVE_GEMINI_TOOLS = %i[google_search url_context].freeze
+
+    # Diagnostic: capture why generation stopped. finishReason "MAX_TOKENS"
+    # means the output cap was hit (truncation); "STOP" with short content
+    # points at a transport/stream issue instead.
+    def log_finish_diagnostics(response, label)
+      body = response.body rescue nil
+      cand = (body&.candidates&.first rescue nil)
+      finish = (cand&.finishReason rescue nil)
+      total = (body&.usageMetadata&.totalTokenCount rescue nil)
+      len = (response.choices[-1]&.content&.length rescue nil)
+      Rails.logger.info "[LlmRbFacade] #{label} finishReason=#{finish.inspect} " \
+                        "total_tokens=#{total.inspect} content_len=#{len.inspect}"
+    rescue StandardError => e
+      Rails.logger.warn "[LlmRbFacade] diagnostics failed: #{e.class}: #{e.message}"
+    end
+
+    def native_server_tools(llm)
+      return [] unless llm.class.name == "LLM::Gemini"
+      return [] unless llm.respond_to?(:server_tools)
+
+      llm.server_tools.values_at(*NATIVE_GEMINI_TOOLS).compact
+    rescue StandardError => e
+      Rails.logger.warn "[LlmRbFacade] native tool resolution failed: #{e.class}: #{e.message}"
+      []
     end
 
     def create_llm_client(llm_api_key, model_id)

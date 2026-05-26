@@ -12,8 +12,13 @@ class LlmModelMap
   }
   MODEL_MAP_GOOGLE = {
     # Google Gemini Models
-    "gemini-3-pro" => { api_id: "gemini-3-pro", display_name: "Gemini 3 Pro" },
-    "gemini-3-flash" => { api_id: "gemini-3-flash", display_name: "Gemini 3 Flash" }
+    "gemini-3-1-pro" => { api_id: "gemini-3.1-pro-preview", display_name: "Gemini 3.1 Pro" },
+    "gemini-3-pro" => { api_id: "gemini-3-pro-preview", display_name: "Gemini 3 Pro" },
+    "gemini-3-flash" => { api_id: "gemini-3-flash-preview", display_name: "Gemini 3 Flash" },
+    "gemini-2-5-pro" => { api_id: "gemini-2.5-pro", display_name: "Gemini 2.5 Pro" },
+    "gemini-3-1-flash-image" => { api_id: "gemini-3.1-flash-image-preview", display_name: "Gemini 3.1 Flash Image (Nano Banana 2)", kind: :image },
+    "gemini-3-pro-image" => { api_id: "gemini-3-pro-image-preview", display_name: "Gemini 3 Pro Image (Nano Banana Pro)", kind: :image },
+    "gemini-2-5-flash-image" => { api_id: "gemini-2.5-flash-image", display_name: "Gemini 2.5 Flash Image (Nano Banana)", kind: :image }
   }
   MODEL_MAP_OLLAMA = {
     # Ollama Models
@@ -47,5 +52,9 @@ class LlmModelMap
 
   def self.ollama_model?(model_id)
     MODEL_MAP_OLLAMA.values.any? { |m| m[:api_id] == model_id }
+  end
+
+  def self.image_model?(meta_id, llm_type: nil)
+    MODEL_MAP.dig(llm_type || "ollama", meta_id, :kind) == :image
   end
 end

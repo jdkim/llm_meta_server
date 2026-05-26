@@ -25,13 +25,21 @@ class Api::ChatStreamsController < ApiController
     if bearer_token
       llm_api_key = current_user.find_llm_api_key uuid
       model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
-      LlmRbFacade.stream! model_id, prompt,
-        sink: sink,
-        llm_api_key: llm_api_key,
-        tools: selected_tools,
-        generation_params: generation_params,
-        on_tool_calls: on_tool_calls,
-        on_phase_change: on_phase_change
+      if LlmModelMap.image_model?(model_name, llm_type: llm_api_key&.llm_type)
+        markdown = ImageGenerationService.generate!(
+          model_id: model_id, prompt: prompt, llm_api_key: llm_api_key,
+          image_context: image_context_param
+        )
+        sink << markdown
+      else
+        LlmRbFacade.stream! model_id, prompt,
+          sink: sink,
+          llm_api_key: llm_api_key,
+          tools: selected_tools,
+          generation_params: generation_params,
+          on_tool_calls: on_tool_calls,
+          on_phase_change: on_phase_change
+      end
     else
       model_id = LlmModelMap.fetch! model_name
       LlmRbFacade.stream! model_id, prompt,
@@ -96,5 +104,10 @@ class Api::ChatStreamsController < ApiController
 
   def generation_params
     params.permit(*GENERATION_PARAM_KEYS).to_h.symbolize_keys
+  end
+
+  def image_context_param
+    raw = params.permit(image_context: [ :prompt, :response ])[:image_context]
+    Array(raw).map { |t| { prompt: t[:prompt].to_s, response: t[:response].to_s } }
   end
 end
