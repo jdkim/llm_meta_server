@@ -22,13 +22,19 @@ class Api::ChatStreamsController < ApiController
     sink.phase("thinking")
     heartbeat = start_heartbeat(sink)
 
+    image = image_param
+
     if bearer_token
       llm_api_key = current_user.find_llm_api_key uuid
       model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
+      if image.present? && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
+        raise ArgumentError, "Selected model doesn't support image input"
+      end
       if LlmModelMap.image_model?(model_name, llm_type: llm_api_key&.llm_type)
         markdown = ImageGenerationService.generate!(
           model_id: model_id, prompt: prompt, llm_api_key: llm_api_key,
-          image_context: image_context_param
+          image_context: image_context_param,
+          image: image
         )
         sink << markdown
       else
@@ -37,14 +43,19 @@ class Api::ChatStreamsController < ApiController
           llm_api_key: llm_api_key,
           tools: selected_tools,
           generation_params: generation_params,
+          image: image,
           on_tool_calls: on_tool_calls,
           on_phase_change: on_phase_change
       end
     else
       model_id = LlmModelMap.fetch! model_name
+      if image.present? && !LlmModelMap.supports_vision?(model_name, llm_type: nil)
+        raise ArgumentError, "Selected model doesn't support image input"
+      end
       LlmRbFacade.stream! model_id, prompt,
         sink: sink,
         generation_params: generation_params,
+        image: image,
         on_tool_calls: on_tool_calls,
         on_phase_change: on_phase_change
     end
@@ -109,5 +120,14 @@ class Api::ChatStreamsController < ApiController
   def image_context_param
     raw = params.permit(image_context: [ :prompt, :response ])[:image_context]
     Array(raw).map { |t| { prompt: t[:prompt].to_s, response: t[:response].to_s } }
+  end
+
+  def image_param
+    raw = params.permit(image: [ :mime, :data_b64 ])[:image]
+    return nil if raw.blank?
+    mime = raw[:mime].to_s
+    data_b64 = raw[:data_b64].to_s
+    return nil if mime.empty? || data_b64.empty?
+    { mime: mime, data_b64: data_b64 }
   end
 end

@@ -1,6 +1,9 @@
+require "base64"
+require "tempfile"
+
 module LlmRbFacade
   class << self
-    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {})
+    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil)
       # Validate arguments at the entry point
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
@@ -8,10 +11,13 @@ module LlmRbFacade
       llm = create_llm_client llm_api_key, model_id
       all_tools = tools + native_server_tools(llm)
 
-      if all_tools.any?
-        execute_chat_with_tools! llm, model_id, prompt, all_tools, generation_params
-      else
-        execute_chat! llm, model_id, prompt, generation_params
+      with_image_payload(image) do |content|
+        effective_prompt = content ? [ content, prompt ] : prompt
+        if all_tools.any?
+          execute_chat_with_tools! llm, model_id, effective_prompt, all_tools, generation_params
+        else
+          execute_chat! llm, model_id, effective_prompt, generation_params
+        end
       end
     end
 
@@ -25,32 +31,36 @@ module LlmRbFacade
     #
     # Returns the assembled string when no tools were called, or
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
-    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil)
+    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil)
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
       native = native_server_tools(llm)
 
-      if tools.any?
-        # MCP function tools present — needs the turn1/turn2 execution loop.
-        # Native server tools ride along in the same array; the gem's
-        # adapt_tools splits ServerTools from Functions for the request.
-        stream_chat_with_tools! llm, model_id, prompt, tools + native, generation_params, sink, on_tool_calls, on_phase_change
-      elsif native.any?
-        # Native-only (e.g. Gemini grounding / url_context): provider-side
-        # tools, no function round-trip — stream the grounded answer directly.
-        session = LLM::Session.new llm, model: model_id, tools: native, **generation_params
-        response = session.chat prompt, stream: sink
-        log_finish_diagnostics(response, "native")
-        response.choices[-1]&.content || ""
-      else
-        session = LLM::Session.new llm, model: model_id, **generation_params
-        # Controller already emitted "thinking" at the top. The model may
-        # still think for a while before emitting content; the client flips
-        # the indicator to "streaming" on the first content delta.
-        response = session.chat prompt, stream: sink
-        response.choices[-1]&.content || ""
+      with_image_payload(image) do |content|
+        effective_prompt = content ? [ content, prompt ] : prompt
+
+        if tools.any?
+          # MCP function tools present — needs the turn1/turn2 execution loop.
+          # Native server tools ride along in the same array; the gem's
+          # adapt_tools splits ServerTools from Functions for the request.
+          stream_chat_with_tools! llm, model_id, effective_prompt, tools + native, generation_params, sink, on_tool_calls, on_phase_change
+        elsif native.any?
+          # Native-only (e.g. Gemini grounding / url_context): provider-side
+          # tools, no function round-trip — stream the grounded answer directly.
+          session = LLM::Session.new llm, model: model_id, tools: native, **generation_params
+          response = session.chat effective_prompt, stream: sink
+          log_finish_diagnostics(response, "native")
+          response.choices[-1]&.content || ""
+        else
+          session = LLM::Session.new llm, model: model_id, **generation_params
+          # Controller already emitted "thinking" at the top. The model may
+          # still think for a while before emitting content; the client flips
+          # the indicator to "streaming" on the first content delta.
+          response = session.chat effective_prompt, stream: sink
+          response.choices[-1]&.content || ""
+        end
       end
     end
 
@@ -68,6 +78,33 @@ module LlmRbFacade
         params[:max_tokens] = ANTHROPIC_DEFAULT_MAX_TOKENS
       end
       params
+    end
+
+    # Build an LLM::Object(:local_file) from a transport payload `{mime:, data_b64:}`
+    # by writing the bytes to a Tempfile and wrapping with LLM::File. Each provider's
+    # adapt_local_file consumes only the standard LLM::File interface (mime_type,
+    # to_b64, image?, basename, to_data_uri), so this works uniformly across
+    # OpenAI / Anthropic / Gemini / Ollama. Yields content (or nil), cleans up.
+    def with_image_payload(image)
+      return yield(nil) if image.blank?
+
+      mime = (image[:mime] || image["mime"]).to_s
+      data_b64 = (image[:data_b64] || image["data_b64"]).to_s
+      return yield(nil) if mime.empty? || data_b64.empty?
+
+      ext = mime.split("/").last.to_s
+      ext = ext.sub(/[;+].*$/, "") # strip params like "jpeg;charset=..."
+      ext = "bin" if ext.empty?
+      tmp = Tempfile.new([ "llm_meta_img_", ".#{ext}" ], binmode: true)
+      tmp.write(Base64.decode64(data_b64))
+      tmp.close
+
+      file = LLM::File.new(tmp.path)
+      content = LLM::Object.new(kind: :local_file, value: file)
+      yield(content)
+    ensure
+      tmp&.close
+      tmp&.unlink
     end
 
     def validate_arguments!(model_id, prompt, llm_api_key)
@@ -111,17 +148,24 @@ module LlmRbFacade
       []
     end
 
+    # llm.rb's Provider#initialize defaults read timeout to 60s (per-read).
+    # That's too short for large local models (e.g. qwen3.6:35b) with image
+    # input, where the first-token wait alone can exceed it. Bump generously.
+    PROVIDER_READ_TIMEOUT_SECONDS = 300
+
     def create_llm_client(llm_api_key, model_id)
       if LlmModelMap.ollama_model?(model_id)
         LLM.ollama(**ollama_options)
       else
         llm_rb_method = llm_api_key.llm_rb_method
-        LLM.public_send llm_rb_method, key: llm_api_key.encryptable_api_key.plain_api_key
+        LLM.public_send llm_rb_method,
+          key: llm_api_key.encryptable_api_key.plain_api_key,
+          timeout: PROVIDER_READ_TIMEOUT_SECONDS
       end
     end
 
     def ollama_options
-      opts = {}
+      opts = { timeout: PROVIDER_READ_TIMEOUT_SECONDS }
       opts[:host] = ENV["OLLAMA_HOST"] if ENV["OLLAMA_HOST"].present?
       opts[:port] = ENV["OLLAMA_PORT"].to_i if ENV["OLLAMA_PORT"].present?
       opts
@@ -159,23 +203,42 @@ module LlmRbFacade
       build_response_with_tools(response, session)
     end
 
+    # Maximum tool-call rounds. Small models (notably qwen3.5:4b) will often
+    # chain another tool call instead of synthesizing text in turn 2, leaving
+    # the bubble empty. Loop until the model emits text or we hit the cap.
+    MAX_TOOL_ITERATIONS = 5
+
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
       response = session.chat prompt, stream: false # turn 1: explicitly non-streamed
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
+      Rails.logger.info "[LlmRbFacade] turn=1 functions.any?=#{session.functions.any?} " \
+                        "content_len=#{response.choices[-1]&.content.to_s.length}"
 
-      if session.functions.any?
+      iterations = 0
+      while session.functions.any? && iterations < MAX_TOOL_ITERATIONS
         on_tool_calls&.call(session.extract_tool_calls)
         tool_results = session.functions.map(&:call)
         emit_tool_errors_to_sink(tool_results, sink)
-        # Turn 2 may itself think before emitting content — re-signal thinking
-        # so the indicator reappears after the tool-call bubble. The client
-        # flips it to "streaming" on the first content delta.
+        # Each iteration may think again before emitting content — re-signal
+        # so the role label flips back to "thinking" between turns.
         on_phase_change&.call("thinking")
-        response = session.chat tool_results, stream: sink # turn 2: streamed
-      else
+        response = session.chat tool_results, stream: sink # streamed
+        rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
+        iterations += 1
+        Rails.logger.info "[LlmRbFacade] tool_iter=#{iterations} " \
+                          "functions.any?=#{session.functions.any?} " \
+                          "content_len=#{response.choices[-1]&.content.to_s.length}"
+      end
+
+      if iterations.zero?
+        # Turn 1 had no tool calls — emit its content as one chunk.
         text = response.choices[-1]&.content || ""
         sink << text unless text.empty?
+      elsif session.functions.any?
+        # Cap hit while the model still wanted to call more tools. Tell the
+        # user instead of leaving the bubble silently empty.
+        sink << "\n\n_(stopped after #{MAX_TOOL_ITERATIONS} tool rounds without a final answer)_"
       end
 
       build_response_with_tools(response, session)

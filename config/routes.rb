@@ -23,6 +23,13 @@ Rails.application.routes.draw do
   # LLMs list route
   resources :llms, only: [ :index ]
 
+  # Per-user favorite-models management
+  resources :models, only: [ :index ] do
+    member do
+      patch :toggle_favorite
+    end
+  end
+
   # User profile routes
   resources :user, only: [ :show ] do
     resources :llm_api_keys, only: [ :index, :create, :update, :destroy ]

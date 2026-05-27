@@ -4,6 +4,10 @@ class User < ApplicationRecord
   has_many :llm_api_keys, dependent: :destroy
   has_many :mcp_servers, dependent: :destroy
 
+  # Per-user list of favorited model meta_ids (globally unique strings like
+  # "gpt-5", "claude-opus-4-7", "qwen3-5-4b"). Stored as a JSON array of strings.
+  serialize :favorite_model_meta_ids, type: Array, coder: JSON
+
   validates :email, presence: true, uniqueness: true
   validates :google_id, presence: true, uniqueness: true
 
@@ -33,5 +37,24 @@ class User < ApplicationRecord
     return nil unless llm_api_key
 
     llm_api_key.encryptable_api_key
+  end
+
+  def favorite_model?(meta_id)
+    favorite_model_meta_ids.include?(meta_id.to_s)
+  end
+
+  # Add/remove the meta_id from the favorites list. Returns the resulting
+  # boolean (true if now favorited).
+  def toggle_favorite_model!(meta_id)
+    list = favorite_model_meta_ids.dup
+    if list.include?(meta_id.to_s)
+      list.delete(meta_id.to_s)
+      result = false
+    else
+      list << meta_id.to_s
+      result = true
+    end
+    update!(favorite_model_meta_ids: list)
+    result
   end
 end

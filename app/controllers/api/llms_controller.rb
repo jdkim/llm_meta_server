@@ -3,6 +3,6 @@ class Api::LlmsController < ApiController
 
   def index
     # Return all available LLM services including Ollama
-    render json: { llms: Llm.all_services_with_ollama }
+    render json: { llms: Llm.all_services_with_ollama(user: current_user) }
   end
 end

@@ -1,0 +1,46 @@
+<% content_for :title, "Favorite models" %>
+
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <h1 class="text-2xl font-semibold text-gray-900 mb-2">Favorite models</h1>
+  <p class="text-sm text-gray-600 mb-6">
+    Star the models you want to appear in the quick-access <strong>Favorites</strong> section
+    of the LLM picker in the chat UI. Only providers you have API keys for (plus Ollama) are shown.
+  </p>
+
+  <% if @groups.empty? %>
+    <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4 text-sm text-yellow-800">
+      No providers available yet. Register an API key first.
+    </div>
+  <% end %>
+
+  <% @groups.each do |llm_type, models| %>
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold text-gray-800 mb-3 capitalize"><%= llm_type %></h2>
+      <ul class="bg-white shadow rounded-lg divide-y divide-gray-200">
+        <% models.each do |m| %>
+          <li class="flex items-center gap-3 px-4 py-3">
+            <%= button_to toggle_favorite_model_path(m[:meta_id]),
+                          method: :patch,
+                          class: "text-2xl leading-none focus:outline-none transition-colors #{m[:favorite] ? 'text-amber-500 hover:text-amber-600' : 'text-gray-300 hover:text-amber-400'}",
+                          title: m[:favorite] ? 'Remove from favorites' : 'Add to favorites',
+                          form: { class: 'inline-block m-0' } do %>
+              <%= m[:favorite] ? "★".html_safe : "☆".html_safe %>
+            <% end %>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium text-gray-900"><%= m[:display_name] %></div>
+              <div class="text-xs text-gray-500 font-mono"><%= m[:meta_id] %></div>
+            </div>
+            <div class="flex gap-2">
+              <% if m[:kind] == :image %>
+                <span class="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-800">image gen</span>
+              <% end %>
+              <% if m[:supports_vision] %>
+                <span class="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800">vision</span>
+              <% end %>
+            </div>
+          </li>
+        <% end %>
+      </ul>
+    </section>
+  <% end %>
+</div>

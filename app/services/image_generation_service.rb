@@ -9,11 +9,11 @@ class ImageGenerationService
   REQUEST_TIMEOUT_SECONDS = 300
 
   class << self
-    def generate!(model_id:, prompt:, llm_api_key:, image_context: [])
+    def generate!(model_id:, prompt:, llm_api_key:, image_context: [], image: nil)
       case llm_api_key&.llm_type
       when "google"
         api_key = llm_api_key.encryptable_api_key.plain_api_key
-        generate_with_google(model_id: model_id, prompt: prompt, api_key: api_key, image_context: image_context)
+        generate_with_google(model_id: model_id, prompt: prompt, api_key: api_key, image_context: image_context, image: image)
       else
         raise ArgumentError, "Image generation is not supported for provider: #{llm_api_key&.llm_type.inspect}"
       end
@@ -21,11 +21,11 @@ class ImageGenerationService
 
     private
 
-    def generate_with_google(model_id:, prompt:, api_key:, image_context: [])
+    def generate_with_google(model_id:, prompt:, api_key:, image_context: [], image: nil)
       uri = URI("#{GOOGLE_BASE_URL}/models/#{model_id}:generateContent?key=#{api_key}")
       req = Net::HTTP::Post.new(uri, "Content-Type" => "application/json")
       req.body = {
-        contents: build_contents(prompt: prompt, image_context: image_context),
+        contents: build_contents(prompt: prompt, image_context: image_context, image: image),
         generationConfig: { responseModalities: %w[IMAGE TEXT] }
       }.to_json
 
@@ -64,22 +64,39 @@ class ImageGenerationService
 
     IMAGE_MD = /!\[[^\]]*\]\(data:([^;]+);base64,([^\)]+)\)/
 
-    # Replay all prior message turns verbatim, but only feed back the single
-    # most recent image (older turns keep their caption text, drop their image).
-    def build_contents(prompt:, image_context:)
+    # Build a single user-turn request containing the latest image + the new
+    # instruction. We deliberately do NOT replay prior model turns: Gemini's
+    # thinking-enabled image models (Nano Banana 2 / Pro) require each
+    # replayed model part to carry the original response's `thoughtSignature`,
+    # and we don't persist those — so we'd 400 with "Image part is missing a
+    # thought_signature". Presenting the prior image as part of the current
+    # user turn sidesteps that entirely and works uniformly across the whole
+    # Nano Banana family. Trade-off: the model doesn't see the *text* of
+    # prior turns, only the latest image + current prompt — adequate for
+    # refinement (the visual state is in the image itself).
+    def build_contents(prompt:, image_context:, image: nil)
       turns = Array(image_context)
-      last_image_idx = turns.rindex { |t| t[:response].to_s.match?(IMAGE_MD) }
 
-      contents = []
-      turns.each_with_index do |turn, idx|
-        user_text = turn[:prompt].to_s
-        contents << { role: "user", parts: [{ text: user_text }] } if user_text.present?
-
-        model_parts = parse_assistant_parts(turn[:response].to_s, keep_image: idx == last_image_idx)
-        contents << { role: "model", parts: model_parts } if model_parts.any?
+      # User's freshly-attached image takes precedence; otherwise carry
+      # forward the most recent image-bearing prior response.
+      active_image = image
+      if active_image.blank?
+        turns.reverse_each do |turn|
+          m = turn[:response].to_s.match(IMAGE_MD)
+          next unless m
+          active_image = { mime: m[1], data_b64: m[2] }
+          break
+        end
       end
-      contents << { role: "user", parts: [{ text: prompt.to_s }] }
-      contents
+
+      parts = []
+      if active_image
+        mime = active_image[:mime] || active_image["mime"]
+        data = active_image[:data_b64] || active_image["data_b64"]
+        parts << { inlineData: { mimeType: mime, data: data } } if mime && data
+      end
+      parts << { text: prompt.to_s }
+      [ { role: "user", parts: parts } ]
     end
 
     # Pull `inlineData` parts out of an assistant message that may contain

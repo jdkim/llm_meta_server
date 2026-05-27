@@ -35,10 +35,15 @@ class LlmApiKey < ApplicationRecord
   end
 
   def as_json(options = {})
+    favorited = user&.favorite_model_meta_ids || []
+    models = LlmModelMap.available_models_for(llm_type).map do |m|
+      m.merge("favorite" => favorited.include?(m["value"]))
+    end
+
     super({ only: %i[uuid llm_type description] }.merge(options))
       .merge(
         "description" => "[#{self.class.format_llm_type(llm_type)}] #{description}",
-        "available_models" => LlmModelMap.available_models_for(llm_type)
+        "available_models" => models
       )
   end
 

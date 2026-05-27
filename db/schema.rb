@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_03_02_000002) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_27_174724) do
   create_table "llm_api_keys", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "llm_type", null: false
@@ -77,6 +77,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_03_02_000002) do
     t.string "google_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "favorite_model_meta_ids", default: "[]", null: false
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["google_id"], name: "index_users_on_google_id", unique: true
   end

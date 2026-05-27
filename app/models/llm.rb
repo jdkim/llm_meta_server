@@ -17,22 +17,27 @@ class Llm < ApplicationRecord
   end
 
   class << self
-    def all_services_with_ollama
+    def all_services_with_ollama(user: nil)
       # Get all registered LLM services except Ollama (handled separately below)
       registered_llms = Llm.includes(:llm_models).where.not(family: "ollama").map(&:as_json)
 
       # Add Ollama as a special service (no API key required)
-      registered_llms << default_ollama_json
+      registered_llms << default_ollama_json(user: user)
     end
 
     private
 
-    def default_ollama_json
+    def default_ollama_json(user: nil)
+      favorited = user&.favorite_model_meta_ids || []
+      models = LlmModelMap.available_models_for("ollama").map do |m|
+        m.merge("favorite" => favorited.include?(m["value"]))
+      end
+
       {
         family: "ollama",
         description: "[Ollama] Local Ollama (no API key required)",
         uuid: "ollama-local",
-        available_models: LlmModelMap.available_models_for("ollama")
+        available_models: models
       }
     end
   end
