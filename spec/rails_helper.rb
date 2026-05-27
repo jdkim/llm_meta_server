@@ -65,6 +65,20 @@ RSpec.configure do |config|
   # To enable this behaviour uncomment the line below.
   # config.infer_spec_type_from_file_location!
 
+  # Block real HTTP from tests; integration specs must stub_request explicitly.
+  require "webmock/rspec"
+  WebMock.disable_net_connect!(allow_localhost: true)
+
+  # Stub AWS KMS so persisting an LlmApiKey doesn't hit the network.
+  # Round-trips: encrypt returns the plaintext base64'd; decrypt reverses it.
+  # Skipped for the ApiKeyEncrypter / ApiKeyDecrypter specs themselves, which
+  # exercise the real implementation against a stubbed Aws::KMS::Client.
+  config.before(:each) do |example|
+    next if example.metadata[:described_class].in?([ ApiKeyEncrypter, ApiKeyDecrypter ])
+    allow_any_instance_of(ApiKeyEncrypter).to receive(:encrypt) { |_, plain| Base64.encode64(plain.to_s) }
+    allow_any_instance_of(ApiKeyDecrypter).to receive(:decrypt) { |_, ct|    Base64.decode64(ct.to_s) }
+  end
+
   # Filter lines from Rails gems in backtraces.
   config.filter_rails_from_backtrace!
   # arbitrary gems may also be filtered via:

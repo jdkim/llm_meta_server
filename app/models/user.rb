@@ -6,7 +6,11 @@ class User < ApplicationRecord
 
   # Per-user list of favorited model meta_ids (globally unique strings like
   # "gpt-5", "claude-opus-4-7", "qwen3-5-4b"). Stored as a JSON array of strings.
-  serialize :favorite_model_meta_ids, type: Array, coder: JSON
+  # The attribute-level default guarantees [] at write time even when a new
+  # record is built without setting the attribute (e.g. via Devise omniauth's
+  # block-only initializer, which would otherwise hit the NOT NULL constraint).
+  serialize :favorite_model_meta_ids, coder: JSON
+  attribute :favorite_model_meta_ids, default: -> { [] }
 
   validates :email, presence: true, uniqueness: true
   validates :google_id, presence: true, uniqueness: true

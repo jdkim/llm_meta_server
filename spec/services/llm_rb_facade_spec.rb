@@ -3,7 +3,7 @@ require 'rails_helper'
 RSpec.describe LlmRbFacade do
   let(:llm_client) { instance_double("LLM::Provider") }
   let(:session) { instance_double("LLM::Session") }
-  let(:messages) { instance_double("Messages", choices: [ choice ]) }
+  let(:messages) { instance_double("Messages", choices: [ choice ], body: nil) }
   let(:choice) { instance_double("Choice", content: "Hello!") }
   let(:model_id) { "llama3.2" }
   let(:prompt) { "Hi there" }
