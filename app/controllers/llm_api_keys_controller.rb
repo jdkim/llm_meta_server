@@ -1,5 +1,6 @@
 class LlmApiKeysController < ApplicationController
   before_action :authenticate_user!
+  before_action :set_llm_api_key, only: [ :update, :destroy ]
 
   # GET /user/:user_id/llm_api_keys
   def index
@@ -20,8 +21,8 @@ class LlmApiKeysController < ApplicationController
 
   # PATCH/PUT /user/:user_id/llm_api_keys/:id
   def update
-    llm_api_key.update!(build_llm_api_key_attributes_for_update)
-    redirect_to user_llm_api_keys_path, update_message_for(llm_api_key)
+    @llm_api_key.update!(build_llm_api_key_attributes_for_update)
+    redirect_to user_llm_api_keys_path, update_message_for(@llm_api_key)
   rescue ActionController::ParameterMissing
     redirect_to user_llm_api_keys_path, alert: "Please enter API key or description"
   rescue ActiveRecord::RecordInvalid => e
@@ -30,13 +31,21 @@ class LlmApiKeysController < ApplicationController
 
   # DELETE /user/:user_id/llm_api_keys/:id
   def destroy
-    llm_api_key.destroy!
-    redirect_to user_llm_api_keys_path, notice: "#{llm_api_key.llm_type} (#{llm_api_key.description}) API key has been deleted successfully"
+    @llm_api_key.destroy!
+    redirect_to user_llm_api_keys_path, notice: "#{@llm_api_key.llm_type} (#{@llm_api_key.description}) API key has been deleted successfully"
   rescue ActiveRecord::RecordNotDestroyed
     redirect_to user_llm_api_keys_path, alert: "Failed to delete API key"
   end
 
   private
+
+  # before_action's redirect_to halts the filter chain, so the action never
+  # runs when the id isn't owned by current_user.
+  def set_llm_api_key
+    @llm_api_key = current_user.llm_api_keys.find(params[:id])
+  rescue ActiveRecord::RecordNotFound
+    redirect_to user_path(current_user), alert: "The specified API key was not found"
+  end
 
   def update_message_for(llm_api_key)
     if llm_api_key.saved_change_to_encrypted_api_key? && llm_api_key.saved_change_to_description?
@@ -77,12 +86,5 @@ class LlmApiKeysController < ApplicationController
     attributes[:description] = ps[:description]
 
     attributes
-  end
-
-  def llm_api_key
-    # Temporarily store in an instance variable to retain dirty information
-    @llm_api_key ||= current_user.llm_api_keys.find(params[:id])
-  rescue ActiveRecord::RecordNotFound
-    redirect_to user_path(current_user), alert: "The specified API key was not found"
   end
 end
