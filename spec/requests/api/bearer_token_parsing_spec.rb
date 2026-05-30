@@ -8,7 +8,9 @@ require "rails_helper"
 #
 # The spec captures the parsed token by intercepting GoogleIdTokenVerifier
 # and asserting what it received — that's exactly the boundary value of
-# interest. /api/llms is the simplest authenticated endpoint to hit.
+# interest. /api/llm_api_keys is used as the probe endpoint because it
+# requires auth (unlike /api/llms which is public for the guest catalog
+# flow).
 RSpec.describe "Authorization header parsing on the JSON API", type: :request do
   let(:user) { User.create!(email: "u@example.com", google_id: "g-bearer") }
 
@@ -27,7 +29,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
   describe "valid 'Bearer <token>' headers" do
     it "extracts the token verbatim from 'Bearer <token>'" do
       tokens = capture_parsed_token do
-        get "/api/llms", headers: { "Authorization" => "Bearer good-tok" }
+        get "/api/llm_api_keys", headers: { "Authorization" => "Bearer good-tok" }
       end
 
       expect(response).to have_http_status(:ok)
@@ -36,7 +38,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
 
     it "handles a double space between 'Bearer' and the token (split-on-space normalization)" do
       tokens = capture_parsed_token do
-        get "/api/llms", headers: { "Authorization" => "Bearer  spaced-tok" }
+        get "/api/llm_api_keys", headers: { "Authorization" => "Bearer  spaced-tok" }
       end
 
       expect(tokens).to eq([ "spaced-tok" ])
@@ -48,7 +50,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       called = false
       allow(GoogleIdTokenVerifier).to receive(:verify_all) { called = true }
 
-      get "/api/llms"
+      get "/api/llm_api_keys"
 
       # The endpoint requires auth → verifier never reached → ApiController
       # raises ParameterMissing on the blank token → mapped to 400.
@@ -60,7 +62,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       called = false
       allow(GoogleIdTokenVerifier).to receive(:verify_all) { called = true }
 
-      get "/api/llms", headers: { "Authorization" => "bearer good-tok" }
+      get "/api/llm_api_keys", headers: { "Authorization" => "bearer good-tok" }
 
       expect(called).to be(false)
       expect(response).to have_http_status(:bad_request)
@@ -70,7 +72,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       called = false
       allow(GoogleIdTokenVerifier).to receive(:verify_all) { called = true }
 
-      get "/api/llms", headers: { "Authorization" => "Token good-tok" }
+      get "/api/llm_api_keys", headers: { "Authorization" => "Token good-tok" }
 
       expect(called).to be(false)
       expect(response).to have_http_status(:bad_request)
@@ -80,7 +82,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       called = false
       allow(GoogleIdTokenVerifier).to receive(:verify_all) { called = true }
 
-      get "/api/llms", headers: { "Authorization" => "Bearer\tgood-tok" }
+      get "/api/llm_api_keys", headers: { "Authorization" => "Bearer\tgood-tok" }
 
       expect(called).to be(false)
       expect(response).to have_http_status(:bad_request)
@@ -92,7 +94,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       called = false
       allow(GoogleIdTokenVerifier).to receive(:verify_all) { called = true }
 
-      get "/api/llms", headers: { "Authorization" => "Bearer " }
+      get "/api/llm_api_keys", headers: { "Authorization" => "Bearer " }
 
       expect(called).to be(false)
       expect(response).to have_http_status(:bad_request)
@@ -102,7 +104,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       called = false
       allow(GoogleIdTokenVerifier).to receive(:verify_all) { called = true }
 
-      get "/api/llms", headers: { "Authorization" => "Bearer abc def ghi" }
+      get "/api/llm_api_keys", headers: { "Authorization" => "Bearer abc def ghi" }
 
       expect(called).to be(false)
       expect(response).to have_http_status(:bad_request)
@@ -110,7 +112,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
 
     it "tolerates a trailing newline after the token" do
       tokens = capture_parsed_token do
-        get "/api/llms", headers: { "Authorization" => "Bearer good-tok\n" }
+        get "/api/llm_api_keys", headers: { "Authorization" => "Bearer good-tok\n" }
       end
       expect(tokens).to eq([ "good-tok" ])
     end

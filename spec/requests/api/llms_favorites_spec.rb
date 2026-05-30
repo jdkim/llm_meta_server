@@ -38,4 +38,25 @@ RSpec.describe "GET /api/llms", type: :request do
     expect(by_value["qwen3-6-35b"]).to be true
     expect(by_value["qwen3-5-4b"]).to be false
   end
+
+  context "anonymous (no Authorization header)" do
+    before do
+      # Undo the global stubs so we test the real anonymous path.
+      allow_any_instance_of(ApiController).to receive(:current_user).and_call_original
+      allow_any_instance_of(ApiController).to receive(:bearer_token).and_call_original
+    end
+
+    it "still returns the Ollama family so guest users can render the LLM picker" do
+      get "/api/llms"
+
+      expect(response).to have_http_status(:ok)
+      body = JSON.parse(response.body)
+      families = body["llms"].map { |l| l["family"] }
+      expect(families).to include("ollama")
+      ollama = body["llms"].find { |l| l["family"] == "ollama" }
+      expect(ollama["available_models"]).to be_present
+      # No user → every model has favorite: false.
+      expect(ollama["available_models"].map { |m| m["favorite"] }.uniq).to eq([ false ])
+    end
+  end
 end
