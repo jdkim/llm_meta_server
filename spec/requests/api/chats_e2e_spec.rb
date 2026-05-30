@@ -86,6 +86,18 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
       }
     end
 
+    it "returns 404 with a typed envelope when the model_name isn't in the catalog" do
+      post "/api/llm_api_keys/#{openai_key.uuid}/models/not-a-real-model/chats",
+           params: { prompt: "hi" }, headers: auth_headers
+
+      expect(response).to have_http_status(:not_found)
+      body = JSON.parse(response.body)
+      expect(body["error"]).to eq("Model not found")
+      expect(body["message"]).to include("not-a-real-model")
+      # Never reached the upstream.
+      expect(WebMock).not_to have_requested(:post, /openai\.com/)
+    end
+
     it "surfaces a 429 from OpenAI as a 429 with the rate-limit envelope" do
       stub_request(:post, "https://api.openai.com/v1/chat/completions").to_return(
         status: 429,

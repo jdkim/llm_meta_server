@@ -69,6 +69,8 @@ class Api::ChatStreamsController < ApiController
     safe_emit_error(sink, "api_key_required", e.message)
   rescue ArgumentError => e
     safe_emit_error(sink, "argument_error", e.message)
+  rescue ModelNotFoundError => e
+    safe_emit_error(sink, "model_not_found", e.message)
   rescue => e
     Rails.logger.error "[ChatStreams] #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
     safe_emit_error(sink, "internal_error", e.message)

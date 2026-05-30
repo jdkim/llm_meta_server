@@ -7,6 +7,7 @@ class Api::ChatsController < ApiController
   rescue_from LLM::RateLimitError, with: :rate_limit_error
   rescue_from LlmApiKeyRequiredError, with: :api_key_required_error
   rescue_from ArgumentError, with: :argument_error
+  rescue_from ModelNotFoundError, with: :model_not_found_error
   rescue_from McpClient::McpConnectionError, with: :mcp_connection_error
   rescue_from McpClient::McpProtocolError, with: :mcp_protocol_error
 
@@ -46,6 +47,10 @@ class Api::ChatsController < ApiController
 
   def argument_error(exception)
     render json: { error: "Invalid arguments", message: exception.message }, status: :bad_request
+  end
+
+  def model_not_found_error(exception)
+    render json: { error: "Model not found", message: exception.message }, status: :not_found
   end
 
   def mcp_connection_error(exception)

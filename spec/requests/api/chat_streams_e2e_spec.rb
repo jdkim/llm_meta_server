@@ -116,6 +116,20 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (E2E)", t
     expect(body).not_to include("event: done")
   end
 
+  it "emits a model_not_found error event when the model_name isn't in the catalog" do
+    post "/api/llm_api_keys/#{openai_key.uuid}/models/not-a-real-model/chat_streams",
+         params: { prompt: "hi" }, headers: auth_headers
+
+    body = response.body
+    expect(body).to include("event: phase")
+    err = JSON.parse(body[/^event: error\ndata: (\{.*\})/, 1])
+    expect(err["code"]).to eq("model_not_found")
+    expect(err["message"]).to include("not-a-real-model")
+    expect(body).not_to include("event: done")
+    # Never reached the upstream.
+    expect(WebMock).not_to have_requested(:post, /openai\.com/)
+  end
+
   it "emits an argument_error event when the model can't process an attached image" do
     # qwen3-5-4b is text-only (ollama family). Use an unknown uuid so the
     # controller falls back to the ollama llm_type when looking up the model.
