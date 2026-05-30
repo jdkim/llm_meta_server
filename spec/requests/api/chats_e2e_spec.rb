@@ -170,6 +170,58 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
     end
   end
 
+  describe "anonymous Ollama path (no Authorization header)" do
+    # Ollama doesn't require a per-user API key, so the controller has an
+    # else-branch that proxies anonymous requests directly to the local
+    # Ollama daemon. Symmetric with the chat_streams anonymous path.
+    #
+    # OLLAMA_HOST in the dev env points at a real LAN host; pin it to a
+    # known mocked URL for the duration of the spec so WebMock can stub
+    # it and we don't accidentally hit the real network.
+    let(:ollama_url) { "http://test-ollama.invalid:11434/api/chat" }
+
+    around do |ex|
+      original = { "OLLAMA_HOST" => ENV["OLLAMA_HOST"], "OLLAMA_PORT" => ENV["OLLAMA_PORT"] }
+      ENV["OLLAMA_HOST"] = "test-ollama.invalid"
+      ENV["OLLAMA_PORT"] = "11434"
+      ex.run
+    ensure
+      original.each { |k, v| ENV[k] = v }
+    end
+
+    it "proxies a prompt to Ollama and returns the assistant message without requiring a bearer token" do
+      # Ollama always streams (NDJSON, not SSE) — one JSON object per line,
+      # last line carries done:true.
+      ndjson = [
+        { model: "qwen3.5:4b", message: { role: "assistant", content: "ollama answers" }, done: false }.to_json,
+        { model: "qwen3.5:4b", done: true, prompt_eval_count: 4, eval_count: 2 }.to_json
+      ].join("\n") + "\n"
+
+      stub_request(:post, ollama_url).to_return(
+        status: 200, headers: { "Content-Type" => "application/x-ndjson" },
+        body: ndjson
+      )
+
+      post "/api/llm_api_keys/anything/models/qwen3-5-4b/chats",
+           params: { prompt: "hi" }
+
+      expect(response).to have_http_status(:ok)
+      expect(JSON.parse(response.body)).to eq("response" => { "message" => "ollama answers" })
+      # Resolved api_id "qwen3.5:4b" was used on the upstream call.
+      expect(WebMock).to have_requested(:post, ollama_url).with { |req|
+        JSON.parse(req.body)["model"] == "qwen3.5:4b"
+      }
+    end
+
+    it "404s when an anonymous request names a non-Ollama model (only ollama meta_ids exist in the anonymous catalog)" do
+      post "/api/llm_api_keys/anything/models/gpt-5/chats",
+           params: { prompt: "hi" }
+
+      expect(response).to have_http_status(:not_found)
+      expect(JSON.parse(response.body)["error"]).to eq("Model not found")
+    end
+  end
+
   describe "Google Gemini provider" do
     let!(:google_key) do
       user.llm_api_keys.create!(llm_type: "google", description: "personal",
