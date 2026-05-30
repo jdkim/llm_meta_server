@@ -37,6 +37,7 @@ class LlmModelMap
 
   def self.fetch!(meta_id, llm_type: nil)
     model_data = MODEL_MAP.dig(llm_type || "ollama", meta_id)
+    raise ModelNotFoundError, meta_id if model_data.nil?
     model_data[:api_id]
   end
 

@@ -35,25 +35,20 @@ RSpec.describe LlmModelMap do
         .to eq(described_class.fetch!("qwen3-5-4b"))
     end
 
-    # Documents the current quirk: fetch! dereferences nil[:api_id] when the
-    # lookup misses, producing NoMethodError. Callers (chats_controller,
-    # chat_streams_controller) end up bubbling this up as a 500 / internal_error
-    # event. If we ever swap to `raise ModelNotFoundError, meta_id`, flip
-    # this example along with the controllers' rescue chains.
-    it "currently raises NoMethodError for an unknown meta_id under a known llm_type" do
+    it "raises ModelNotFoundError for an unknown meta_id under a known llm_type" do
       expect { described_class.fetch!("not-a-model", llm_type: "openai") }
-        .to raise_error(NoMethodError)
+        .to raise_error(ModelNotFoundError, /not-a-model/)
     end
 
-    it "currently raises NoMethodError when meta_id exists but under a different llm_type" do
-      # gpt-5 exists in the openai map; asking for it under anthropic returns nil → NoMethodError.
+    it "raises ModelNotFoundError when meta_id exists but under a different llm_type" do
+      # gpt-5 exists in the openai map; asking for it under anthropic should miss cleanly.
       expect { described_class.fetch!("gpt-5", llm_type: "anthropic") }
-        .to raise_error(NoMethodError)
+        .to raise_error(ModelNotFoundError, /gpt-5/)
     end
 
-    it "currently raises NoMethodError for an unknown llm_type" do
+    it "raises ModelNotFoundError for an unknown llm_type" do
       expect { described_class.fetch!("gpt-5", llm_type: "bogus") }
-        .to raise_error(NoMethodError)
+        .to raise_error(ModelNotFoundError, /gpt-5/)
     end
   end
 
