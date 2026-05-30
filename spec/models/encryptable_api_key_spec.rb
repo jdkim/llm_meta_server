@@ -51,6 +51,11 @@ RSpec.describe EncryptableApiKey do
         subject = described_class.new(plain_api_key: plain_key)
         expect(subject.plain_api_key).to eq(plain_key)
       end
+
+      it "does not invoke the decrypter at all" do
+        expect(decrypter).not_to receive(:decrypt)
+        described_class.new(plain_api_key: plain_key).plain_api_key
+      end
     end
 
     context "when initialized with encrypted_api_key" do
@@ -58,6 +63,16 @@ RSpec.describe EncryptableApiKey do
         allow(decrypter).to receive(:decrypt).with(encrypted_key).and_return(plain_key)
         subject = described_class.new(encrypted_api_key: encrypted_key)
         expect(subject.plain_api_key).to eq(plain_key)
+      end
+
+      it "memoizes the decrypted value — KMS is called at most once per instance" do
+        # Real concern: without memoization every read would hit KMS, which
+        # both costs money and (because KMS encrypt is non-deterministic)
+        # would produce inconsistent ciphertexts on the encrypted-side too.
+        expect(decrypter).to receive(:decrypt).with(encrypted_key).once.and_return(plain_key)
+
+        subject = described_class.new(encrypted_api_key: encrypted_key)
+        3.times { expect(subject.plain_api_key).to eq(plain_key) }
       end
     end
   end
@@ -68,6 +83,11 @@ RSpec.describe EncryptableApiKey do
         subject = described_class.new(encrypted_api_key: encrypted_key)
         expect(subject.encrypted_api_key).to eq(encrypted_key)
       end
+
+      it "does not invoke the encrypter at all" do
+        expect(encrypter).not_to receive(:encrypt)
+        described_class.new(encrypted_api_key: encrypted_key).encrypted_api_key
+      end
     end
 
     context "when initialized with plain_api_key" do
@@ -75,6 +95,13 @@ RSpec.describe EncryptableApiKey do
         allow(encrypter).to receive(:encrypt).with(plain_key).and_return(encrypted_key)
         subject = described_class.new(plain_api_key: plain_key)
         expect(subject.encrypted_api_key).to eq(encrypted_key)
+      end
+
+      it "memoizes the encrypted value — KMS is called at most once per instance" do
+        expect(encrypter).to receive(:encrypt).with(plain_key).once.and_return(encrypted_key)
+
+        subject = described_class.new(plain_api_key: plain_key)
+        3.times { expect(subject.encrypted_api_key).to eq(encrypted_key) }
       end
     end
   end
