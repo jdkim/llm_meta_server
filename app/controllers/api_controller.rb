@@ -43,11 +43,16 @@ class ApiController < ActionController::API
     sub
   end
 
+  # Parses "Bearer <token>" per RFC 6750. The token captures any non-empty
+  # run of non-whitespace characters after one or more spaces — keeps the
+  # token intact even with leading/trailing whitespace and rejects an empty
+  # token instead of returning the literal string "Bearer".
   def bearer_token
     header = request.headers["Authorization"]
     return nil unless header.present?
 
-    header.split(" ").last if header.start_with?("Bearer ")
+    m = header.match(/\ABearer +(\S+)\s*\z/)
+    m && m[1]
   end
 
   def verify_google_id_token(token)

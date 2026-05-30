@@ -87,30 +87,32 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
     end
   end
 
-  describe "edge-case parsing quirks (documented current behavior)" do
-    # Bug: `"Bearer ".split(" ")` returns `["Bearer"]` — Ruby's split-on-
-    # single-space drops trailing empties — so the parser hands the literal
-    # string "Bearer" to the verifier. JWT.decode then rejects it as a
-    # malformed token, so the practical outcome is still a 401, not an
-    # auth bypass — but the diagnostic is misleading. A regex-based parser
-    # would correctly return nil here.
-    it "currently passes the literal string 'Bearer' to the verifier when the token is empty" do
-      tokens = capture_parsed_token do
-        get "/api/llms", headers: { "Authorization" => "Bearer " }
-      end
+  describe "edge cases" do
+    it "rejects 'Bearer ' (empty token after the prefix) instead of forwarding the literal 'Bearer'" do
+      called = false
+      allow(GoogleIdTokenVerifier).to receive(:verify_all) { called = true }
 
-      expect(tokens).to eq([ "Bearer" ])
+      get "/api/llms", headers: { "Authorization" => "Bearer " }
+
+      expect(called).to be(false)
+      expect(response).to have_http_status(:bad_request)
     end
 
-    # Bug: tokens with internal whitespace are truncated to their last
-    # space-separated piece. JWTs themselves never contain spaces so this
-    # is mostly theoretical, but worth pinning.
-    it "currently drops everything before the last space in a multi-word token" do
-      tokens = capture_parsed_token do
-        get "/api/llms", headers: { "Authorization" => "Bearer abc def ghi" }
-      end
+    it "rejects a multi-word token rather than silently keeping just the last word" do
+      called = false
+      allow(GoogleIdTokenVerifier).to receive(:verify_all) { called = true }
 
-      expect(tokens).to eq([ "ghi" ])
+      get "/api/llms", headers: { "Authorization" => "Bearer abc def ghi" }
+
+      expect(called).to be(false)
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it "tolerates a trailing newline after the token" do
+      tokens = capture_parsed_token do
+        get "/api/llms", headers: { "Authorization" => "Bearer good-tok\n" }
+      end
+      expect(tokens).to eq([ "good-tok" ])
     end
   end
 end
