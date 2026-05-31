@@ -22,11 +22,11 @@ class Api::ChatsController < ApiController
       message = LlmRbFacade.call! model_id, prompt,
         llm_api_key: llm_api_key,
         tools: tools,
-        generation_params: generation_params
+        generation_params: effective_generation_params(model_name, llm_api_key&.llm_type)
     else
       model_id = LlmModelMap.fetch! model_name
       message = LlmRbFacade.call! model_id, prompt,
-        generation_params: generation_params
+        generation_params: effective_generation_params(model_name, nil)
     end
 
     render json: {
@@ -82,6 +82,13 @@ class Api::ChatsController < ApiController
     return {} if raw.blank?
     hash = raw.respond_to?(:to_unsafe_h) ? raw.to_unsafe_h : raw.to_h
     hash.deep_symbolize_keys
+  end
+
+  # Per-request generation_params layered over per-model defaults from the
+  # catalog. Per-request values win — the catalog's `defaults:` block only
+  # supplies a key when the caller didn't.
+  def effective_generation_params(model_name, llm_type)
+    LlmModelMap.defaults_for(model_name, llm_type: llm_type).merge(generation_params)
   end
 
   def format_response(result)

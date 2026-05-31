@@ -23,6 +23,11 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (E2E)", t
   before do
     allow(GoogleIdTokenVerifier).to receive(:verify_all)
       .with(good_token).and_return("sub" => user.google_id)
+    # Pin this spec to the chat-completions path even for gpt-5 — these
+    # tests stub api.openai.com/v1/chat/completions; the Responses-API
+    # routing (default for GPT-5) is exercised separately in the
+    # OpenAI::Responses::StreamParser spec.
+    allow(LlmModelMap).to receive(:endpoint_for).and_return("chat_completions")
   end
 
   # Build an OpenAI SSE response body from a sequence of content chunks.
@@ -131,9 +136,13 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (E2E)", t
   end
 
   it "emits an argument_error event when the model can't process an attached image" do
-    # gemma3-27b is text-only (ollama family). Use an unknown uuid so the
-    # controller falls back to the ollama llm_type when looking up the model.
-    post "/api/llm_api_keys/ollama-local/models/gemma3-27b/chat_streams",
+    # No real ollama model in the catalog is text-only right now, so stub
+    # the predicate to force the vision-gating rejection branch. Pick any
+    # ollama meta_id from the catalog so fetch! still resolves it.
+    ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+    allow(LlmModelMap).to receive(:supports_vision?).and_return(false)
+
+    post "/api/llm_api_keys/ollama-local/models/#{ollama_meta}/chat_streams",
          params: { prompt: "describe", image: { mime: "image/png", data_b64: "AAA" } },
          headers: auth_headers
 

@@ -13,8 +13,13 @@ RSpec.describe "GET /api/llms", type: :request do
     allow_any_instance_of(ApiController).to receive(:bearer_token).and_return("stub-token")
   end
 
-  it "marks favorited Ollama models with favorite: true" do
-    user.update!(favorite_model_meta_ids: [ "qwen3-6-35b-fast" ])
+  it "marks favorited Ollama models with favorite: true and others with favorite: false" do
+    # Pick the favorite + a sibling dynamically so this spec stays green
+    # across catalog edits.
+    catalog = LlmModelMap.available_models_for("ollama").map { |m| m["value"] }
+    favorite_meta = catalog.first
+    other_meta    = catalog[1] or skip "need at least two ollama models for this test"
+    user.update!(favorite_model_meta_ids: [ favorite_meta ])
 
     get "/api/llms"
 
@@ -23,20 +28,21 @@ RSpec.describe "GET /api/llms", type: :request do
     ollama = body.fetch("llms").find { |l| (l["family"] || l[:family]) == "ollama" }
     expect(ollama).to be_present
 
-    favorited = ollama["available_models"].find { |m| m["value"] == "qwen3-6-35b-fast" }
-    other     = ollama["available_models"].find { |m| m["value"] == "gemma3-27b" }
+    favorited = ollama["available_models"].find { |m| m["value"] == favorite_meta }
+    other     = ollama["available_models"].find { |m| m["value"] == other_meta }
     expect(favorited["favorite"]).to be true
     expect(other["favorite"]).to be false
   end
 
-  it "includes supports_vision per model option" do
+  it "includes supports_vision per model option (always a strict boolean)" do
     get "/api/llms"
     body = JSON.parse(response.body)
     ollama = body["llms"].find { |l| l["family"] == "ollama" }
 
-    by_value = ollama["available_models"].to_h { |m| [ m["value"], m["supports_vision"] ] }
-    expect(by_value["qwen3-6-35b"]).to be true
-    expect(by_value["gemma3-27b"]).to be false
+    ollama["available_models"].each do |m|
+      expect(m["supports_vision"]).to satisfy { |v| v == true || v == false },
+        "#{m['value']} has non-boolean supports_vision: #{m['supports_vision'].inspect}"
+    end
   end
 
   context "anonymous (no Authorization header)" do

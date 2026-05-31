@@ -14,33 +14,57 @@ openai:
     api_id: gpt-5
     display_name: GPT-5
     supports_vision: true
+    # GPT-5 reasoning is only surfaced via the Responses API (the chat
+    # completions endpoint hides it). LlmRbFacade routes streaming
+    # no-tools / no-image requests through llm.responses.create for any
+    # model with `endpoint: responses`; everything else falls back to
+    # chat completions.
+    endpoint: responses
+    defaults:
+      reasoning:
+        summary: auto
   gpt-5-mini:
     api_id: gpt-5-mini
     display_name: GPT-5 Mini
     supports_vision: true
+    endpoint: responses
+    defaults:
+      reasoning:
+        summary: auto
 
 anthropic:
   claude-opus-4-7:
     api_id: claude-opus-4-7
     display_name: Claude Opus 4.7
     supports_vision: true
+    # Opus 4.7 accepts `adaptive` thinking but emits no thinking_delta
+    # events (internal-only reasoning) — the Reasoning block in the UI
+    # will stay empty. Still requesting adaptive so users can force more
+    # reasoning via {output_config: {effort: "high"}} in Settings.
+    defaults:
+      thinking:
+        type: adaptive
   claude-sonnet-4-6:
     api_id: claude-sonnet-4-6
     display_name: Claude Sonnet 4.6
     supports_vision: true
+    # Sonnet 4.6 exposes thinking_delta events in adaptive mode.
+    defaults:
+      thinking:
+        type: adaptive
   claude-haiku-4-5:
     api_id: claude-haiku-4-5
     display_name: Claude Haiku 4.5
     supports_vision: true
+    # Haiku 4.5 rejects `adaptive` ("adaptive thinking is not supported
+    # on this model"). No thinking default declared — Haiku just answers
+    # directly. If a `thinking.type: "enabled"` shape is confirmed
+    # working on Haiku, add it here.
 
 google:
   gemini-3-1-pro:
     api_id: gemini-3.1-pro-preview
     display_name: Gemini 3.1 Pro
-    supports_vision: true
-  gemini-3-pro:
-    api_id: gemini-3-pro-preview
-    display_name: Gemini 3 Pro
     supports_vision: true
   gemini-3-flash:
     api_id: gemini-3-flash-preview
@@ -71,10 +95,16 @@ ollama:
     api_id: qwen3.6:35b-fast
     display_name: qwen3.6:35b-fast
     supports_vision: true
+    # qwen3.6 ignores the SYSTEM /no_think text directive; only the API-level
+    # think: false actually disables reasoning on this model. Users can still
+    # override per-request via the Settings panel.
+    defaults:
+      think: false
   qwen3-6-35b:
     api_id: qwen3.6:35b
     display_name: qwen3.6:35b
     supports_vision: true
-  gemma3-27b:
-    api_id: gemma3:27b
-    display_name: gemma3:27b
+  medgemma1-5-4b:
+    api_id: medgemma1.5:4b
+    display_name: medgemma1.5:4b
+    supports_vision: true

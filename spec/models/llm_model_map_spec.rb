@@ -60,14 +60,14 @@ RSpec.describe LlmModelMap do
       expect(gpt5).to eq("label" => "GPT-5", "value" => "gpt-5", "supports_vision" => true)
     end
 
-    it "coerces missing supports_vision to false (not nil)" do
-      ollama = described_class.available_models_for("ollama")
-
-      gemma = ollama.find { |m| m["value"] == "gemma3-27b" } # no supports_vision in the catalog
-      qwen_35b = ollama.find { |m| m["value"] == "qwen3-6-35b" } # supports_vision: true
-
-      expect(gemma["supports_vision"]).to be(false)
-      expect(qwen_35b["supports_vision"]).to be(true)
+    it "every entry's supports_vision is a strict boolean (never nil)" do
+      # The implementation uses `== true` to coerce missing/nil. Verified at
+      # the structural level so we don't depend on a specific non-vision
+      # catalog entry existing.
+      described_class.available_models_for("ollama").each do |m|
+        expect(m["supports_vision"]).to satisfy { |v| v == true || v == false },
+          "#{m['value']} has non-boolean supports_vision: #{m['supports_vision'].inspect}"
+      end
     end
 
     it "raises KeyError for an unknown family (Hash#fetch semantics)" do
@@ -77,8 +77,11 @@ RSpec.describe LlmModelMap do
 
   describe ".ollama_model?" do
     it "is true for any ollama api_id in the catalog" do
-      expect(described_class.ollama_model?("qwen3.6:35b-fast")).to be(true)
-      expect(described_class.ollama_model?("gemma3:27b")).to be(true)
+      # Pick the api_ids dynamically so this stays green across catalog edits.
+      api_ids = LlmModelMap::MODEL_MAP.fetch("ollama").values.map { |m| m[:api_id] }
+      api_ids.each do |id|
+        expect(described_class.ollama_model?(id)).to be(true), "#{id} should be recognized"
+      end
     end
 
     it "is false for an api_id from a different family" do
@@ -102,7 +105,12 @@ RSpec.describe LlmModelMap do
     end
 
     it "is false for non-image models in the same family" do
-      expect(described_class.image_model?("gemini-3-pro", llm_type: "google")).to be(false)
+      # Pick a non-image google model dynamically so this stays green
+      # across catalog edits.
+      non_image_google = LlmModelMap::MODEL_MAP.fetch("google")
+                                                .reject { |_, info| info[:kind].to_s == "image" }
+                                                .keys.first
+      expect(described_class.image_model?(non_image_google, llm_type: "google")).to be(false)
     end
 
     it "is false for an unknown meta_id (does NOT raise — used in vision-gating before fetch!)" do
@@ -122,17 +130,63 @@ RSpec.describe LlmModelMap do
       expect(described_class.supports_vision?("qwen3-6-35b", llm_type: "ollama")).to be(true)
     end
 
-    it "is false when supports_vision is not set" do
-      expect(described_class.supports_vision?("gemma3-27b", llm_type: "ollama")).to be(false)
-    end
-
     it "is false for an unknown meta_id (does NOT raise — vision-gating runs before fetch!)" do
       expect(described_class.supports_vision?("not-a-model", llm_type: "openai")).to be(false)
+      expect(described_class.supports_vision?("not-a-model", llm_type: "ollama")).to be(false)
     end
 
     it "defaults to the ollama family when llm_type is nil" do
       expect(described_class.supports_vision?("qwen3-6-35b")).to be(true)
-      expect(described_class.supports_vision?("gemma3-27b")).to be(false)
+      # Unknown meta_id under the ollama default also returns false.
+      expect(described_class.supports_vision?("not-a-model")).to be(false)
+    end
+  end
+
+  describe ".defaults_for" do
+    it "returns the catalog's per-model defaults block (symbol-keyed)" do
+      defaults = described_class.defaults_for("qwen3-6-35b-fast", llm_type: "ollama")
+      # qwen3.6 ignores the SYSTEM /no_think text directive, so the catalog
+      # pins think: false as the per-request default for this tag.
+      expect(defaults).to eq(think: false)
+    end
+
+    it "returns an empty hash when the model has no defaults declared" do
+      # qwen3-6-35b has no defaults; claude-haiku-4-5 also doesn't
+      # (Anthropic rejected adaptive thinking on Haiku, so no thinking
+      # config is declared until a working shape is confirmed).
+      expect(described_class.defaults_for("qwen3-6-35b", llm_type: "ollama")).to eq({})
+      expect(described_class.defaults_for("claude-haiku-4-5", llm_type: "anthropic")).to eq({})
+    end
+
+    it "returns an empty hash for an unknown meta_id (does NOT raise)" do
+      expect(described_class.defaults_for("not-a-model", llm_type: "ollama")).to eq({})
+    end
+
+    it "defaults to the ollama family when llm_type is nil" do
+      expect(described_class.defaults_for("qwen3-6-35b-fast")).to eq(think: false)
+    end
+
+    it "returns the per-model thinking shape for Claude Opus 4.7 and Sonnet 4.6 (adaptive)" do
+      expect(described_class.defaults_for("claude-opus-4-7", llm_type: "anthropic"))
+        .to eq(thinking: { type: "adaptive" })
+      expect(described_class.defaults_for("claude-sonnet-4-6", llm_type: "anthropic"))
+        .to eq(thinking: { type: "adaptive" })
+    end
+  end
+
+  describe ".endpoint_for" do
+    it "returns 'responses' for OpenAI reasoning models marked with endpoint: responses in the catalog" do
+      expect(described_class.endpoint_for("gpt-5", llm_type: "openai")).to eq("responses")
+      expect(described_class.endpoint_for("gpt-5-mini", llm_type: "openai")).to eq("responses")
+    end
+
+    it "defaults to 'chat_completions' for models without an explicit endpoint" do
+      expect(described_class.endpoint_for("claude-opus-4-7", llm_type: "anthropic")).to eq("chat_completions")
+      expect(described_class.endpoint_for("qwen3-6-35b-fast", llm_type: "ollama")).to eq("chat_completions")
+    end
+
+    it "returns 'chat_completions' for an unknown meta_id (safe default for the dispatch)" do
+      expect(described_class.endpoint_for("not-a-model", llm_type: "openai")).to eq("chat_completions")
     end
   end
 

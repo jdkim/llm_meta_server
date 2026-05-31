@@ -207,9 +207,30 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
 
       expect(response).to have_http_status(:ok)
       expect(JSON.parse(response.body)).to eq("response" => { "message" => "ollama answers" })
-      # Resolved api_id "qwen3.6:35b-fast" was used on the upstream call.
+      # Resolved api_id "qwen3.6:35b-fast" was used on the upstream call, AND
+      # the catalog's per-model defaults (think: false) were applied even
+      # though the request supplied no generation_settings.
       expect(WebMock).to have_requested(:post, ollama_url).with { |req|
-        JSON.parse(req.body)["model"] == "qwen3.6:35b-fast"
+        body = JSON.parse(req.body)
+        body["model"] == "qwen3.6:35b-fast" && body["think"] == false
+      }
+    end
+
+    it "lets a user-supplied generation_settings override the catalog default" do
+      ndjson = [
+        { model: "qwen3.6:35b-fast", message: { role: "assistant", content: "ok" }, done: false }.to_json,
+        { model: "qwen3.6:35b-fast", done: true }.to_json
+      ].join("\n") + "\n"
+      stub_request(:post, ollama_url).to_return(
+        status: 200, headers: { "Content-Type" => "application/x-ndjson" }, body: ndjson
+      )
+
+      post "/api/llm_api_keys/anything/models/qwen3-6-35b-fast/chats",
+           params: { prompt: "hi", generation_settings: { think: true } }.to_json,
+           headers: { "Content-Type" => "application/json" }
+
+      expect(WebMock).to have_requested(:post, ollama_url).with { |req|
+        JSON.parse(req.body)["think"] == true
       }
     end
 
@@ -229,7 +250,15 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
     end
 
     it "POSTs to generateContent with the api key in the query, sends a user-role content turn, and returns the model text" do
-      stub_request(:post, %r{\Ahttps://generativelanguage\.googleapis\.com/v1beta/models/gemini-3-pro-preview:generateContent\?key=g-key})
+      # Pick any non-image google text model from the catalog so this spec
+      # stays green across catalog edits. The api_id is the literal path
+      # segment Gemini uses on the wire.
+      google_meta = LlmModelMap::MODEL_MAP.fetch("google")
+                                           .reject { |_, info| info[:kind].to_s == "image" }
+                                           .keys.first
+      google_api_id = LlmModelMap.fetch!(google_meta, llm_type: "google")
+
+      stub_request(:post, %r{\Ahttps://generativelanguage\.googleapis\.com/v1beta/models/#{Regexp.escape(google_api_id)}:generateContent\?key=g-key})
         .to_return(
           status: 200,
           body: {
@@ -242,7 +271,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
           headers: { "Content-Type" => "application/json" }
         )
 
-      post "/api/llm_api_keys/#{google_key.uuid}/models/gemini-3-pro/chats",
+      post "/api/llm_api_keys/#{google_key.uuid}/models/#{google_meta}/chats",
            params: { prompt: "hi gemini" }, headers: auth_headers
 
       expect(response).to have_http_status(:ok)

@@ -31,7 +31,7 @@ module LlmRbFacade
     #
     # Returns the assembled string when no tools were called, or
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
-    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil)
+    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
@@ -41,7 +41,14 @@ module LlmRbFacade
       with_image_payload(image) do |content|
         effective_prompt = content ? [ content, prompt ] : prompt
 
-        if tools.any?
+        # Route OpenAI reasoning models through the Responses API so
+        # `response.reasoning_summary_text.delta` events can stream into
+        # sink.thinking. Falls back to chat completions when the request
+        # carries tools or an image — Responses support for those exists
+        # but uses different wire shapes than we currently handle.
+        if endpoint == "responses" && tools.empty? && image.nil?
+          stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink)
+        elsif tools.any?
           # MCP function tools present — needs the turn1/turn2 execution loop.
           # Native server tools ride along in the same array; the gem's
           # adapt_tools splits ServerTools from Functions for the request.
@@ -64,6 +71,15 @@ module LlmRbFacade
       end
     end
 
+    # Stream a turn through OpenAI's Responses API. Used when the model's
+    # catalog entry declares `endpoint: responses` (currently the GPT-5
+    # family, to expose reasoning summaries). Restricted to the simple case
+    # for now — no tools, no image.
+    def stream_via_responses!(llm, model_id, prompt, params, sink)
+      response = llm.responses.create(prompt, model: model_id, stream: sink, **params)
+      response.respond_to?(:output_text) ? response.output_text.to_s : ""
+    end
+
     private
 
     # llm.rb's Anthropic provider hard-defaults max_tokens to 1024, which
@@ -74,8 +90,24 @@ module LlmRbFacade
 
     def apply_provider_defaults(generation_params, llm_api_key)
       params = (generation_params || {}).to_h.symbolize_keys
-      if llm_api_key&.llm_type == "anthropic" && params[:max_tokens].blank?
-        params[:max_tokens] = ANTHROPIC_DEFAULT_MAX_TOKENS
+      if llm_api_key&.llm_type == "anthropic"
+        params[:max_tokens] = ANTHROPIC_DEFAULT_MAX_TOKENS if params[:max_tokens].blank?
+        # Thinking config is per-model — Anthropic accepts different
+        # `thinking.type` values across the catalog (adaptive on Sonnet
+        # 4.6 / Opus 4.7 but not on Haiku 4.5). Declared in
+        # config/llm_models.yml under each model's `defaults:` block;
+        # merged in by the controller via LlmModelMap.defaults_for.
+      end
+      if llm_api_key&.llm_type == "google"
+        # Gemini's thinking-capable models think internally by default but
+        # don't expose those tokens unless the request opts in. Inject
+        # generationConfig.thinkingConfig.includeThoughts: true (without
+        # clobbering anything else the user set under generationConfig).
+        gc = (params[:generationConfig] || {}).to_h.symbolize_keys
+        tc = (gc[:thinkingConfig] || {}).to_h.symbolize_keys
+        tc[:includeThoughts] = true unless tc.key?(:includeThoughts)
+        gc[:thinkingConfig] = tc
+        params[:generationConfig] = gc
       end
       params
     end

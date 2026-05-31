@@ -22,8 +22,13 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams", type: :
 
   context "vision-gating" do
     it "rejects image input for a model that doesn't support vision" do
-      # gemma3-27b is text-only (not marked supports_vision)
-      post "/api/llm_api_keys/ollama-local/models/gemma3-27b/chat_streams",
+      # Force the no-vision branch via stub — every current ollama catalog
+      # entry has supports_vision: true, so the gating rejection can't be
+      # exercised with a real meta_id alone.
+      ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+      allow(LlmModelMap).to receive(:supports_vision?).and_return(false)
+
+      post "/api/llm_api_keys/ollama-local/models/#{ollama_meta}/chat_streams",
            params: { prompt: "hi", image: { mime: "image/png", data_b64: "AAA" } }
 
       expect(response.body).to include("event: error")
@@ -71,7 +76,10 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams", type: :
     end
 
     it "rejects image input for an anonymous non-vision model" do
-      post "/api/llm_api_keys/ollama-local/models/gemma3-27b/chat_streams",
+      ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+      allow(LlmModelMap).to receive(:supports_vision?).and_return(false)
+
+      post "/api/llm_api_keys/ollama-local/models/#{ollama_meta}/chat_streams",
            params: { prompt: "hi", image: { mime: "image/png", data_b64: "AAA" } }
 
       expect(response.body).to include("event: error")

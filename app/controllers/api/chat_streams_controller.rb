@@ -40,10 +40,11 @@ class Api::ChatStreamsController < ApiController
           sink: sink,
           llm_api_key: llm_api_key,
           tools: selected_tools,
-          generation_params: generation_params,
+          generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
           image: image,
           on_tool_calls: on_tool_calls,
-          on_phase_change: on_phase_change
+          on_phase_change: on_phase_change,
+          endpoint: LlmModelMap.endpoint_for(model_name, llm_type: llm_api_key&.llm_type)
       end
     else
       model_id = LlmModelMap.fetch! model_name
@@ -52,10 +53,11 @@ class Api::ChatStreamsController < ApiController
       end
       LlmRbFacade.stream! model_id, prompt,
         sink: sink,
-        generation_params: generation_params,
+        generation_params: effective_generation_params(model_name, nil),
         image: image,
         on_tool_calls: on_tool_calls,
-        on_phase_change: on_phase_change
+        on_phase_change: on_phase_change,
+        endpoint: LlmModelMap.endpoint_for(model_name)
     end
 
     sink.event("done")
@@ -120,6 +122,12 @@ class Api::ChatStreamsController < ApiController
     return {} if raw.blank?
     hash = raw.respond_to?(:to_unsafe_h) ? raw.to_unsafe_h : raw.to_h
     hash.deep_symbolize_keys
+  end
+
+  # Per-request generation_params layered over per-model defaults from the
+  # catalog. Per-request values win.
+  def effective_generation_params(model_name, llm_type)
+    LlmModelMap.defaults_for(model_name, llm_type: llm_type).merge(generation_params)
   end
 
   def image_context_param

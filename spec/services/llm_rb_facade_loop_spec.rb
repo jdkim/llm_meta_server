@@ -132,5 +132,77 @@ RSpec.describe LlmRbFacade do
         llm_client, hash_including(max_tokens: 2000)
       )
     end
+
+    it "does NOT inject `thinking` at the facade layer (each Claude model declares its own in the catalog)" do
+      # Anthropic models accept different `thinking.type` values across
+      # the catalog (Opus/Sonnet take adaptive; Haiku rejects it). The
+      # facade stays out of it; per-model `defaults:` blocks in
+      # llm_models.yml supply the right shape via LlmModelMap.defaults_for
+      # (merged in by the controller before reaching the facade).
+      described_class.stream!("claude-opus-4-7", "hi", sink: sink, llm_api_key: anthropic_key)
+      expect(LLM::Session).to have_received(:new).with(
+        llm_client, satisfy { |params| !params.key?(:thinking) }
+      )
+    end
+
+    it "preserves any caller-supplied thinking config (catalog defaults flow in via the controller)" do
+      described_class.stream!("claude-opus-4-7", "hi", sink: sink, llm_api_key: anthropic_key,
+                              generation_params: { thinking: { type: "adaptive" } })
+      expect(LLM::Session).to have_received(:new).with(
+        llm_client, hash_including(thinking: { type: "adaptive" })
+      )
+    end
+
+    it "preserves any caller-supplied output_config (no facade default for this either)" do
+      described_class.stream!("claude-opus-4-7", "hi", sink: sink, llm_api_key: anthropic_key,
+                              generation_params: { output_config: { effort: "high" } })
+      expect(LLM::Session).to have_received(:new).with(
+        llm_client, hash_including(output_config: { effort: "high" })
+      )
+    end
+
+    it "preserves a user-supplied thinking config (e.g. type: 'disabled' to opt out)" do
+      described_class.stream!("claude-opus-4-7", "hi", sink: sink, llm_api_key: anthropic_key,
+                              generation_params: { thinking: { type: "disabled" } })
+      expect(LLM::Session).to have_received(:new).with(
+        llm_client, hash_including(thinking: { type: "disabled" })
+      )
+    end
+  end
+
+  describe "Gemini thinking-mode default" do
+    let(:google_key) {
+      user = User.create!(email: "u@example.com", google_id: "g-google")
+      user.llm_api_keys.create!(llm_type: "google", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "g-key"))
+    }
+    let(:session) { instance_double("LLM::Session") }
+    let(:response) { instance_double("Response", choices: [ instance_double("Choice", content: "ok") ], body: nil) }
+    let(:sink) { Class.new { def <<(x); self; end }.new }
+
+    before do
+      allow_any_instance_of(ApiKeyEncrypter).to receive(:encrypt).and_return("ENC")
+      allow_any_instance_of(ApiKeyDecrypter).to receive(:decrypt).and_return("g-key")
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+      allow(LLM).to receive(:gemini).and_return(llm_client)
+      allow(llm_client).to receive_message_chain(:class, :name).and_return("LLM::Gemini")
+      allow(LLM::Session).to receive(:new).and_return(session)
+      allow(session).to receive(:chat).and_return(response)
+    end
+
+    it "injects generationConfig.thinkingConfig.includeThoughts: true for google by default" do
+      described_class.stream!("gemini-3-flash", "hi", sink: sink, llm_api_key: google_key)
+      expect(LLM::Session).to have_received(:new).with(
+        llm_client, hash_including(generationConfig: hash_including(thinkingConfig: { includeThoughts: true }))
+      )
+    end
+
+    it "preserves a user-supplied thinkingConfig (e.g. includeThoughts: false to opt out)" do
+      described_class.stream!("gemini-3-flash", "hi", sink: sink, llm_api_key: google_key,
+                              generation_params: { generationConfig: { thinkingConfig: { includeThoughts: false } } })
+      expect(LLM::Session).to have_received(:new).with(
+        llm_client, hash_including(generationConfig: hash_including(thinkingConfig: { includeThoughts: false }))
+      )
+    end
   end
 end
