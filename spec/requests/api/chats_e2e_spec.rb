@@ -30,7 +30,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
     # deliberate anonymous fallback path that routes to Ollama (which needs no
     # provider key). That path is exercised separately (in chat_streams).
     it "returns 401 when the bearer token fails verification" do
-      post "/api/llm_api_keys/anything/models/qwen3-5-4b/chats",
+      post "/api/llm_api_keys/anything/models/qwen3-6-35b-fast/chats",
            params: { prompt: "hi" },
            headers: { "Authorization" => "Bearer bad-token" }
       expect(response).to have_http_status(:unauthorized)
@@ -160,7 +160,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
       )
 
       post "/api/llm_api_keys/#{anthropic_key.uuid}/models/claude-opus-4-7/chats",
-           params: { prompt: "ping", max_tokens: 256 }.to_json,
+           params: { prompt: "ping", generation_settings: { max_tokens: 256 } }.to_json,
            headers: auth_headers.merge("Content-Type" => "application/json")
 
       expect(WebMock).to have_requested(:post, "https://api.anthropic.com/v1/messages").with { |req|
@@ -193,8 +193,8 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
       # Ollama always streams (NDJSON, not SSE) — one JSON object per line,
       # last line carries done:true.
       ndjson = [
-        { model: "qwen3.5:4b", message: { role: "assistant", content: "ollama answers" }, done: false }.to_json,
-        { model: "qwen3.5:4b", done: true, prompt_eval_count: 4, eval_count: 2 }.to_json
+        { model: "qwen3.6:35b-fast", message: { role: "assistant", content: "ollama answers" }, done: false }.to_json,
+        { model: "qwen3.6:35b-fast", done: true, prompt_eval_count: 4, eval_count: 2 }.to_json
       ].join("\n") + "\n"
 
       stub_request(:post, ollama_url).to_return(
@@ -202,14 +202,14 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
         body: ndjson
       )
 
-      post "/api/llm_api_keys/anything/models/qwen3-5-4b/chats",
+      post "/api/llm_api_keys/anything/models/qwen3-6-35b-fast/chats",
            params: { prompt: "hi" }
 
       expect(response).to have_http_status(:ok)
       expect(JSON.parse(response.body)).to eq("response" => { "message" => "ollama answers" })
-      # Resolved api_id "qwen3.5:4b" was used on the upstream call.
+      # Resolved api_id "qwen3.6:35b-fast" was used on the upstream call.
       expect(WebMock).to have_requested(:post, ollama_url).with { |req|
-        JSON.parse(req.body)["model"] == "qwen3.5:4b"
+        JSON.parse(req.body)["model"] == "qwen3.6:35b-fast"
       }
     end
 

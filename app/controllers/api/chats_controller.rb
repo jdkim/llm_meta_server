@@ -11,7 +11,6 @@ class Api::ChatsController < ApiController
   rescue_from McpClient::McpConnectionError, with: :mcp_connection_error
   rescue_from McpClient::McpProtocolError, with: :mcp_protocol_error
 
-  GENERATION_PARAM_KEYS = %i[temperature top_p top_k max_tokens].freeze
 
   def create
     uuid, model_name, prompt = expected_params
@@ -75,8 +74,14 @@ class Api::ChatsController < ApiController
     McpToolAdapter.to_llm_functions(current_user.find_mcp_tools(tool_ids))
   end
 
+  # Pass-through: caller sends `generation_settings: {…}` (any keys/values),
+  # and we hand the bag of params to LlmRbFacade → llm.rb → the provider.
+  # The provider's normalize_complete_params decides what it understands.
   def generation_params
-    params.permit(*GENERATION_PARAM_KEYS).to_h.symbolize_keys
+    raw = params[:generation_settings]
+    return {} if raw.blank?
+    hash = raw.respond_to?(:to_unsafe_h) ? raw.to_unsafe_h : raw.to_h
+    hash.deep_symbolize_keys
   end
 
   def format_response(result)

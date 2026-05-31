@@ -55,21 +55,25 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       expect(response.body).to include('"message":"bad input"')
     end
 
-    it "passes generation params through to the facade" do
+    it "passes generation_settings through to the facade verbatim (pass-through, any keys)" do
       allow(LlmRbFacade).to receive(:stream!).and_return("ok")
 
       post :create, params: {
         llm_api_key_uuid: uuid,
         model_name: model_name,
         prompt: "Hi",
-        temperature: 0.7,
-        max_tokens: 1024,
-        unsupported: "drop"
+        generation_settings: {
+          temperature: 0.7,
+          max_tokens: 1024,
+          think: true,
+          options: { num_ctx: 8192 }
+        }
       }
 
       expect(LlmRbFacade).to have_received(:stream!) do |_, _, sink:, generation_params:, **|
         expect(sink).to be_a(SseWriter)
-        expect(generation_params.keys).to contain_exactly(:temperature, :max_tokens)
+        expect(generation_params.keys).to contain_exactly(:temperature, :max_tokens, :think, :options)
+        expect(generation_params[:options]).to include(:num_ctx)
       end
     end
 

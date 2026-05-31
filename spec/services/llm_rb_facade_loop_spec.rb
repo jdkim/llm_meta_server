@@ -5,7 +5,7 @@ require "rails_helper"
 # Anthropic max_tokens default.
 RSpec.describe LlmRbFacade do
   let(:llm_client) { instance_double("LLM::Provider") }
-  let(:model_id) { "qwen3.5:4b" }
+  let(:model_id) { "qwen3.6:35b-fast" }
 
   before do
     allow(LlmModelMap).to receive(:ollama_model?).and_return(true)

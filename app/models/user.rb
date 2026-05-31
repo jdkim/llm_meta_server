@@ -5,7 +5,7 @@ class User < ApplicationRecord
   has_many :mcp_servers, dependent: :destroy
 
   # Per-user list of favorited model meta_ids (globally unique strings like
-  # "gpt-5", "claude-opus-4-7", "qwen3-5-4b"). Stored as a JSON array of strings.
+  # "gpt-5", "claude-opus-4-7", "qwen3-6-35b-fast"). Stored as a JSON array of strings.
   # The attribute-level default guarantees [] at write time even when a new
   # record is built without setting the attribute (e.g. via Devise omniauth's
   # block-only initializer, which would otherwise hit the NOT NULL constraint).

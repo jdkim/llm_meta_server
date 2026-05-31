@@ -203,7 +203,7 @@ module LlmRbFacade
       build_response_with_tools(response, session)
     end
 
-    # Maximum tool-call rounds. Small models (notably qwen3.5:4b) will often
+    # Maximum tool-call rounds. Small models (notably qwen3.6:35b-fast) will often
     # chain another tool call instead of synthesizing text in turn 2, leaving
     # the bubble empty. Loop until the model emits text or we hit the cap.
     MAX_TOOL_ITERATIONS = 5

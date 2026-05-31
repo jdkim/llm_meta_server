@@ -21,18 +21,18 @@ RSpec.describe LlmModelMap do
     end
 
     it "translates between meta_id (no dots) and the provider's api_id (with dots/colons)" do
-      # qwen3-5-9b in our catalog → "qwen3.5:9b" sent to Ollama
-      expect(described_class.fetch!("qwen3-5-9b", llm_type: "ollama")).to eq("qwen3.5:9b")
+      # qwen3-6-35b-fast in our catalog → "qwen3.6:35b-fast" sent to Ollama
+      expect(described_class.fetch!("qwen3-6-35b-fast", llm_type: "ollama")).to eq("qwen3.6:35b-fast")
       expect(described_class.fetch!("gemini-2-5-pro", llm_type: "google")).to eq("gemini-2.5-pro")
     end
 
     it "defaults to the ollama family when llm_type is nil (anonymous fallback path)" do
-      expect(described_class.fetch!("qwen3-5-4b")).to eq("qwen3.5:4b")
+      expect(described_class.fetch!("qwen3-6-35b-fast")).to eq("qwen3.6:35b-fast")
     end
 
     it "treats llm_type: 'ollama' the same as llm_type: nil" do
-      expect(described_class.fetch!("qwen3-5-4b", llm_type: "ollama"))
-        .to eq(described_class.fetch!("qwen3-5-4b"))
+      expect(described_class.fetch!("qwen3-6-35b-fast", llm_type: "ollama"))
+        .to eq(described_class.fetch!("qwen3-6-35b-fast"))
     end
 
     it "raises ModelNotFoundError for an unknown meta_id under a known llm_type" do
@@ -63,10 +63,10 @@ RSpec.describe LlmModelMap do
     it "coerces missing supports_vision to false (not nil)" do
       ollama = described_class.available_models_for("ollama")
 
-      qwen_9b = ollama.find { |m| m["value"] == "qwen3-5-9b" } # no supports_vision in the catalog
+      gemma = ollama.find { |m| m["value"] == "gemma3-27b" } # no supports_vision in the catalog
       qwen_35b = ollama.find { |m| m["value"] == "qwen3-6-35b" } # supports_vision: true
 
-      expect(qwen_9b["supports_vision"]).to be(false)
+      expect(gemma["supports_vision"]).to be(false)
       expect(qwen_35b["supports_vision"]).to be(true)
     end
 
@@ -77,7 +77,7 @@ RSpec.describe LlmModelMap do
 
   describe ".ollama_model?" do
     it "is true for any ollama api_id in the catalog" do
-      expect(described_class.ollama_model?("qwen3.5:9b")).to be(true)
+      expect(described_class.ollama_model?("qwen3.6:35b-fast")).to be(true)
       expect(described_class.ollama_model?("gemma3:27b")).to be(true)
     end
 
@@ -111,7 +111,7 @@ RSpec.describe LlmModelMap do
 
     it "defaults to the ollama family when llm_type is nil" do
       # No ollama image model in the catalog, so this should always be false.
-      expect(described_class.image_model?("qwen3-5-4b")).to be(false)
+      expect(described_class.image_model?("qwen3-6-35b-fast")).to be(false)
     end
   end
 
@@ -123,7 +123,7 @@ RSpec.describe LlmModelMap do
     end
 
     it "is false when supports_vision is not set" do
-      expect(described_class.supports_vision?("qwen3-5-4b", llm_type: "ollama")).to be(false)
+      expect(described_class.supports_vision?("gemma3-27b", llm_type: "ollama")).to be(false)
     end
 
     it "is false for an unknown meta_id (does NOT raise — vision-gating runs before fetch!)" do
@@ -132,7 +132,7 @@ RSpec.describe LlmModelMap do
 
     it "defaults to the ollama family when llm_type is nil" do
       expect(described_class.supports_vision?("qwen3-6-35b")).to be(true)
-      expect(described_class.supports_vision?("qwen3-5-4b")).to be(false)
+      expect(described_class.supports_vision?("gemma3-27b")).to be(false)
     end
   end
 

@@ -31,3 +31,37 @@ class LLM::Ollama
     [params, stream, tools, role]
   end
 end
+
+# Ollama thinking-mode support.
+#
+# When the upstream model emits thinking content (qwen3 etc. with `think: true`),
+# Ollama splits each chunk into two siblings: `message.thinking` and
+# `message.content`. Stock llm.rb only reads `content`, dropping the thinking
+# bytes on the floor. This patch additionally forwards thinking bytes to a
+# *separate* method on the sink (`sink.thinking(delta)`) when the sink
+# supports it. The SseWriter implements that method as a distinct
+# `event: thinking` SSE frame so downstream consumers can render thinking
+# separately from final content.
+class LLM::Ollama::StreamParser
+  private
+
+  def merge!(chunk)
+    chunk.each do |key, value|
+      if key == "message"
+        if @body[key]
+          @body[key]["content"] = @body[key]["content"].to_s + value["content"].to_s
+        else
+          @body[key] = value
+        end
+        if @io.respond_to?(:<<) && value["content"].to_s.length.positive?
+          @io << value["content"]
+        end
+        if @io.respond_to?(:thinking) && value["thinking"].to_s.length.positive?
+          @io.thinking(value["thinking"])
+        end
+      else
+        @body[key] = value
+      end
+    end
+  end
+end

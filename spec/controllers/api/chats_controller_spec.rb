@@ -28,40 +28,40 @@ RSpec.describe Api::ChatsController, type: :controller do
       end
     end
 
-    context "with generation params" do
-      it "passes generation_params to LlmRbFacade" do
+    context "with generation_settings (nested pass-through)" do
+      it "forwards every key/value verbatim — numbers, booleans, nested hashes" do
         allow(LlmRbFacade).to receive(:call!).and_return("Hi!")
 
         post :create, params: {
           llm_api_key_uuid: uuid,
           model_name: model_name,
           prompt: "Hello",
-          temperature: 0.7,
-          max_tokens: 1024
+          generation_settings: {
+            temperature: 0.7,
+            max_tokens: 1024,
+            think: true,
+            options: { num_ctx: 8192 }
+          }
         }
 
         expect(response).to have_http_status(:success)
-        expect(LlmRbFacade).to have_received(:call!)
-          .with(model_id, "Hello", generation_params: hash_including(:temperature, :max_tokens))
-      end
-    end
-
-    context "with unsupported params" do
-      it "filters out unsupported params" do
-        allow(LlmRbFacade).to receive(:call!).and_return("Hi!")
-
-        post :create, params: {
-          llm_api_key_uuid: uuid,
-          model_name: model_name,
-          prompt: "Hello",
-          temperature: 0.5,
-          unsupported_param: "bad"
-        }
-
-        expect(response).to have_http_status(:success)
-        expect(LlmRbFacade).to have_received(:call!) do |_model_id, _prompt, generation_params:|
-          expect(generation_params.keys).to contain_exactly(:temperature)
+        expect(LlmRbFacade).to have_received(:call!) do |_model_id, _prompt, generation_params:, **|
+          # Note: Rails params come through as strings unless the request is
+          # JSON; in form-encoded posts numbers/booleans serialize as strings.
+          expect(generation_params.keys).to contain_exactly(:temperature, :max_tokens, :think, :options)
+          expect(generation_params[:options]).to include(:num_ctx)
         end
+      end
+
+      it "passes an empty hash when no generation_settings are provided" do
+        allow(LlmRbFacade).to receive(:call!).and_return("Hi!")
+
+        post :create, params: {
+          llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hello"
+        }
+
+        expect(LlmRbFacade).to have_received(:call!)
+          .with(model_id, "Hello", generation_params: {})
       end
     end
   end

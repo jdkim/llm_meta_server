@@ -3,8 +3,6 @@ class Api::ChatStreamsController < ApiController
 
   wrap_parameters false
 
-  GENERATION_PARAM_KEYS = %i[temperature top_p top_k max_tokens].freeze
-
   def create
     uuid, model_name, prompt = expected_params
 
@@ -115,8 +113,13 @@ class Api::ChatStreamsController < ApiController
     McpToolAdapter.to_llm_functions(current_user.find_mcp_tools(tool_ids))
   end
 
+  # Pass-through: caller sends `generation_settings: {…}` (any keys/values).
+  # See Api::ChatsController for rationale.
   def generation_params
-    params.permit(*GENERATION_PARAM_KEYS).to_h.symbolize_keys
+    raw = params[:generation_settings]
+    return {} if raw.blank?
+    hash = raw.respond_to?(:to_unsafe_h) ? raw.to_unsafe_h : raw.to_h
+    hash.deep_symbolize_keys
   end
 
   def image_context_param

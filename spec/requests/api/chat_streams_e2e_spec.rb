@@ -131,9 +131,9 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (E2E)", t
   end
 
   it "emits an argument_error event when the model can't process an attached image" do
-    # qwen3-5-4b is text-only (ollama family). Use an unknown uuid so the
+    # gemma3-27b is text-only (ollama family). Use an unknown uuid so the
     # controller falls back to the ollama llm_type when looking up the model.
-    post "/api/llm_api_keys/ollama-local/models/qwen3-5-4b/chat_streams",
+    post "/api/llm_api_keys/ollama-local/models/gemma3-27b/chat_streams",
          params: { prompt: "describe", image: { mime: "image/png", data_b64: "AAA" } },
          headers: auth_headers
 

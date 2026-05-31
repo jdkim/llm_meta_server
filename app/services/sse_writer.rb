@@ -18,6 +18,16 @@ class SseWriter
     event("phase", { name: name })
   end
 
+  # Emit a thinking-mode delta as a separate SSE event so the client can
+  # render it distinctly from final content (e.g. in a collapsible block).
+  # Wired in by config/initializers/ollama_stream_parser.rb — Ollama's
+  # thinking-enabled models split each chunk into a thinking + content pair.
+  def thinking(chunk)
+    return self if chunk.nil? || chunk.empty?
+    event("thinking", { delta: chunk.to_s })
+    self
+  end
+
   # SSE comment line. Clients (EventSource) ignore it, but the bytes keep
   # the connection warm through buffering proxies and TCP idle timeouts.
   def heartbeat

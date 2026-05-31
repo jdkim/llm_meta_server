@@ -32,29 +32,29 @@ RSpec.describe "Favorite models management", type: :request do
     end
 
     it "marks favorited models with the filled star (★)" do
-      user.update!(favorite_model_meta_ids: [ "qwen3-5-4b" ])
+      user.update!(favorite_model_meta_ids: [ "qwen3-6-35b-fast" ])
       get "/models"
-      # Look for the filled star adjacent to qwen3-5-4b
-      expect(response.body).to match(/★[^☆]*qwen3-5-4b/m)
+      # Look for the filled star adjacent to qwen3-6-35b-fast
+      expect(response.body).to match(/★[^☆]*qwen3-6-35b-fast/m)
     end
   end
 
   describe "PATCH /models/:id/toggle_favorite" do
     it "adds a model to favorites and redirects with a notice" do
-      patch "/models/qwen3-5-4b/toggle_favorite"
+      patch "/models/qwen3-6-35b-fast/toggle_favorite"
       expect(response).to redirect_to(models_path)
       follow_redirect!
       expect(response.body).to include("Added to favorites.")
-      expect(user.reload.favorite_model_meta_ids).to include("qwen3-5-4b")
+      expect(user.reload.favorite_model_meta_ids).to include("qwen3-6-35b-fast")
     end
 
     it "removes an existing favorite and redirects with a notice" do
-      user.update!(favorite_model_meta_ids: [ "qwen3-5-4b" ])
-      patch "/models/qwen3-5-4b/toggle_favorite"
+      user.update!(favorite_model_meta_ids: [ "qwen3-6-35b-fast" ])
+      patch "/models/qwen3-6-35b-fast/toggle_favorite"
       expect(response).to redirect_to(models_path)
       follow_redirect!
       expect(response.body).to include("Removed from favorites.")
-      expect(user.reload.favorite_model_meta_ids).not_to include("qwen3-5-4b")
+      expect(user.reload.favorite_model_meta_ids).not_to include("qwen3-6-35b-fast")
     end
 
     it "rejects an unknown meta_id" do

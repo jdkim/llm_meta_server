@@ -14,7 +14,7 @@ RSpec.describe "GET /api/llms", type: :request do
   end
 
   it "marks favorited Ollama models with favorite: true" do
-    user.update!(favorite_model_meta_ids: [ "qwen3-5-4b" ])
+    user.update!(favorite_model_meta_ids: [ "qwen3-6-35b-fast" ])
 
     get "/api/llms"
 
@@ -23,9 +23,9 @@ RSpec.describe "GET /api/llms", type: :request do
     ollama = body.fetch("llms").find { |l| (l["family"] || l[:family]) == "ollama" }
     expect(ollama).to be_present
 
-    qwen = ollama["available_models"].find { |m| m["value"] == "qwen3-5-4b" }
-    other = ollama["available_models"].find { |m| m["value"] == "qwen3-5-9b" }
-    expect(qwen["favorite"]).to be true
+    favorited = ollama["available_models"].find { |m| m["value"] == "qwen3-6-35b-fast" }
+    other     = ollama["available_models"].find { |m| m["value"] == "gemma3-27b" }
+    expect(favorited["favorite"]).to be true
     expect(other["favorite"]).to be false
   end
 
@@ -36,7 +36,7 @@ RSpec.describe "GET /api/llms", type: :request do
 
     by_value = ollama["available_models"].to_h { |m| [ m["value"], m["supports_vision"] ] }
     expect(by_value["qwen3-6-35b"]).to be true
-    expect(by_value["qwen3-5-4b"]).to be false
+    expect(by_value["gemma3-27b"]).to be false
   end
 
   context "anonymous (no Authorization header)" do
