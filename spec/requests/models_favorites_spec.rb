@@ -64,4 +64,36 @@ RSpec.describe "Favorite models management", type: :request do
       expect(response.body).to include("Unknown model.")
     end
   end
+
+  describe "PATCH /models/:id/set_default" do
+    it "sets the per-user default model and confirms via flash" do
+      expect {
+        patch "/models/qwen3-6-35b-fast/set_default"
+      }.to change { user.reload.default_model_meta_id }.from(nil).to("qwen3-6-35b-fast")
+      follow_redirect!
+      expect(response.body).to include("Default set.")
+    end
+
+    it "overrides any previous default" do
+      user.update!(default_model_meta_id: "qwen3-6-35b")
+      patch "/models/qwen3-6-35b-fast/set_default"
+      expect(user.reload.default_model_meta_id).to eq("qwen3-6-35b-fast")
+    end
+
+    it "clears the default when id is the special '_clear' sentinel" do
+      user.update!(default_model_meta_id: "qwen3-6-35b-fast")
+      patch "/models/_clear/set_default"
+      expect(user.reload.default_model_meta_id).to be_nil
+      follow_redirect!
+      expect(response.body).to include("Default cleared")
+    end
+
+    it "rejects an unknown meta_id without changing state" do
+      user.update!(default_model_meta_id: "qwen3-6-35b-fast")
+      patch "/models/totally-fake-model/set_default"
+      follow_redirect!
+      expect(response.body).to include("Unknown model.")
+      expect(user.reload.default_model_meta_id).to eq("qwen3-6-35b-fast")
+    end
+  end
 end

@@ -28,9 +28,13 @@ class Llm < ApplicationRecord
     private
 
     def default_ollama_json(user: nil)
-      favorited = user&.favorite_model_meta_ids || []
+      favorited    = user&.favorite_model_meta_ids || []
+      default_meta = user&.default_model_meta_id
       models = LlmModelMap.available_models_for("ollama").map do |m|
-        m.merge("favorite" => favorited.include?(m["value"]))
+        m.merge(
+          "favorite" => favorited.include?(m["value"]),
+          "default"  => default_meta.present? && default_meta == m["value"]
+        )
       end
 
       {

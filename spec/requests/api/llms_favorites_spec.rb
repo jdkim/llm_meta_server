@@ -34,6 +34,27 @@ RSpec.describe "GET /api/llms", type: :request do
     expect(other["favorite"]).to be false
   end
 
+  it "marks the user's default model with default: true and the rest with default: false" do
+    catalog = LlmModelMap.available_models_for("ollama").map { |m| m["value"] }
+    default_meta = catalog.first
+    user.update!(default_model_meta_id: default_meta)
+
+    get "/api/llms"
+    body = JSON.parse(response.body)
+    ollama = body.fetch("llms").find { |l| (l["family"] || l[:family]) == "ollama" }
+    marked = ollama["available_models"].find { |m| m["value"] == default_meta }
+    other  = ollama["available_models"].find { |m| m["value"] != default_meta }
+    expect(marked["default"]).to be true
+    expect(other["default"]).to be false
+  end
+
+  it "marks every model with default: false when the user has not set a default" do
+    user.update!(default_model_meta_id: nil)
+    get "/api/llms"
+    ollama = JSON.parse(response.body)["llms"].find { |l| l["family"] == "ollama" }
+    expect(ollama["available_models"].map { |m| m["default"] }.uniq).to eq([ false ])
+  end
+
   it "includes supports_vision per model option (always a strict boolean)" do
     get "/api/llms"
     body = JSON.parse(response.body)

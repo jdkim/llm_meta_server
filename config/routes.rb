@@ -27,6 +27,7 @@ Rails.application.routes.draw do
   resources :models, only: [ :index ] do
     member do
       patch :toggle_favorite
+      patch :set_default
     end
   end
 

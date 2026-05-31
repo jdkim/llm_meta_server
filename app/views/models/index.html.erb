@@ -1,10 +1,19 @@
-<% content_for :title, "Favorite models" %>
+<% content_for :title, "Models" %>
 
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-  <h1 class="text-2xl font-semibold text-gray-900 mb-2">Favorite models</h1>
+  <h1 class="text-2xl font-semibold text-gray-900 mb-2">Models</h1>
+  <p class="text-sm text-gray-600 mb-2">
+    <strong>★</strong> Mark favorites — they appear as quick-pick buttons in the chat UI.
+  </p>
   <p class="text-sm text-gray-600 mb-6">
-    Star the models you want to appear in the quick-access <strong>Favorites</strong> section
-    of the LLM picker in the chat UI. Only providers you have API keys for (plus Ollama) are shown.
+    <strong>Default</strong> — set your personal default model. Overrides the system-wide default.
+    <% if @default_model_meta_id.present? %>
+      <%= button_to "Clear default",
+                    set_default_model_path("_clear"),
+                    method: :patch,
+                    class: "ml-2 text-xs px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700",
+                    form: { class: 'inline-block m-0' } %>
+    <% end %>
   </p>
 
   <% if @groups.empty? %>
@@ -30,7 +39,16 @@
               <div class="text-sm font-medium text-gray-900"><%= m[:display_name] %></div>
               <div class="text-xs text-gray-500 font-mono"><%= m[:meta_id] %></div>
             </div>
-            <div class="flex gap-2">
+            <div class="flex gap-2 items-center">
+              <% if m[:default] %>
+                <span class="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">Default ✓</span>
+              <% else %>
+                <%= button_to "Set as default",
+                              set_default_model_path(m[:meta_id]),
+                              method: :patch,
+                              class: "text-xs px-2 py-0.5 rounded bg-gray-100 hover:bg-emerald-100 text-gray-700 hover:text-emerald-800",
+                              form: { class: 'inline-block m-0' } %>
+              <% end %>
               <% if m[:kind] == :image %>
                 <span class="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-800">image gen</span>
               <% end %>
