@@ -1,6 +1,6 @@
 class McpServersController < ApplicationController
   before_action :authenticate_user!
-  before_action :set_mcp_server, only: [ :update, :destroy, :toggle ]
+  before_action :set_mcp_server, only: [ :update, :destroy, :toggle, :toggle_public ]
 
   def index
     @mcp_servers = current_user.mcp_servers.includes(:mcp_tools)
@@ -35,6 +35,12 @@ class McpServersController < ApplicationController
     @mcp_server.update!(active: !@mcp_server.active)
     status = @mcp_server.active? ? "activated" : "deactivated"
     redirect_to user_mcp_servers_path(current_user), notice: "MCP server '#{@mcp_server.name}' has been #{status}"
+  end
+
+  def toggle_public
+    @mcp_server.update!(public: !@mcp_server.public)
+    visibility = @mcp_server.public? ? "public — visible to all signed-in users" : "private"
+    redirect_to user_mcp_servers_path(current_user), notice: "MCP server '#{@mcp_server.name}' is now #{visibility}"
   end
 
   private

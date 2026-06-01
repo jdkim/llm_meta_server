@@ -48,6 +48,78 @@ RSpec.describe "Api::McpServersController isolation + bad-param paths", type: :r
       expect(response).to have_http_status(:unauthorized)
       expect(other_server.reload.active).to be true
     end
+
+    it "PATCH toggle_public on another user's uuid returns 401 and does not flip public" do
+      patch "/api/mcp_servers/#{other_server.uuid}/toggle_public", headers: auth_headers
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(other_server.reload.public).to be false
+    end
+  end
+
+  describe "public-server visibility in index" do
+    let!(:other_public) do
+      other_user.mcp_servers.create!(name: "theirs-public", url: "https://shared.example.com/rpc",
+                                      active: true, public: true)
+    end
+    let!(:other_public_down) do
+      other_user.mcp_servers.create!(name: "theirs-public-down", url: "https://down.example.com/rpc",
+                                      active: false, public: true)
+    end
+
+    it "includes other users' active+public servers" do
+      get "/api/mcp_servers", headers: auth_headers
+      body = JSON.parse(response.body)
+      uuids = body["mcp_servers"].map { |s| s["uuid"] }
+      expect(uuids).to include(other_public.uuid)
+    end
+
+    it "excludes other users' public-but-inactive servers" do
+      get "/api/mcp_servers", headers: auth_headers
+      uuids = JSON.parse(response.body)["mcp_servers"].map { |s| s["uuid"] }
+      expect(uuids).not_to include(other_public_down.uuid)
+    end
+
+    it "marks ownership in the payload via the `owned` flag" do
+      mine = user.mcp_servers.create!(name: "mine", url: "https://mine.example.com/rpc")
+      get "/api/mcp_servers", headers: auth_headers
+      body = JSON.parse(response.body)["mcp_servers"]
+      expect(body.find { |s| s["uuid"] == mine.uuid }["owned"]).to be true
+      expect(body.find { |s| s["uuid"] == other_public.uuid }["owned"]).to be false
+    end
+
+    it "exposes the sharer's email as `shared_by` for non-owned public servers" do
+      get "/api/mcp_servers", headers: auth_headers
+      body = JSON.parse(response.body)["mcp_servers"]
+      shared = body.find { |s| s["uuid"] == other_public.uuid }
+      expect(shared["shared_by"]).to eq(other_user.email)
+    end
+
+    it "does not include `shared_by` on the requester's own servers" do
+      mine = user.mcp_servers.create!(name: "mine", url: "https://mine.example.com/rpc")
+      get "/api/mcp_servers", headers: auth_headers
+      body = JSON.parse(response.body)["mcp_servers"]
+      expect(body.find { |s| s["uuid"] == mine.uuid }).not_to have_key("shared_by")
+    end
+  end
+
+  describe "PATCH toggle_public (owner)" do
+    let!(:mine) { user.mcp_servers.create!(name: "mine", url: "https://mine.example.com/rpc") }
+
+    it "flips public from false to true" do
+      patch "/api/mcp_servers/#{mine.uuid}/toggle_public", headers: auth_headers
+      expect(response).to have_http_status(:ok)
+      expect(mine.reload.public).to be true
+      body = JSON.parse(response.body)
+      expect(body["owned"]).to be true
+      expect(body["public"]).to be true
+    end
+
+    it "is idempotent in reverse: a second toggle flips back to false" do
+      mine.update!(public: true)
+      patch "/api/mcp_servers/#{mine.uuid}/toggle_public", headers: auth_headers
+      expect(mine.reload.public).to be false
+    end
   end
 
   describe "missing-param handling on create" do

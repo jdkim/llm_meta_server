@@ -27,15 +27,6 @@ class User < ApplicationRecord
     llm_api_keys.find_by(uuid: uuid)
   end
 
-  def find_mcp_tools(tool_ids)
-    McpTool.active
-      .where(id: tool_ids)
-      .joins(:mcp_server)
-      .merge(McpServer.active)
-      .where(mcp_servers: { user_id: id })
-      .includes(:mcp_server)
-  end
-
   def key_for(uuid)
     llm_api_key = llm_api_keys.find_by(uuid: uuid)
     return nil unless llm_api_key

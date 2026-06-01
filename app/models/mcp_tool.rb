@@ -7,6 +7,21 @@ class McpTool < ApplicationRecord
   scope :active, -> { where(active: true) }
   scope :inactive, -> { where(active: false) }
 
+  # Resolve tool_ids the given viewer is allowed to invoke. Returns active
+  # tools belonging to servers visible to the viewer — i.e., the viewer's
+  # own + active public servers from other users. Replaces the previous
+  # User#find_mcp_tools, which scoped to ownership only.
+  def self.lookup(tool_ids, viewer:)
+    return none if tool_ids.blank?
+
+    active
+      .where(id: tool_ids)
+      .joins(:mcp_server)
+      .merge(McpServer.active)
+      .merge(McpServer.visible_to(viewer))
+      .includes(:mcp_server)
+  end
+
   def as_json(options = {})
     super({ only: %i[id name description input_schema active] }.merge(options))
   end

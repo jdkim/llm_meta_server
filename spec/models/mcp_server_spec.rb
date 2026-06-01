@@ -91,6 +91,34 @@ RSpec.describe McpServer, type: :model do
         expect(McpServer.inactive.map(&:name)).to eq([ "Inactive Server" ])
       end
     end
+
+    describe '.visible_to' do
+      let(:other) { User.create!(email: "other@example.com", google_id: "g-other") }
+      let!(:own_private) { McpServer.create!(user: other, name: "other-private", url: "https://o-priv.example.com/mcp", public: false, active: true) }
+      let!(:own_public)  { McpServer.create!(user: other, name: "other-public",  url: "https://o-pub.example.com/mcp",  public: true,  active: true) }
+      let!(:public_but_inactive) { McpServer.create!(user: other, name: "other-public-down", url: "https://o-down.example.com/mcp", public: true, active: false) }
+
+      it "returns the viewer's own servers and other users' active+public servers" do
+        names = McpServer.visible_to(user).pluck(:name)
+        # 'Active Server' / 'Inactive Server' are this user's; both visible to owner.
+        expect(names).to contain_exactly("Active Server", "Inactive Server", "other-public")
+      end
+
+      it "hides inactive public servers from non-owners" do
+        names = McpServer.visible_to(user).pluck(:name)
+        expect(names).not_to include("other-public-down")
+      end
+
+      it "shows the owner their own inactive public server" do
+        names = McpServer.visible_to(other).pluck(:name)
+        expect(names).to include("other-public-down")
+      end
+
+      it "with nil viewer returns only active+public (controller gates anonymous access)" do
+        names = McpServer.visible_to(nil).pluck(:name)
+        expect(names).to contain_exactly("other-public")
+      end
+    end
   end
 
   describe '#as_json' do

@@ -37,6 +37,7 @@ Rails.application.routes.draw do
     resources :mcp_servers, only: [ :index, :create, :update, :destroy ] do
       member do
         patch :toggle
+        patch :toggle_public
       end
       resources :mcp_tools, only: [ :index ] do
         member do
@@ -60,6 +61,7 @@ Rails.application.routes.draw do
     resources :mcp_servers, only: [ :index, :create, :update, :destroy ], param: :uuid do
       member do
         patch :toggle
+        patch :toggle_public
       end
       resources :tools, only: [ :index ], controller: "mcp_tools" do
         member do

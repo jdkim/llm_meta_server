@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_31_184940) do
+ActiveRecord::Schema[8.0].define(version: 2026_06_02_033454) do
   create_table "llm_api_keys", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "llm_type", null: false
@@ -55,6 +55,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_31_184940) do
     t.text "last_error"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.boolean "public", default: false, null: false
+    t.index ["public"], name: "index_mcp_servers_on_public", where: "public = 1"
     t.index ["user_id", "url"], name: "index_mcp_servers_on_user_id_and_url", unique: true
     t.index ["user_id"], name: "index_mcp_servers_on_user_id"
     t.index ["uuid"], name: "index_mcp_servers_on_uuid", unique: true

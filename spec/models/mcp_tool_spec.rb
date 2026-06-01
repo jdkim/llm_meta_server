@@ -81,4 +81,46 @@ RSpec.describe McpTool, type: :model do
       expect(json).not_to have_key("mcp_server_id")
     end
   end
+
+  describe '.lookup' do
+    let(:owner) { user }
+    let(:viewer) { User.create!(email: "viewer@example.com", google_id: "g-viewer") }
+    let(:other_user) { User.create!(email: "stranger@example.com", google_id: "g-stranger") }
+
+    let(:own_server)     { McpServer.create!(user: owner,      name: "Own",     url: "https://own.example.com/mcp",     active: true,  public: false) }
+    let(:public_server)  { McpServer.create!(user: other_user, name: "Public",  url: "https://pub.example.com/mcp",     active: true,  public: true) }
+    let(:private_server) { McpServer.create!(user: other_user, name: "Private", url: "https://priv.example.com/mcp",    active: true,  public: false) }
+    let(:dead_server)    { McpServer.create!(user: other_user, name: "Dead",    url: "https://dead.example.com/mcp",    active: false, public: true) }
+
+    let!(:own_tool)     { McpTool.create!(mcp_server: own_server,     name: "own",     input_schema: { "type" => "object" }, active: true) }
+    let!(:pub_tool)     { McpTool.create!(mcp_server: public_server,  name: "pub",     input_schema: { "type" => "object" }, active: true) }
+    let!(:pub_inactive) { McpTool.create!(mcp_server: public_server,  name: "pub-off", input_schema: { "type" => "object" }, active: false) }
+    let!(:priv_tool)    { McpTool.create!(mcp_server: private_server, name: "priv",    input_schema: { "type" => "object" }, active: true) }
+    let!(:dead_tool)    { McpTool.create!(mcp_server: dead_server,    name: "dead",    input_schema: { "type" => "object" }, active: true) }
+
+    it "returns the viewer's own active tools" do
+      expect(McpTool.lookup([ own_tool.id ], viewer: owner).pluck(:name)).to contain_exactly("own")
+    end
+
+    it "exposes tools from other users' active+public servers" do
+      expect(McpTool.lookup([ pub_tool.id ], viewer: viewer).pluck(:name)).to contain_exactly("pub")
+    end
+
+    it "blocks tools from other users' private servers" do
+      expect(McpTool.lookup([ priv_tool.id ], viewer: viewer)).to be_empty
+    end
+
+    it "blocks tools belonging to a public-but-inactive server" do
+      expect(McpTool.lookup([ dead_tool.id ], viewer: viewer)).to be_empty
+    end
+
+    it "drops tools that are themselves inactive even when the server is visible" do
+      expect(McpTool.lookup([ pub_inactive.id ], viewer: viewer)).to be_empty
+    end
+
+    it "returns none for an empty/blank tool_ids list" do
+      expect(McpTool.lookup([], viewer: viewer)).to be_empty
+      expect(McpTool.lookup(nil, viewer: viewer)).to be_empty
+    end
+  end
 end
