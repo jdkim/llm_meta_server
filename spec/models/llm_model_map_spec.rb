@@ -53,20 +53,31 @@ RSpec.describe LlmModelMap do
   end
 
   describe ".available_models_for" do
-    it "returns label/value/supports_vision triples for a known family" do
+    it "returns label/value plus capability flags for a known family" do
       openai = described_class.available_models_for("openai")
       gpt5 = openai.find { |m| m["value"] == "gpt-5" }
 
-      expect(gpt5).to eq("label" => "GPT-5", "value" => "gpt-5", "supports_vision" => true)
+      expect(gpt5).to eq(
+        "label" => "GPT-5",
+        "value" => "gpt-5",
+        "supports_vision" => true,
+        "supports_tools" => true
+      )
     end
 
-    it "every entry's supports_vision is a strict boolean (never nil)" do
-      # The implementation uses `== true` to coerce missing/nil. Verified at
-      # the structural level so we don't depend on a specific non-vision
-      # catalog entry existing.
+    it "emits `kind` only for non-chat models so the frontend doesn't have to filter nils" do
+      google = described_class.available_models_for("google")
+      image_models, chat_models = google.partition { |m| m["value"].end_with?("-image") }
+      expect(chat_models).to all(satisfy { |m| !m.key?("kind") })
+      expect(image_models).to all(include("kind" => "image"))
+    end
+
+    it "supports_vision/_tools coerce to strict booleans (never nil)" do
       described_class.available_models_for("ollama").each do |m|
-        expect(m["supports_vision"]).to satisfy { |v| v == true || v == false },
-          "#{m['value']} has non-boolean supports_vision: #{m['supports_vision'].inspect}"
+        %w[supports_vision supports_tools].each do |k|
+          expect(m[k]).to satisfy { |v| v == true || v == false },
+            "#{m['value']} has non-boolean #{k}: #{m[k].inspect}"
+        end
       end
     end
 
@@ -139,6 +150,19 @@ RSpec.describe LlmModelMap do
       expect(described_class.supports_vision?("qwen3-6-35b")).to be(true)
       # Unknown meta_id under the ollama default also returns false.
       expect(described_class.supports_vision?("not-a-model")).to be(false)
+    end
+  end
+
+  describe ".supports_tools?" do
+    it "is true for models flagged supports_tools: true" do
+      expect(described_class.supports_tools?("gpt-5", llm_type: "openai")).to be(true)
+      expect(described_class.supports_tools?("claude-sonnet-4-6", llm_type: "anthropic")).to be(true)
+      expect(described_class.supports_tools?("gemini-2-5-pro", llm_type: "google")).to be(true)
+    end
+
+    it "is false for image-gen models and for unknown meta_ids" do
+      expect(described_class.supports_tools?("gemini-2-5-flash-image", llm_type: "google")).to be(false)
+      expect(described_class.supports_tools?("not-a-model", llm_type: "openai")).to be(false)
     end
   end
 

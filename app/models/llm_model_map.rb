@@ -44,8 +44,12 @@ class LlmModelMap
       {
         "label" => value[:display_name], # Display name: official model name
         "value" => key,                   # Internal ID: meta_id (without dots)
-        "supports_vision" => value[:supports_vision] == true
-      }
+        "supports_vision" => value[:supports_vision] == true,
+        "supports_tools" => value[:supports_tools] == true,
+        # `kind` is only emitted for image-gen models — the frontend
+        # treats its absence as "regular chat model".
+        "kind" => value[:kind].to_s.presence
+      }.compact
     end
   end
 
@@ -59,5 +63,9 @@ class LlmModelMap
 
   def self.supports_vision?(meta_id, llm_type: nil)
     MODEL_MAP.dig(llm_type || "ollama", meta_id, :supports_vision) == true
+  end
+
+  def self.supports_tools?(meta_id, llm_type: nil)
+    MODEL_MAP.dig(llm_type || "ollama", meta_id, :supports_tools) == true
   end
 end

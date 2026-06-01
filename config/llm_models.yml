@@ -5,6 +5,7 @@
 #     api_id:         <string>   # Real provider model ID (with dots/colons).
 #     display_name:   <string>   # UI label.
 #     supports_vision: <bool>    # Optional. Defaults to false. Set true for vision-capable models.
+#     supports_tools:  <bool>    # Optional. Defaults to false. Set true for tool/function-calling models.
 #     kind:           <symbol>   # Optional. `image` for image-generation models.
 #
 # To add/remove a model: edit this file and restart the server. No Ruby change.
@@ -14,6 +15,7 @@ openai:
     api_id: gpt-5
     display_name: GPT-5
     supports_vision: true
+    supports_tools: true
     # GPT-5 reasoning is only surfaced via the Responses API (the chat
     # completions endpoint hides it). LlmRbFacade routes streaming
     # no-tools / no-image requests through llm.responses.create for any
@@ -27,6 +29,7 @@ openai:
     api_id: gpt-5-mini
     display_name: GPT-5 Mini
     supports_vision: true
+    supports_tools: true
     endpoint: responses
     defaults:
       reasoning:
@@ -37,6 +40,7 @@ anthropic:
     api_id: claude-opus-4-7
     display_name: Claude Opus 4.7
     supports_vision: true
+    supports_tools: true
     # Opus 4.7 accepts `adaptive` thinking but emits no thinking_delta
     # events (internal-only reasoning) — the Reasoning block in the UI
     # will stay empty. Still requesting adaptive so users can force more
@@ -48,6 +52,7 @@ anthropic:
     api_id: claude-sonnet-4-6
     display_name: Claude Sonnet 4.6
     supports_vision: true
+    supports_tools: true
     # Sonnet 4.6 exposes thinking_delta events in adaptive mode.
     defaults:
       thinking:
@@ -56,6 +61,7 @@ anthropic:
     api_id: claude-haiku-4-5
     display_name: Claude Haiku 4.5
     supports_vision: true
+    supports_tools: true
     # Haiku 4.5 rejects `adaptive` ("adaptive thinking is not supported
     # on this model"). No thinking default declared — Haiku just answers
     # directly. If a `thinking.type: "enabled"` shape is confirmed
@@ -66,14 +72,17 @@ google:
     api_id: gemini-3.1-pro-preview
     display_name: Gemini 3.1 Pro
     supports_vision: true
+    supports_tools: true
   gemini-3-flash:
     api_id: gemini-3-flash-preview
     display_name: Gemini 3 Flash
     supports_vision: true
+    supports_tools: true
   gemini-2-5-pro:
     api_id: gemini-2.5-pro
     display_name: Gemini 2.5 Pro
     supports_vision: true
+    supports_tools: true
   gemini-3-1-flash-image:
     api_id: gemini-3.1-flash-image-preview
     display_name: Gemini 3.1 Flash Image (Nano Banana 2)
@@ -95,6 +104,7 @@ ollama:
     api_id: qwen3.6:35b-fast
     display_name: qwen3.6:35b-fast
     supports_vision: true
+    supports_tools: true
     # qwen3.6 ignores the SYSTEM /no_think text directive; only the API-level
     # think: false actually disables reasoning on this model. Users can still
     # override per-request via the Settings panel.
@@ -104,7 +114,13 @@ ollama:
     api_id: qwen3.6:35b
     display_name: qwen3.6:35b
     supports_vision: true
+    supports_tools: true
   medgemma1-5-4b:
     api_id: medgemma1.5:4b
     display_name: medgemma1.5:4b
     supports_vision: true
+    # Ollama does not register MedGemma as a thinking-capable model
+    # (passing `think:` either way returns "does not support thinking"),
+    # but the model still emits `<unused94>...<unused95>` blocks inline.
+    # If that becomes a problem, strip those tokens response-side rather
+    # than via the API.
