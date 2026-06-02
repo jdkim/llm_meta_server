@@ -21,18 +21,21 @@ class Api::ChatStreamsController < ApiController
     heartbeat = start_heartbeat(sink)
 
     image = image_param
+    images = images_param
+
+    has_image = image.present? || images.any?
 
     if bearer_token
       llm_api_key = current_user.find_llm_api_key uuid
       model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
-      if image.present? && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
+      if has_image && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
         raise ArgumentError, "Selected model doesn't support image input"
       end
       if LlmModelMap.image_model?(model_name, llm_type: llm_api_key&.llm_type)
         markdown = ImageGenerationService.generate!(
           model_id: model_id, prompt: prompt, llm_api_key: llm_api_key,
           image_context: image_context_param,
-          image: image
+          image: image || images.last
         )
         sink << markdown
       else
@@ -41,6 +44,7 @@ class Api::ChatStreamsController < ApiController
           llm_api_key: llm_api_key,
           tools: selected_tools,
           generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
+          images: images.presence,
           image: image,
           on_tool_calls: on_tool_calls,
           on_phase_change: on_phase_change,
@@ -48,12 +52,13 @@ class Api::ChatStreamsController < ApiController
       end
     else
       model_id = LlmModelMap.fetch! model_name
-      if image.present? && !LlmModelMap.supports_vision?(model_name, llm_type: nil)
+      if has_image && !LlmModelMap.supports_vision?(model_name, llm_type: nil)
         raise ArgumentError, "Selected model doesn't support image input"
       end
       LlmRbFacade.stream! model_id, prompt,
         sink: sink,
         generation_params: effective_generation_params(model_name, nil),
+        images: images.presence,
         image: image,
         on_tool_calls: on_tool_calls,
         on_phase_change: on_phase_change,
@@ -142,5 +147,18 @@ class Api::ChatStreamsController < ApiController
     data_b64 = raw[:data_b64].to_s
     return nil if mime.empty? || data_b64.empty?
     { mime: mime, data_b64: data_b64 }
+  end
+
+  # Chronologically-ordered list of images: historical entries first,
+  # current turn's image last. Empty array if none.
+  def images_param
+    raw = params.permit(images: [ :mime, :data_b64 ])[:images]
+    return [] if raw.blank?
+    Array(raw).filter_map do |entry|
+      mime = entry[:mime].to_s
+      data_b64 = entry[:data_b64].to_s
+      next if mime.empty? || data_b64.empty?
+      { mime: mime, data_b64: data_b64 }
+    end
   end
 end

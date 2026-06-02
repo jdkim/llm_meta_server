@@ -3,7 +3,7 @@ require "tempfile"
 
 module LlmRbFacade
   class << self
-    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil)
+    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil, images: nil)
       # Validate arguments at the entry point
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
@@ -11,8 +11,8 @@ module LlmRbFacade
       llm = create_llm_client llm_api_key, model_id
       all_tools = tools + native_server_tools(llm)
 
-      with_image_payload(image) do |content|
-        effective_prompt = content ? [ content, prompt ] : prompt
+      with_image_payloads(coerce_images(image, images)) do |contents|
+        effective_prompt = contents.any? ? [ *contents, prompt ] : prompt
         if all_tools.any?
           execute_chat_with_tools! llm, model_id, effective_prompt, all_tools, generation_params
         else
@@ -31,22 +31,23 @@ module LlmRbFacade
     #
     # Returns the assembled string when no tools were called, or
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
-    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, endpoint: "chat_completions")
+    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
       native = native_server_tools(llm)
 
-      with_image_payload(image) do |content|
-        effective_prompt = content ? [ content, prompt ] : prompt
+      payloads = coerce_images(image, images)
+      with_image_payloads(payloads) do |contents|
+        effective_prompt = contents.any? ? [ *contents, prompt ] : prompt
 
         # Route OpenAI reasoning models through the Responses API so
         # `response.reasoning_summary_text.delta` events can stream into
         # sink.thinking. Falls back to chat completions when the request
         # carries tools or an image — Responses support for those exists
         # but uses different wire shapes than we currently handle.
-        if endpoint == "responses" && tools.empty? && image.nil?
+        if endpoint == "responses" && tools.empty? && payloads.empty?
           stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink)
         elsif tools.any?
           # MCP function tools present — needs the turn1/turn2 execution loop.
@@ -112,31 +113,48 @@ module LlmRbFacade
       params
     end
 
-    # Build an LLM::Object(:local_file) from a transport payload `{mime:, data_b64:}`
-    # by writing the bytes to a Tempfile and wrapping with LLM::File. Each provider's
-    # adapt_local_file consumes only the standard LLM::File interface (mime_type,
-    # to_b64, image?, basename, to_data_uri), so this works uniformly across
-    # OpenAI / Anthropic / Gemini / Ollama. Yields content (or nil), cleans up.
-    def with_image_payload(image)
-      return yield(nil) if image.blank?
+    # Normalize the legacy `image:` (single) and new `images:` (array) kwargs
+    # into a single chronologically-ordered array of `{mime:, data_b64:}`
+    # payloads. The current turn's image is by convention the last element
+    # of `images:`; if only the legacy `image:` was passed, it becomes a
+    # one-element list.
+    def coerce_images(image, images)
+      list = images.is_a?(Array) ? images.compact : []
+      list = [ image ] if list.empty? && image.present?
+      list.reject { |p| p.blank? }
+    end
 
-      mime = (image[:mime] || image["mime"]).to_s
-      data_b64 = (image[:data_b64] || image["data_b64"]).to_s
-      return yield(nil) if mime.empty? || data_b64.empty?
+    # Build an array of LLM::Object(:local_file) entries — one per payload —
+    # by writing each blob to its own Tempfile and wrapping with LLM::File.
+    # Each provider's adapt_local_file consumes only the standard LLM::File
+    # interface (mime_type, to_b64, image?, basename, to_data_uri), so this
+    # works uniformly across OpenAI / Anthropic / Gemini / Ollama. Yields the
+    # list (possibly empty) and cleans up every Tempfile, even on raise.
+    def with_image_payloads(payloads)
+      return yield([]) if payloads.blank?
 
-      ext = mime.split("/").last.to_s
-      ext = ext.sub(/[;+].*$/, "") # strip params like "jpeg;charset=..."
-      ext = "bin" if ext.empty?
-      tmp = Tempfile.new([ "llm_meta_img_", ".#{ext}" ], binmode: true)
-      tmp.write(Base64.decode64(data_b64))
-      tmp.close
+      tmps = []
+      contents = []
+      payloads.each do |payload|
+        mime = (payload[:mime] || payload["mime"]).to_s
+        data_b64 = (payload[:data_b64] || payload["data_b64"]).to_s
+        next if mime.empty? || data_b64.empty?
 
-      file = LLM::File.new(tmp.path)
-      content = LLM::Object.new(kind: :local_file, value: file)
-      yield(content)
+        ext = mime.split("/").last.to_s
+        ext = ext.sub(/[;+].*$/, "")
+        ext = "bin" if ext.empty?
+        tmp = Tempfile.new([ "llm_meta_img_", ".#{ext}" ], binmode: true)
+        tmp.write(Base64.decode64(data_b64))
+        tmp.close
+        tmps << tmp
+
+        file = LLM::File.new(tmp.path)
+        contents << LLM::Object.new(kind: :local_file, value: file)
+      end
+
+      yield(contents)
     ensure
-      tmp&.close
-      tmp&.unlink
+      tmps&.each { |t| t.close rescue nil; t.unlink rescue nil }
     end
 
     def validate_arguments!(model_id, prompt, llm_api_key)

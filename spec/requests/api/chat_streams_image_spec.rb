@@ -49,6 +49,51 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams", type: :
       expect(response.body).to include('data: {"delta":"ok"}')
       expect(LlmRbFacade).to have_received(:stream!)
     end
+
+    it "accepts an images: array (chronological, current turn last)" do
+      captured = nil
+      allow(LlmRbFacade).to receive(:stream!) do |_, _, sink:, images:, **|
+        captured = images
+        sink << "ok"
+        "ok"
+      end
+
+      post "/api/llm_api_keys/#{openai_key.uuid}/models/gpt-5/chat_streams",
+           params: {
+             prompt: "compare these",
+             images: [
+               { mime: "image/png", data_b64: "AAA" },
+               { mime: "image/jpeg", data_b64: "BBB" }
+             ]
+           }
+
+      expect(response).to have_http_status(:ok)
+      expect(captured).to eq([
+        { mime: "image/png",  data_b64: "AAA" },
+        { mime: "image/jpeg", data_b64: "BBB" }
+      ])
+    end
+
+    it "drops malformed entries (empty mime or data_b64) silently from images:" do
+      captured = nil
+      allow(LlmRbFacade).to receive(:stream!) do |_, _, sink:, images:, **|
+        captured = images
+        sink << "ok"
+        "ok"
+      end
+
+      post "/api/llm_api_keys/#{openai_key.uuid}/models/gpt-5/chat_streams",
+           params: {
+             prompt: "describe",
+             images: [
+               { mime: "",          data_b64: "AAA" },
+               { mime: "image/png", data_b64: "" },
+               { mime: "image/png", data_b64: "OK" }
+             ]
+           }
+
+      expect(captured).to eq([ { mime: "image/png", data_b64: "OK" } ])
+    end
   end
 
   context "image-gen routing" do
