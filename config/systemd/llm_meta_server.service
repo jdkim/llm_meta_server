@@ -1,0 +1,27 @@
+[Unit]
+Description=llm_meta_server (hub.aibranch.org) — Rails production puma
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pubann
+Group=pubann
+WorkingDirectory=/home/pubann/llm_meta/llm_meta_server
+# Secrets + env (RAILS_MASTER_KEY, DATABASE_URL, AWS_*, KMS_KEY_ID,
+# GOOGLE_*, ALLOWED_GOOGLE_CLIENT_IDS, …). Mode 0600, owned by pubann.
+# See PRODUCTION.md.
+EnvironmentFile=/home/pubann/llm_meta/llm_meta_server/.env.production
+
+ExecStart=/bin/bash -lc 'cd /home/pubann/llm_meta/llm_meta_server && bundle exec puma -C config/puma.rb -e production -b tcp://127.0.0.1:${PORT:-5001}'
+
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+StandardOutput=append:/home/pubann/llm_meta/llm_meta_server/log/puma.log
+StandardError=append:/home/pubann/llm_meta/llm_meta_server/log/puma.err.log
+
+[Install]
+WantedBy=multi-user.target
