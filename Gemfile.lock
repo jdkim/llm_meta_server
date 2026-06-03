@@ -278,6 +278,13 @@ GEM
     parser (3.3.10.2)
       ast (~> 2.4.1)
       racc
+    pg (1.6.3)
+    pg (1.6.3-aarch64-linux)
+    pg (1.6.3-aarch64-linux-musl)
+    pg (1.6.3-arm64-darwin)
+    pg (1.6.3-x86_64-darwin)
+    pg (1.6.3-x86_64-linux)
+    pg (1.6.3-x86_64-linux-musl)
     pp (0.6.3)
       prettyprint
     prettyprint (0.2.0)
@@ -407,14 +414,6 @@ GEM
     snaky_hash (2.0.3)
       hashie (>= 0.1.0, < 6)
       version_gem (>= 1.1.8, < 3)
-    sqlite3 (2.9.0-aarch64-linux-gnu)
-    sqlite3 (2.9.0-aarch64-linux-musl)
-    sqlite3 (2.9.0-arm-linux-gnu)
-    sqlite3 (2.9.0-arm-linux-musl)
-    sqlite3 (2.9.0-arm64-darwin)
-    sqlite3 (2.9.0-x86_64-darwin)
-    sqlite3 (2.9.0-x86_64-linux-gnu)
-    sqlite3 (2.9.0-x86_64-linux-musl)
     sshkit (1.25.0)
       base64
       logger
@@ -501,13 +500,13 @@ DEPENDENCIES
   omniauth-google-oauth2
   omniauth-rails_csrf_protection
   openssl (~> 3.3, >= 3.3.1)
+  pg (~> 1.5)
   propshaft
   puma (>= 5.0)
   rack-cors
   rails (~> 8.0.3)
   rspec-rails
   rubocop-rails-omakase
-  sqlite3 (>= 2.1)
   stimulus-rails
   tailwindcss-rails
   thruster
