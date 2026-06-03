@@ -8,3 +8,64 @@
  *
  * Consider organizing styles into separate files for maintainability.
  */
+
+/* CSS-only rendition of the aibranch.org wordmark — same styling as
+   the chat service's logo, with "chat" swapped for "hub". Kept here
+   verbatim so the two services share identical brand presentation. */
+nav .brand {
+  /* `inline-block` (not flex) — Chromium drops gradient painting on
+     children of a flex container that uses background-clip:text. */
+  display: inline-block;
+  text-decoration: none;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -0.005em;
+  background-image: linear-gradient(95deg,
+    #0d2a4a 0%,
+    #0e2f54 18%,
+    #15466e 40%,
+    #1b7390 65%,
+    #29a59c 88%,
+    #36c4a3 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  white-space: nowrap;
+}
+
+nav .brand-sub {
+  font-weight: 500;
+  font-size: 0.7em;
+  letter-spacing: -0.005em;
+  margin-right: 0.05em;
+}
+
+nav .brand-ai {
+  /* Serif AI — disambiguates I from lowercase l and gives the
+     monogram contrast with the surrounding sans-serif. */
+  font-family: Georgia, "Charter", "Iowan Old Style", "Source Serif Pro", serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  padding-right: 2px;
+}
+
+nav .brand-branch {
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+nav .brand-tld {
+  font-weight: 600;
+  font-size: 0.7em;
+  letter-spacing: 0;
+}
+
+nav .brand-dot {
+  font-weight: 700;
+  font-size: 1.15em;
+  line-height: 0;
+  margin: 0 0.05em;
+  vertical-align: -0.02em;
+}

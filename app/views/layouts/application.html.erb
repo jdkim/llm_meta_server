@@ -21,21 +21,28 @@
   </head>
   <body>
     <!-- Navigation Bar -->
-    <nav class="bg-blue-600 shadow-lg">
+    <nav class="bg-white shadow-sm border-b border-gray-200">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-16">
           <div class="flex items-center">
-            <%= link_to "LLM API Call Meta Server", root_path, class: "text-white text-xl font-bold hover:text-blue-200" %>
+            <%= link_to root_path, class: "brand", "aria-label": "hub.aibranch.org" do %>
+              <span class="brand-sub" aria-hidden="true">hub</span><span class="brand-dot" aria-hidden="true">.</span><span class="brand-ai" aria-hidden="true">AI</span><span class="brand-branch" aria-hidden="true">branch</span><span class="brand-dot" aria-hidden="true">.</span><span class="brand-tld" aria-hidden="true">org</span>
+            <% end %>
           </div>
           <!-- Desktop Navigation -->
           <div class="hidden md:flex items-center space-x-4">
             <% if user_signed_in? %>
-              <%= link_to models_path, class: "text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium" do %>
+              <%= link_to models_path, class: "text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium" do %>
                 <i class="fa-regular fa-star mr-1"></i>Models
+              <% end %>
+              <% if current_user.super_user? %>
+                <%= link_to "/admin", class: "text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium" do %>
+                  <i class="fa-solid fa-gauge-high mr-1"></i>Admin
+                <% end %>
               <% end %>
               <!-- User Dropdown -->
               <div class="relative">
-                <button popovertarget="menu-popover" class="flex items-center text-white hover:text-blue-200 focus:outline-none">
+                <button popovertarget="menu-popover" class="flex items-center text-gray-700 hover:text-blue-600 focus:outline-none">
                   <span class="mr-1"><%= current_user.email %></span>
                   <i class="fa-solid fa-chevron-down h-4 w-4"></i>
                 </button>
@@ -49,7 +56,7 @@
               </div>
             <% else %>
               <%= form_with url: user_google_oauth2_omniauth_authorize_path, method: :post, local: true, class: "w-full", data: { turbo: false } do |form| %>
-                <%= button_tag type: "submit", class: "text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium bg-transparent border-0 cursor-pointer" do %>
+                <%= button_tag type: "submit", class: "text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium bg-transparent border-0 cursor-pointer" do %>
                   <i class="fa-brands fa-google mr-2"></i>Sign in with Google
                 <% end %>
               <% end %>
@@ -83,12 +90,11 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="md:flex md:justify-between">
           <div class="mb-4 md:mb-0">
-            <h6 class="text-lg font-semibold text-gray-900">LLM API Call Meta Server</h6>
-            <p class="text-sm text-gray-600">A platform for securely managing various LLM API keys</p>
+            <h6 class="text-lg font-semibold text-gray-900">hub.AIbranch</h6>
+            <p class="text-sm text-gray-600">A platform for securely managing various AI API keys</p>
           </div>
           <div class="text-left md:text-right">
             <p class="text-sm text-gray-600">
-              &copy; <%= Date.current.year %> DBCLS
             </p>
           </div>
         </div>
