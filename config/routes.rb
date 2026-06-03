@@ -10,6 +10,17 @@ Rails.application.routes.draw do
     post "/logout", to: "users/sessions#destroy"
   end
 
+  # SSO landing — meant to be deep-linked from sister services (chat
+  # service, future services, third-party clients). If the visitor
+  # already has a hub session, redirect them to `?return_to=` or root.
+  # Otherwise render a page that auto-submits the Google OAuth form so
+  # the user lands signed-in after one Google-session-resumed round
+  # trip (~1-2 seconds, no manual click).
+  get "/sso", to: "sso#show"
+
+  # Super-user dashboard (gated by User#super_user?).
+  get "/admin", to: "admin#index"
+
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
@@ -48,6 +59,10 @@ Rails.application.routes.draw do
   end
 
   namespace :api do
+    # Super-user JSON stats — consumed by sister services (e.g. the
+    # chat service's combined /admin page) to render a unified view.
+    get "/admin/stats", to: "admin#stats"
+
     # LLM services and models information
     resources :llms, only: [ :index ]
 
