@@ -3,6 +3,7 @@ class User < ApplicationRecord
 
   has_many :llm_api_keys, dependent: :destroy
   has_many :mcp_servers, dependent: :destroy
+  has_many :credit_transactions, dependent: :destroy
 
   # Per-user list of favorited model meta_ids (globally unique strings like
   # "gpt-5", "claude-opus-4-7", "qwen3-6-35b-fast"). Stored as a JSON array of strings.
@@ -36,6 +37,13 @@ class User < ApplicationRecord
 
   def favorite_model?(meta_id)
     favorite_model_meta_ids.include?(meta_id.to_s)
+  end
+
+  # Sum of all credit transactions — grants positive, usages negative.
+  # Used by the shared-key fallback to decide whether the user has trial
+  # budget remaining.
+  def current_balance_cents
+    credit_transactions.sum(:amount_cents)
   end
 
   # True if this user's email is listed in the SUPER_USER_EMAILS env

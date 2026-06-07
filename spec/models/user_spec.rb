@@ -45,6 +45,22 @@ RSpec.describe User, type: :model do
     end
   end
 
+  describe '#current_balance_cents' do
+    let(:user) { User.create!(email: "balance@example.com", google_id: "gb1") }
+
+    it 'returns 0 for a user with no transactions' do
+      expect(user.current_balance_cents).to eq(0)
+    end
+
+    it 'sums grants and usages across all transactions' do
+      user.credit_transactions.create!(kind: "signup_grant", amount_cents: 3000)
+      user.credit_transactions.create!(kind: "admin_grant",  amount_cents: 1000)
+      user.credit_transactions.create!(kind: "usage",        amount_cents: -250)
+      user.credit_transactions.create!(kind: "usage",        amount_cents: -500)
+      expect(user.current_balance_cents).to eq(3250)
+    end
+  end
+
   describe '#retrieve_key' do
     it 'returns encrypted_api_key when key exists' do
       user = User.create!(email: "test@example.com", google_id: 1)
