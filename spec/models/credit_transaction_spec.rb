@@ -47,6 +47,25 @@ RSpec.describe CreditTransaction, type: :model do
       expect(tx).not_to be_valid
       expect(tx.errors[:kind]).to include("is not included in the list")
     end
+
+    it "is valid for a positive refund (treated as a grant kind)" do
+      tx = described_class.new(user: user, kind: "refund", amount_cents: 200)
+      expect(tx).to be_valid
+    end
+
+    it "rejects a negative refund" do
+      tx = described_class.new(user: user, kind: "refund", amount_cents: -100)
+      expect(tx).not_to be_valid
+      expect(tx.errors[:amount_cents]).to include("must be positive for refund")
+    end
+
+    it "saves without granted_by (system-initiated transactions like signup_grant and usage)" do
+      expect {
+        described_class.create!(user: user, kind: "signup_grant", amount_cents: 3000)
+        described_class.create!(user: user, kind: "usage", amount_cents: -42, model: "claude-haiku-4-5")
+      }.not_to raise_error
+      expect(described_class.where(user: user).pluck(:granted_by_id)).to all(be_nil)
+    end
   end
 
   describe "scopes" do

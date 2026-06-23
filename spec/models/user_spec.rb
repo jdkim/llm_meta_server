@@ -59,6 +59,23 @@ RSpec.describe User, type: :model do
       user.credit_transactions.create!(kind: "usage",        amount_cents: -500)
       expect(user.current_balance_cents).to eq(3250)
     end
+
+    it "isolates one user's balance from another's transactions" do
+      other = User.create!(email: "other@example.com", google_id: "gb2")
+      user.credit_transactions.create!(kind: "signup_grant", amount_cents: 3000)
+      other.credit_transactions.create!(kind: "signup_grant", amount_cents: 9999)
+      expect(user.current_balance_cents).to eq(3000)
+      expect(other.current_balance_cents).to eq(9999)
+    end
+
+    it "allows the balance to go negative (overdraft tolerated by design)" do
+      # Race conditions on the budget check can let a couple of cents slip
+      # past zero. The model is intentionally permissive; downstream policy
+      # decides when to refuse further usage.
+      user.credit_transactions.create!(kind: "signup_grant", amount_cents: 100)
+      user.credit_transactions.create!(kind: "usage",        amount_cents: -250)
+      expect(user.current_balance_cents).to eq(-150)
+    end
   end
 
   describe '#retrieve_key' do
