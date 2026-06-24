@@ -46,6 +46,10 @@ RSpec.describe User, type: :model do
   end
 
   describe '#current_balance_cents' do
+    # Disable the auto signup-grant so each test starts from a clean ledger
+    # and can assert exact balance values without subtracting it out.
+    before { stub_const("User::SIGNUP_GRANT_CENTS", 0) }
+
     let(:user) { User.create!(email: "balance@example.com", google_id: "gb1") }
 
     it 'returns 0 for a user with no transactions' do
@@ -75,6 +79,25 @@ RSpec.describe User, type: :model do
       user.credit_transactions.create!(kind: "signup_grant", amount_cents: 100)
       user.credit_transactions.create!(kind: "usage",        amount_cents: -250)
       expect(user.current_balance_cents).to eq(-150)
+    end
+  end
+
+  describe 'signup auto-grant' do
+    it 'creates a signup_grant transaction equal to SIGNUP_GRANT_CENTS on create when enabled' do
+      stub_const("User::SIGNUP_GRANT_CENTS", 3000)
+      user = User.create!(email: "grant@example.com", google_id: "gg1")
+      tx = user.credit_transactions.first
+      expect(user.credit_transactions.count).to eq(1)
+      expect(tx.kind).to eq("signup_grant")
+      expect(tx.amount_cents).to eq(3000)
+      expect(tx.granted_by_id).to be_nil
+      expect(user.current_balance_cents).to eq(3000)
+    end
+
+    it 'skips the grant by default (SIGNUP_GRANT_CENTS=0)' do
+      expect(User::SIGNUP_GRANT_CENTS).to eq(0)
+      user = User.create!(email: "nogrant@example.com", google_id: "gg2")
+      expect(user.credit_transactions).to be_empty
     end
   end
 

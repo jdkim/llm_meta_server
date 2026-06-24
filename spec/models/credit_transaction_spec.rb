@@ -1,6 +1,11 @@
 require "rails_helper"
 
 RSpec.describe CreditTransaction, type: :model do
+  # Disable the auto signup-grant so the user fixture starts with an
+  # empty ledger — these tests construct their own transactions and need
+  # to count/enumerate them precisely.
+  before { stub_const("User::SIGNUP_GRANT_CENTS", 0) }
+
   let(:user) { User.create!(email: "u@example.com", google_id: "g1") }
 
   describe "validations" do

@@ -1,9 +1,16 @@
 class User < ApplicationRecord
+  # Lifetime trial budget granted automatically when a new user signs up.
+  # Off by default; set SIGNUP_GRANT_CENTS in the environment (e.g. 3000
+  # for $30) to enable the auto-grant. Any value <= 0 is a no-op.
+  SIGNUP_GRANT_CENTS = ENV.fetch("SIGNUP_GRANT_CENTS", "0").to_i
+
   devise :omniauthable, omniauth_providers: %i[google_oauth2]
 
   has_many :llm_api_keys, dependent: :destroy
   has_many :mcp_servers, dependent: :destroy
   has_many :credit_transactions, dependent: :destroy
+
+  after_create :grant_signup_credit
 
   # Per-user list of favorited model meta_ids (globally unique strings like
   # "gpt-5", "claude-opus-4-7", "qwen3-6-35b-fast"). Stored as a JSON array of strings.
@@ -71,5 +78,16 @@ class User < ApplicationRecord
     end
     update!(favorite_model_meta_ids: list)
     result
+  end
+
+  private
+
+  def grant_signup_credit
+    return if SIGNUP_GRANT_CENTS <= 0
+    credit_transactions.create!(
+      kind: "signup_grant",
+      amount_cents: SIGNUP_GRANT_CENTS,
+      note: "auto-grant on signup"
+    )
   end
 end
