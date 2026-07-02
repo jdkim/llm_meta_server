@@ -33,6 +33,9 @@ class Api::ChatStreamsController < ApiController
       if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
         raise ArgumentError, "Selected model doesn't support image or document input"
       end
+      if document.present? && !DOCUMENT_CAPABLE_LLM_TYPES.include?(llm_api_key&.llm_type)
+        raise ArgumentError, "Document (PDF) attachments are only supported for Anthropic and Gemini models"
+      end
       if LlmModelMap.image_model?(model_name, llm_type: llm_api_key&.llm_type)
         markdown = ImageGenerationService.generate!(
           model_id: model_id, prompt: prompt, llm_api_key: llm_api_key,
@@ -57,6 +60,11 @@ class Api::ChatStreamsController < ApiController
       model_id = LlmModelMap.fetch! model_name
       if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: nil)
         raise ArgumentError, "Selected model doesn't support image or document input"
+      end
+      # Anonymous path is Ollama-only; llm.rb's Ollama adapter rejects
+      # non-image local files, so a PDF here would blow up mid-stream.
+      if document.present?
+        raise ArgumentError, "Document (PDF) attachments are only supported for Anthropic and Gemini models"
       end
       LlmRbFacade.stream! model_id, prompt,
         sink: sink,
@@ -168,6 +176,11 @@ class Api::ChatStreamsController < ApiController
 
   MAX_DOCUMENT_BYTES = 10 * 1024 * 1024 # 10 MB, matches chat_dev's cap
   ALLOWED_DOCUMENT_MIMES = %w[application/pdf].freeze
+  # Providers whose llm.rb adapter routes PDFs as native document blocks.
+  # `supports_vision?` is our first-line proxy for PDF capability, but it
+  # over-includes Ollama (llm.rb's Ollama adapter rejects non-image files),
+  # so this is a second-line gate on the provider layer specifically for docs.
+  DOCUMENT_CAPABLE_LLM_TYPES = %w[anthropic google].freeze
 
   # Single document attachment for the current turn. v1 only accepts PDFs
   # (binary formats that providers handle as native document blocks); the

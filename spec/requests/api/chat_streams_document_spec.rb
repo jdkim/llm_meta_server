@@ -99,26 +99,34 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (document
     end
   end
 
+  context "provider gating" do
+    it "rejects a document for an OpenAI model (llm_type not in DOCUMENT_CAPABLE_LLM_TYPES)" do
+      openai_key = user.llm_api_keys.create!(llm_type: "openai", description: "personal",
+                                             encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-oai"))
+      # OpenAI vision models pass the vision gate, so the provider gate is the
+      # only thing stopping a doomed PDF request.
+      post "/api/llm_api_keys/#{openai_key.uuid}/models/gpt-5/chat_streams",
+           params: { prompt: "read this", document: { mime: "application/pdf", data_b64: "JVBERi0x" } }
+
+      expect(response.body).to include("event: error")
+      expect(response.body).to include("Anthropic and Gemini")
+    end
+  end
+
   context "anonymous (no bearer token) path" do
     before do
       allow_any_instance_of(ApiController).to receive(:current_user).and_return(nil)
       allow_any_instance_of(ApiController).to receive(:bearer_token).and_return(nil)
     end
 
-    it "forwards a PDF document through to the facade for an Ollama-vision model" do
+    it "rejects a PDF for anonymous (Ollama-only) requests — llm.rb's Ollama adapter can't route PDFs" do
       ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
-      captured_document = nil
-      allow(LlmRbFacade).to receive(:stream!) do |_, _, sink:, document:, **|
-        captured_document = document
-        sink << "ok"
-        "ok"
-      end
 
       post "/api/llm_api_keys/ollama-local/models/#{ollama_meta}/chat_streams",
            params: { prompt: "hi", document: { mime: "application/pdf", data_b64: "JVBERi0x" } }
 
-      expect(response).to have_http_status(:ok)
-      expect(captured_document).to eq(mime: "application/pdf", data_b64: "JVBERi0x")
+      expect(response.body).to include("event: error")
+      expect(response.body).to include("Anthropic and Gemini")
     end
 
     it "rejects a document for an anonymous non-vision model" do

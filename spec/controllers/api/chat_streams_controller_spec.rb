@@ -77,12 +77,20 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       end
     end
 
-    it "forwards a valid PDF document param through to the facade" do
+    it "forwards a valid PDF document param through to the facade for an Anthropic model (bearer path)" do
+      # PDFs are only accepted for Anthropic / Google, so exercise the
+      # happy path via a bearer'd Anthropic key.
+      anth_key = user.llm_api_keys.create!(llm_type: "anthropic", description: "personal",
+                                           encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-anth"))
+      allow(controller).to receive(:bearer_token).and_return("stub-bearer")
+      allow(LlmModelMap).to receive(:fetch!).with(model_name, llm_type: "anthropic").and_return(model_id)
+      allow(LlmModelMap).to receive(:supports_vision?).with(model_name, llm_type: "anthropic").and_return(true)
+      allow(LlmModelMap).to receive(:image_model?).with(model_name, llm_type: "anthropic").and_return(false)
+      allow(LlmModelMap).to receive(:endpoint_for).with(model_name, llm_type: "anthropic").and_return("chat_completions")
       allow(LlmRbFacade).to receive(:stream!).and_return("ok")
-      allow(LlmModelMap).to receive(:supports_vision?).with(model_name, llm_type: nil).and_return(true)
 
       post :create, params: {
-        llm_api_key_uuid: uuid,
+        llm_api_key_uuid: anth_key.uuid,
         model_name: model_name,
         prompt: "summarize",
         document: { mime: "application/pdf", data_b64: "JVBERi0" }
