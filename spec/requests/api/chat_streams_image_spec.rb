@@ -32,7 +32,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams", type: :
            params: { prompt: "hi", image: { mime: "image/png", data_b64: "AAA" } }
 
       expect(response.body).to include("event: error")
-      expect(response.body).to include("Selected model doesn't support image input")
+      expect(response.body).to include("Selected model doesn't support image or document input")
     end
 
     it "accepts image input for a vision-capable model" do
@@ -128,7 +128,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams", type: :
            params: { prompt: "hi", image: { mime: "image/png", data_b64: "AAA" } }
 
       expect(response.body).to include("event: error")
-      expect(response.body).to include("Selected model doesn't support image input")
+      expect(response.body).to include("Selected model doesn't support image or document input")
     end
   end
 end

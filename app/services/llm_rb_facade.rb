@@ -3,7 +3,7 @@ require "tempfile"
 
 module LlmRbFacade
   class << self
-    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil, images: nil)
+    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil, images: nil, document: nil)
       # Validate arguments at the entry point
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
@@ -11,7 +11,7 @@ module LlmRbFacade
       llm = create_llm_client llm_api_key, model_id
       all_tools = tools + native_server_tools(llm)
 
-      with_image_payloads(coerce_images(image, images)) do |contents|
+      with_file_payloads(coerce_file_payloads(image, images, document)) do |contents|
         effective_prompt = contents.any? ? [ *contents, prompt ] : prompt
         if all_tools.any?
           execute_chat_with_tools! llm, model_id, effective_prompt, all_tools, generation_params
@@ -31,15 +31,15 @@ module LlmRbFacade
     #
     # Returns the assembled string when no tools were called, or
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
-    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, endpoint: "chat_completions")
+    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, document: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
       native = native_server_tools(llm)
 
-      payloads = coerce_images(image, images)
-      with_image_payloads(payloads) do |contents|
+      payloads = coerce_file_payloads(image, images, document)
+      with_file_payloads(payloads) do |contents|
         effective_prompt = contents.any? ? [ *contents, prompt ] : prompt
 
         # Route OpenAI reasoning models through the Responses API so
@@ -113,24 +113,27 @@ module LlmRbFacade
       params
     end
 
-    # Normalize the legacy `image:` (single) and new `images:` (array) kwargs
-    # into a single chronologically-ordered array of `{mime:, data_b64:}`
-    # payloads. The current turn's image is by convention the last element
-    # of `images:`; if only the legacy `image:` was passed, it becomes a
-    # one-element list.
-    def coerce_images(image, images)
+    # Normalize the legacy `image:` (single), `images:` (array), and
+    # `document:` (single) kwargs into a single chronologically-ordered
+    # array of `{mime:, data_b64:}` payloads. The current turn's image is
+    # by convention the last element of `images:`; a document (when present)
+    # is appended after the images.
+    def coerce_file_payloads(image, images, document)
       list = images.is_a?(Array) ? images.compact : []
       list = [ image ] if list.empty? && image.present?
+      list << document if document.present?
       list.reject { |p| p.blank? }
     end
 
     # Build an array of LLM::Object(:local_file) entries — one per payload —
     # by writing each blob to its own Tempfile and wrapping with LLM::File.
     # Each provider's adapt_local_file consumes only the standard LLM::File
-    # interface (mime_type, to_b64, image?, basename, to_data_uri), so this
-    # works uniformly across OpenAI / Anthropic / Gemini / Ollama. Yields the
-    # list (possibly empty) and cleans up every Tempfile, even on raise.
-    def with_image_payloads(payloads)
+    # interface (mime_type, to_b64, image?, pdf?, basename, to_data_uri), so
+    # this works uniformly across OpenAI / Anthropic / Gemini / Ollama for
+    # both images and PDFs — llm.rb's provider adapters route by MIME.
+    # Yields the list (possibly empty) and cleans up every Tempfile, even
+    # on raise.
+    def with_file_payloads(payloads)
       return yield([]) if payloads.blank?
 
       tmps = []
@@ -143,7 +146,7 @@ module LlmRbFacade
         ext = mime.split("/").last.to_s
         ext = ext.sub(/[;+].*$/, "")
         ext = "bin" if ext.empty?
-        tmp = Tempfile.new([ "llm_meta_img_", ".#{ext}" ], binmode: true)
+        tmp = Tempfile.new([ "llm_meta_file_", ".#{ext}" ], binmode: true)
         tmp.write(Base64.decode64(data_b64))
         tmp.close
         tmps << tmp

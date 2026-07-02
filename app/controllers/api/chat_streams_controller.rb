@@ -22,14 +22,16 @@ class Api::ChatStreamsController < ApiController
 
     image = image_param
     images = images_param
+    document = document_param
 
     has_image = image.present? || images.any?
+    has_multimodal_input = has_image || document.present?
 
     if bearer_token
       llm_api_key = current_user.find_llm_api_key uuid
       model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
-      if has_image && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
-        raise ArgumentError, "Selected model doesn't support image input"
+      if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
+        raise ArgumentError, "Selected model doesn't support image or document input"
       end
       if LlmModelMap.image_model?(model_name, llm_type: llm_api_key&.llm_type)
         markdown = ImageGenerationService.generate!(
@@ -46,20 +48,22 @@ class Api::ChatStreamsController < ApiController
           generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
           images: images.presence,
           image: image,
+          document: document,
           on_tool_calls: on_tool_calls,
           on_phase_change: on_phase_change,
           endpoint: LlmModelMap.endpoint_for(model_name, llm_type: llm_api_key&.llm_type)
       end
     else
       model_id = LlmModelMap.fetch! model_name
-      if has_image && !LlmModelMap.supports_vision?(model_name, llm_type: nil)
-        raise ArgumentError, "Selected model doesn't support image input"
+      if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: nil)
+        raise ArgumentError, "Selected model doesn't support image or document input"
       end
       LlmRbFacade.stream! model_id, prompt,
         sink: sink,
         generation_params: effective_generation_params(model_name, nil),
         images: images.presence,
         image: image,
+        document: document,
         on_tool_calls: on_tool_calls,
         on_phase_change: on_phase_change,
         endpoint: LlmModelMap.endpoint_for(model_name)
@@ -160,5 +164,30 @@ class Api::ChatStreamsController < ApiController
       next if mime.empty? || data_b64.empty?
       { mime: mime, data_b64: data_b64 }
     end
+  end
+
+  MAX_DOCUMENT_BYTES = 10 * 1024 * 1024 # 10 MB, matches chat_dev's cap
+  ALLOWED_DOCUMENT_MIMES = %w[application/pdf].freeze
+
+  # Single document attachment for the current turn. v1 only accepts PDFs
+  # (binary formats that providers handle as native document blocks); the
+  # chat-side wraps text docs inline in the prompt, so those never reach
+  # this endpoint as `document`.
+  def document_param
+    raw = params.permit(document: [ :mime, :data_b64 ])[:document]
+    return nil if raw.blank?
+    mime = raw[:mime].to_s
+    data_b64 = raw[:data_b64].to_s
+    return nil if mime.empty? || data_b64.empty?
+    unless ALLOWED_DOCUMENT_MIMES.include?(mime)
+      raise ArgumentError, "Unsupported document mime: #{mime} (allowed: #{ALLOWED_DOCUMENT_MIMES.join(', ')})"
+    end
+    # base64 encodes 3 bytes as 4 chars, so decoded bytes ≈ length * 3/4.
+    # Bail before the base64 decode if the encoded length already exceeds
+    # what a 10 MB decode would produce (with slack for padding).
+    if data_b64.bytesize > (MAX_DOCUMENT_BYTES * 4 / 3) + 16
+      raise ArgumentError, "Document exceeds #{MAX_DOCUMENT_BYTES / 1024 / 1024} MB limit"
+    end
+    { mime: mime, data_b64: data_b64 }
   end
 end

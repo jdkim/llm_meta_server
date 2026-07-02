@@ -77,6 +77,86 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       end
     end
 
+    it "forwards a valid PDF document param through to the facade" do
+      allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+      allow(LlmModelMap).to receive(:supports_vision?).with(model_name, llm_type: nil).and_return(true)
+
+      post :create, params: {
+        llm_api_key_uuid: uuid,
+        model_name: model_name,
+        prompt: "summarize",
+        document: { mime: "application/pdf", data_b64: "JVBERi0" }
+      }
+
+      expect(LlmRbFacade).to have_received(:stream!) do |_, _, document:, **|
+        expect(document).to eq(mime: "application/pdf", data_b64: "JVBERi0")
+      end
+    end
+
+    it "rejects a non-PDF document mime with an error event" do
+      allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+
+      post :create, params: {
+        llm_api_key_uuid: uuid,
+        model_name: model_name,
+        prompt: "hi",
+        document: { mime: "application/msword", data_b64: "AAAA" }
+      }
+
+      expect(response.body).to include('event: error')
+      expect(response.body).to include('Unsupported document mime')
+      expect(LlmRbFacade).not_to have_received(:stream!)
+    end
+
+    it "rejects an oversized document (>10 MB decoded) with an error event" do
+      allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+      # Base64 encoding grows by 4/3; anything longer than that fraction of the
+      # 10 MB cap trips the guard. Use a small margin so this doesn't hit
+      # Rack's 4 MB query-body cap.
+      oversize_b64 = "A" * (Api::ChatStreamsController::MAX_DOCUMENT_BYTES * 4 / 3 + 128)
+
+      post :create, params: {
+        llm_api_key_uuid: uuid,
+        model_name: model_name,
+        prompt: "hi",
+        document: { mime: "application/pdf", data_b64: oversize_b64 }
+      }, as: :json
+
+      expect(response.body).to include('event: error')
+      expect(response.body).to include('exceeds')
+      expect(LlmRbFacade).not_to have_received(:stream!)
+    end
+
+    it "rejects a document when the selected model doesn't support vision (proxy for PDF)" do
+      allow(LlmModelMap).to receive(:supports_vision?).with(model_name, llm_type: nil).and_return(false)
+
+      post :create, params: {
+        llm_api_key_uuid: uuid,
+        model_name: model_name,
+        prompt: "hi",
+        document: { mime: "application/pdf", data_b64: "JVBERi0" }
+      }
+
+      expect(response.body).to include('event: error')
+      expect(response.body).to include("doesn't support image or document")
+    end
+
+    it "silently drops a document entry with an empty data_b64 (no error, no forward)" do
+      allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+
+      post :create, params: {
+        llm_api_key_uuid: uuid,
+        model_name: model_name,
+        prompt: "hi",
+        document: { mime: "application/pdf", data_b64: "" }
+      }
+
+      expect(LlmRbFacade).to have_received(:stream!) do |_, _, document:, **|
+        expect(document).to be_nil
+      end
+      expect(response.body).not_to include('event: error')
+    end
+
     it "emits a tool_calls event before deltas when the facade reports tool calls" do
       allow(LlmRbFacade).to receive(:stream!) do |_, _, sink:, on_tool_calls: nil, **|
         on_tool_calls.call([{ id: "c1", name: "do_thing", arguments: { q: 42 } }]) if on_tool_calls

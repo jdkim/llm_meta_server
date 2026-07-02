@@ -56,4 +56,62 @@ RSpec.describe LlmRbFacade do
       end
     end
   end
+
+  describe "#coerce_file_payloads (private)" do
+    subject(:facade) { described_class }
+
+    it "returns just images when no document" do
+      out = facade.send(:coerce_file_payloads, nil, [ { mime: "image/png", data_b64: "A" } ], nil)
+      expect(out).to eq([ { mime: "image/png", data_b64: "A" } ])
+    end
+
+    it "appends the document after images so it lands last in the payloads" do
+      img = { mime: "image/png", data_b64: "A" }
+      doc = { mime: "application/pdf", data_b64: "B" }
+      out = facade.send(:coerce_file_payloads, nil, [ img ], doc)
+      expect(out).to eq([ img, doc ])
+    end
+
+    it "returns just the document when no images at all" do
+      doc = { mime: "application/pdf", data_b64: "P" }
+      out = facade.send(:coerce_file_payloads, nil, nil, doc)
+      expect(out).to eq([ doc ])
+    end
+
+    it "returns [] when everything is blank" do
+      expect(facade.send(:coerce_file_payloads, nil, nil, nil)).to eq([])
+      expect(facade.send(:coerce_file_payloads, nil, [], nil)).to eq([])
+    end
+
+    it "still handles the legacy single `image:` kwarg" do
+      img = { mime: "image/png", data_b64: "A" }
+      expect(facade.send(:coerce_file_payloads, img, nil, nil)).to eq([ img ])
+    end
+  end
+
+  describe "#with_file_payloads (private) — MIME → Tempfile extension" do
+    it "writes a PDF payload to a .pdf-suffixed Tempfile so LLM::File detects PDF-ness" do
+      payload = { mime: "application/pdf", data_b64: Base64.strict_encode64("%PDF-1.4") }
+      captured_path = nil
+      described_class.send(:with_file_payloads, [ payload ]) do |contents|
+        captured_path = contents.first.value.path
+      end
+      expect(captured_path).to end_with(".pdf")
+    end
+
+    it "writes an image payload to an image-extension Tempfile" do
+      payload = { mime: "image/png", data_b64: Base64.strict_encode64("PNGdata") }
+      captured_path = nil
+      described_class.send(:with_file_payloads, [ payload ]) do |contents|
+        captured_path = contents.first.value.path
+      end
+      expect(captured_path).to end_with(".png")
+    end
+
+    it "yields [] and cleans up when payloads is empty" do
+      yielded = :sentinel
+      described_class.send(:with_file_payloads, []) { |c| yielded = c }
+      expect(yielded).to eq([])
+    end
+  end
 end

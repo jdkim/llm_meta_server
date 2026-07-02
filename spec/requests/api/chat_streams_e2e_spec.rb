@@ -151,7 +151,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (E2E)", t
     expect(body).to match(/^event: error$/)
     err = JSON.parse(body[/^event: error\ndata: (\{.*\})/, 1])
     expect(err["code"]).to eq("argument_error")
-    expect(err["message"]).to include("doesn't support image input")
+    expect(err["message"]).to include("doesn't support image or document input")
     expect(body).not_to include("event: done")
     # No upstream call happened — vision-gating ran first.
     expect(WebMock).not_to have_requested(:post, /openai\.com/)
