@@ -89,6 +89,131 @@ RSpec.describe LlmRbFacade do
     end
   end
 
+  describe "#native_server_tools (private)" do
+    let(:google_search_tool) { double("google_search") }
+    let(:url_context_tool)   { double("url_context") }
+    let(:anth_web_search)    { double("anth_web_search") }
+
+    it "returns google_search + url_context for a Gemini provider" do
+      llm = double("LLM::Gemini")
+      allow(llm).to receive(:server_tools).and_return(
+        google_search: google_search_tool, url_context: url_context_tool
+      )
+      allow(llm.class).to receive(:name).and_return("LLM::Gemini")
+
+      out = described_class.send(:native_server_tools, llm)
+      expect(out).to contain_exactly(google_search_tool, url_context_tool)
+    end
+
+    it "returns web_search for an Anthropic provider" do
+      llm = double("LLM::Anthropic")
+      allow(llm).to receive(:server_tools).and_return(web_search: anth_web_search)
+      allow(llm.class).to receive(:name).and_return("LLM::Anthropic")
+
+      out = described_class.send(:native_server_tools, llm)
+      expect(out).to eq([ anth_web_search ])
+    end
+
+    it "returns [] for an OpenAI provider (Responses-only tools not routed yet)" do
+      llm = double("LLM::OpenAI")
+      allow(llm).to receive(:server_tools).and_return(web_search: double("oai_web"))
+      allow(llm.class).to receive(:name).and_return("LLM::OpenAI")
+
+      expect(described_class.send(:native_server_tools, llm)).to eq([])
+    end
+
+    it "returns [] for Ollama" do
+      llm = double("LLM::Ollama")
+      allow(llm).to receive(:server_tools).and_return({})
+      allow(llm.class).to receive(:name).and_return("LLM::Ollama")
+
+      expect(described_class.send(:native_server_tools, llm)).to eq([])
+    end
+
+    it "returns [] when the provider doesn't expose server_tools at all" do
+      llm = double("LLM::Something")
+      allow(llm).to receive(:respond_to?).with(:server_tools).and_return(false)
+      expect(described_class.send(:native_server_tools, llm)).to eq([])
+    end
+
+    it "swallows unexpected errors and returns [] (fail-open on tool registry)" do
+      llm = double("LLM::Gemini")
+      allow(llm).to receive(:server_tools).and_raise(ArgumentError, "boom")
+      allow(llm.class).to receive(:name).and_return("LLM::Gemini")
+
+      expect(described_class.send(:native_server_tools, llm)).to eq([])
+    end
+  end
+
+  describe "native-tool wiring through stream! / call! (Anthropic)" do
+    # Verify that native_server_tools' output actually reaches the downstream
+    # LLM::Session. Guards against silent regressions in the branching logic
+    # (native-only, tool-loop merge, and non-streaming call!).
+    let(:anthropic_key) {
+      user = User.create!(email: "nt@example.com", google_id: "g-native")
+      user.llm_api_keys.create!(llm_type: "anthropic", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-anth"))
+    }
+    # Plain double (not instance_double) because LLM::Provider is an abstract
+    # base and the surface methods live on the subclass — instance_double
+    # rejects respond_to? stubs against methods it can't verify.
+    let(:anth_client)   { double("LLM::Anthropic") }
+    let(:web_search)    { double("anthropic_web_search") }
+    let(:sink)          { Class.new { def <<(x); self; end }.new }
+    let(:session)       { instance_double("LLM::Session") }
+    let(:choice)        { instance_double("Choice", content: "ok") }
+    let(:response)      { instance_double("Response", choices: [ choice ], body: nil) }
+    let(:model)         { "claude-sonnet-4-6" }
+
+    before do
+      allow_any_instance_of(ApiKeyEncrypter).to receive(:encrypt).and_return("ENC")
+      allow_any_instance_of(ApiKeyDecrypter).to receive(:decrypt).and_return("sk-anth")
+
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+      allow(LLM).to receive(:anthropic).and_return(anth_client)
+      # Plain double replies true to `respond_to?` for stubbed methods, which
+      # is exactly what native_server_tools needs.
+      allow(anth_client).to receive_message_chain(:class, :name).and_return("LLM::Anthropic")
+      allow(anth_client).to receive(:server_tools).and_return(web_search: web_search)
+
+      allow(LLM::Session).to receive(:new).and_return(session)
+      allow(session).to receive(:chat).and_return(response)
+    end
+
+    it "stream! (native-only branch): passes web_search into LLM::Session.new tools" do
+      described_class.stream!(model, "search that", sink: sink, llm_api_key: anthropic_key)
+
+      expect(LLM::Session).to have_received(:new).with(
+        anth_client, hash_including(tools: [ web_search ])
+      )
+    end
+
+    it "stream! (native + MCP tools): merges web_search alongside MCP function tools in the tool loop" do
+      mcp_tool = double("mcp_function_tool")
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:extract_tool_calls).and_return([])
+
+      described_class.stream!(model, "search that", sink: sink, llm_api_key: anthropic_key,
+                              tools: [ mcp_tool ])
+
+      # The tool-loop branch calls Session.new with the merged list (MCP + native).
+      expect(LLM::Session).to have_received(:new).with(
+        anth_client, hash_including(tools: contain_exactly(mcp_tool, web_search))
+      )
+    end
+
+    it "call! (non-streaming): passes web_search into LLM::Session.new tools" do
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:extract_tool_calls).and_return([])
+
+      described_class.call!(model, "search that", llm_api_key: anthropic_key)
+
+      expect(LLM::Session).to have_received(:new).with(
+        anth_client, hash_including(tools: [ web_search ])
+      )
+    end
+  end
+
   describe "#with_file_payloads (private) — MIME → Tempfile extension" do
     it "writes a PDF payload to a .pdf-suffixed Tempfile so LLM::File detects PDF-ness" do
       payload = { mime: "application/pdf", data_b64: Base64.strict_encode64("%PDF-1.4") }

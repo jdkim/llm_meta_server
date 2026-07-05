@@ -171,10 +171,16 @@ module LlmRbFacade
     end
 
     # Native (provider-executed) server tools to attach implicitly based on
-    # the selected model's provider. Picking a Gemini model is itself the
-    # signal that grounding is wanted — no separate toggle. These are
-    # LLM::ServerTool objects; llm.rb merges them with MCP functions.
-    NATIVE_GEMINI_TOOLS = %i[google_search url_context].freeze
+    # the selected model's provider. Picking a Gemini or Anthropic model is
+    # itself the signal that grounding is wanted — no separate toggle. These
+    # are LLM::ServerTool objects; llm.rb merges them with MCP functions.
+    #
+    # OpenAI's `web_search` is intentionally omitted here: llm.rb's OpenAI
+    # provider only exposes it via the Responses API, and the facade's
+    # `stream_via_responses!` branch currently rejects any request carrying
+    # tools. Wiring it needs a separate Responses-with-tools branch.
+    NATIVE_GEMINI_TOOLS    = %i[google_search url_context].freeze
+    NATIVE_ANTHROPIC_TOOLS = %i[web_search].freeze
 
     # Diagnostic: capture why generation stopped. finishReason "MAX_TOKENS"
     # means the output cap was hit (truncation); "STOP" with short content
@@ -192,10 +198,14 @@ module LlmRbFacade
     end
 
     def native_server_tools(llm)
-      return [] unless llm.class.name == "LLM::Gemini"
       return [] unless llm.respond_to?(:server_tools)
 
-      llm.server_tools.values_at(*NATIVE_GEMINI_TOOLS).compact
+      keys = case llm.class.name
+             when "LLM::Gemini"    then NATIVE_GEMINI_TOOLS
+             when "LLM::Anthropic" then NATIVE_ANTHROPIC_TOOLS
+             else                       return []
+             end
+      llm.server_tools.values_at(*keys).compact
     rescue StandardError => e
       Rails.logger.warn "[LlmRbFacade] native tool resolution failed: #{e.class}: #{e.message}"
       []
