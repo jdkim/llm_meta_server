@@ -46,30 +46,43 @@ module LlmRbFacade
         # `response.reasoning_summary_text.delta` events can stream into
         # sink.thinking. Falls back to chat completions when the request
         # carries tools or an image — Responses support for those exists
-        # but uses different wire shapes than we currently handle.
-        if endpoint == "responses" && tools.empty? && payloads.empty?
-          stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink, messages: messages)
-        elsif tools.any?
-          # MCP function tools present — needs the turn1/turn2 execution loop.
-          # Native server tools ride along in the same array; the gem's
-          # adapt_tools splits ServerTools from Functions for the request.
-          stream_chat_with_tools! llm, model_id, effective_prompt, tools + native, generation_params, sink, on_tool_calls, on_phase_change, messages: messages
-        elsif native.any?
-          # Native-only (e.g. Gemini grounding / url_context): provider-side
-          # tools, no function round-trip — stream the grounded answer directly.
-          session = LLM::Session.new llm, model: model_id, tools: native, **generation_params
-          seed_session_messages!(session, messages)
-          response = session.chat effective_prompt, stream: sink
-          log_finish_diagnostics(response, "native")
-          response.choices[-1]&.content || ""
+        # but uses different wire shapes than we currently handle. Also
+        # skips Responses when `messages:` is provided: llm.rb's Responses
+        # request adapter labels every string content as `input_text`,
+        # which the API rejects for assistant history (needs `output_text`).
+        # Correctness > reasoning summaries — multi-turn gpt-5 falls back
+        # to chat completions.
+        if endpoint == "responses" && tools.empty? && payloads.empty? && messages.blank?
+          stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink)
         else
-          session = LLM::Session.new llm, model: model_id, **generation_params
-          seed_session_messages!(session, messages)
-          # Controller already emitted "thinking" at the top. The model may
-          # still think for a while before emitting content; the client flips
-          # the indicator to "streaming" on the first content delta.
-          response = session.chat effective_prompt, stream: sink
-          response.choices[-1]&.content || ""
+          # Every other branch uses chat completions. If the model catalog
+          # entry declared `endpoint: responses`, its defaults (e.g. `reasoning:`)
+          # may include params that only the Responses API accepts. Strip
+          # them so chat completions doesn't reject the request.
+          chat_params = strip_responses_only_params(generation_params, endpoint)
+
+          if tools.any?
+            # MCP function tools present — needs the turn1/turn2 execution loop.
+            # Native server tools ride along in the same array; the gem's
+            # adapt_tools splits ServerTools from Functions for the request.
+            stream_chat_with_tools! llm, model_id, effective_prompt, tools + native, chat_params, sink, on_tool_calls, on_phase_change, messages: messages
+          elsif native.any?
+            # Native-only (e.g. Gemini grounding / url_context): provider-side
+            # tools, no function round-trip — stream the grounded answer directly.
+            session = LLM::Session.new llm, model: model_id, tools: native, **chat_params
+            seed_session_messages!(session, messages)
+            response = session.chat effective_prompt, stream: sink
+            log_finish_diagnostics(response, "native")
+            response.choices[-1]&.content || ""
+          else
+            session = LLM::Session.new llm, model: model_id, **chat_params
+            seed_session_messages!(session, messages)
+            # Controller already emitted "thinking" at the top. The model may
+            # still think for a while before emitting content; the client flips
+            # the indicator to "streaming" on the first content delta.
+            response = session.chat effective_prompt, stream: sink
+            response.choices[-1]&.content || ""
+          end
         end
       end
     end
@@ -78,18 +91,29 @@ module LlmRbFacade
     # catalog entry declares `endpoint: responses` (currently the GPT-5
     # family, to expose reasoning summaries). Restricted to the simple case
     # for now — no tools, no image.
-    def stream_via_responses!(llm, model_id, prompt, params, sink, messages: nil)
-      # llm.rb's Responses.create takes an `input:` kwarg for prior turns;
-      # it prepends them before the current prompt (as LLM::Message objects)
-      # in the wire body's `input` array.
-      input_msgs = messages_to_llm_objects(messages)
-      opts = { model: model_id, stream: sink, **params }
-      opts[:input] = input_msgs if input_msgs.any?
-      response = llm.responses.create(prompt, **opts)
+    def stream_via_responses!(llm, model_id, prompt, params, sink)
+      # Multi-turn history is intentionally NOT forwarded here — llm.rb's
+      # Responses request adapter labels every string content as `input_text`,
+      # which the API rejects for assistant messages. The caller routes
+      # requests with `messages:` through chat completions instead.
+      response = llm.responses.create(prompt, model: model_id, stream: sink, **params)
       response.respond_to?(:output_text) ? response.output_text.to_s : ""
     end
 
     private
+
+    # Params that only OpenAI's Responses endpoint accepts. When a model
+    # declared `endpoint: responses` but the request is routed through
+    # chat completions (e.g. multi-turn `messages:`, tools, or attachments
+    # present), strip these so the chat completions API doesn't 400 on
+    # "Unknown parameter".
+    RESPONSES_ONLY_PARAM_KEYS = %i[reasoning].freeze
+
+    def strip_responses_only_params(params, endpoint)
+      return params unless endpoint == "responses"
+      return params if params.nil? || params.empty?
+      params.reject { |k, _| RESPONSES_ONLY_PARAM_KEYS.include?(k.to_sym) }
+    end
 
     # ─── Multi-turn history support ─────────────────────────────────────
     # Pre-seed an LLM::Session's internal @messages buffer with prior

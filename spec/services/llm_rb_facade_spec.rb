@@ -172,6 +172,96 @@ RSpec.describe LlmRbFacade do
     end
   end
 
+  describe "#strip_responses_only_params (private)" do
+    it "removes :reasoning when endpoint is 'responses'" do
+      out = described_class.send(:strip_responses_only_params,
+                                  { reasoning: { effort: "medium" }, temperature: 0.5 },
+                                  "responses")
+      expect(out).to eq(temperature: 0.5)
+    end
+
+    it "matches string-keyed 'reasoning' too" do
+      out = described_class.send(:strip_responses_only_params,
+                                  { "reasoning" => { effort: "medium" }, "temperature" => 0.5 },
+                                  "responses")
+      expect(out).to eq("temperature" => 0.5)
+    end
+
+    it "is a no-op when endpoint isn't 'responses'" do
+      params = { reasoning: {}, temperature: 0.5 }
+      expect(described_class.send(:strip_responses_only_params, params, "chat_completions"))
+        .to eq(params)
+    end
+
+    it "handles nil / empty params gracefully" do
+      expect(described_class.send(:strip_responses_only_params, nil, "responses")).to be_nil
+      expect(described_class.send(:strip_responses_only_params, {}, "responses")).to eq({})
+    end
+  end
+
+  describe "Responses vs chat completions routing when messages: is present" do
+    # gpt-5's catalog declares `endpoint: responses` and includes a `reasoning`
+    # default. Multi-turn requests can't use Responses (llm.rb's adapter mislabels
+    # assistant history as `input_text`), so the facade routes them through
+    # chat completions and MUST strip `reasoning` so the request doesn't 400.
+    let(:openai_key) {
+      user = User.create!(email: "resp@example.com", google_id: "g-resp")
+      user.llm_api_keys.create!(llm_type: "openai", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-oai"))
+    }
+    let(:openai_client) { double("LLM::OpenAI") }
+    let(:responses_ns)  { double("Responses") }
+    let(:session)       { instance_double("LLM::Session") }
+    let(:messages_buf)  { double("MessagesBuffer") }
+    let(:response)      { instance_double("Response", choices: [ instance_double("Choice", content: "ok") ], body: nil) }
+    let(:sink)          { Class.new { def <<(x); self; end }.new }
+
+    before do
+      allow_any_instance_of(ApiKeyEncrypter).to receive(:encrypt).and_return("ENC")
+      allow_any_instance_of(ApiKeyDecrypter).to receive(:decrypt).and_return("sk-oai")
+
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+      allow(LLM).to receive(:openai).and_return(openai_client)
+      allow(openai_client).to receive_message_chain(:class, :name).and_return("LLM::OpenAI")
+      allow(openai_client).to receive(:server_tools).and_return({})
+      allow(openai_client).to receive(:responses).and_return(responses_ns)
+
+      allow(LLM::Session).to receive(:new).and_return(session)
+      allow(session).to receive(:messages).and_return(messages_buf)
+      allow(messages_buf).to receive(:concat)
+      allow(session).to receive(:chat).and_return(response)
+    end
+
+    it "single-turn (messages: nil, endpoint: 'responses'): still uses the Responses API" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
+
+      described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              generation_params: { reasoning: { effort: "medium" } })
+
+      expect(responses_ns).to have_received(:create)
+      # And LLM::Session isn't used at all on this branch.
+      expect(LLM::Session).not_to have_received(:new)
+    end
+
+    it "multi-turn (messages: present, endpoint: 'responses'): falls back to chat completions" do
+      described_class.stream!("gpt-5", "draft candidate hypothesis",
+                              sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              generation_params: { reasoning: { effort: "medium" }, temperature: 0.4 },
+                              messages: [ { role: "user", content: "prior" }, { role: "assistant", content: "prior-a" } ])
+
+      # Chat completions path used, not Responses.
+      expect(LLM::Session).to have_received(:new).with(openai_client, hash_not_including(:reasoning))
+      expect(LLM::Session).to have_received(:new).with(openai_client, hash_including(temperature: 0.4))
+      expect(responses_ns).not_to have_received(:create) if responses_ns.respond_to?(:create)
+      # And the historical messages actually reach the session buffer.
+      expect(messages_buf).to have_received(:concat) do |msgs|
+        expect(msgs.length).to eq(2)
+      end
+    end
+  end
+
   describe "messages: kwarg — pre-seeds LLM::Session history before the current turn" do
     let(:anthropic_key) {
       user = User.create!(email: "seed@example.com", google_id: "g-seed")
