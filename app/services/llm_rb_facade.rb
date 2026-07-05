@@ -3,7 +3,7 @@ require "tempfile"
 
 module LlmRbFacade
   class << self
-    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil, images: nil, document: nil)
+    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil, images: nil, document: nil, messages: nil)
       # Validate arguments at the entry point
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
@@ -14,9 +14,9 @@ module LlmRbFacade
       with_file_payloads(coerce_file_payloads(image, images, document)) do |contents|
         effective_prompt = contents.any? ? [ *contents, prompt ] : prompt
         if all_tools.any?
-          execute_chat_with_tools! llm, model_id, effective_prompt, all_tools, generation_params
+          execute_chat_with_tools! llm, model_id, effective_prompt, all_tools, generation_params, messages: messages
         else
-          execute_chat! llm, model_id, effective_prompt, generation_params
+          execute_chat! llm, model_id, effective_prompt, generation_params, messages: messages
         end
       end
     end
@@ -31,7 +31,7 @@ module LlmRbFacade
     #
     # Returns the assembled string when no tools were called, or
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
-    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, document: nil, endpoint: "chat_completions")
+    def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, document: nil, messages: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
@@ -48,21 +48,23 @@ module LlmRbFacade
         # carries tools or an image — Responses support for those exists
         # but uses different wire shapes than we currently handle.
         if endpoint == "responses" && tools.empty? && payloads.empty?
-          stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink)
+          stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink, messages: messages)
         elsif tools.any?
           # MCP function tools present — needs the turn1/turn2 execution loop.
           # Native server tools ride along in the same array; the gem's
           # adapt_tools splits ServerTools from Functions for the request.
-          stream_chat_with_tools! llm, model_id, effective_prompt, tools + native, generation_params, sink, on_tool_calls, on_phase_change
+          stream_chat_with_tools! llm, model_id, effective_prompt, tools + native, generation_params, sink, on_tool_calls, on_phase_change, messages: messages
         elsif native.any?
           # Native-only (e.g. Gemini grounding / url_context): provider-side
           # tools, no function round-trip — stream the grounded answer directly.
           session = LLM::Session.new llm, model: model_id, tools: native, **generation_params
+          seed_session_messages!(session, messages)
           response = session.chat effective_prompt, stream: sink
           log_finish_diagnostics(response, "native")
           response.choices[-1]&.content || ""
         else
           session = LLM::Session.new llm, model: model_id, **generation_params
+          seed_session_messages!(session, messages)
           # Controller already emitted "thinking" at the top. The model may
           # still think for a while before emitting content; the client flips
           # the indicator to "streaming" on the first content delta.
@@ -76,12 +78,45 @@ module LlmRbFacade
     # catalog entry declares `endpoint: responses` (currently the GPT-5
     # family, to expose reasoning summaries). Restricted to the simple case
     # for now — no tools, no image.
-    def stream_via_responses!(llm, model_id, prompt, params, sink)
-      response = llm.responses.create(prompt, model: model_id, stream: sink, **params)
+    def stream_via_responses!(llm, model_id, prompt, params, sink, messages: nil)
+      # llm.rb's Responses.create takes an `input:` kwarg for prior turns;
+      # it prepends them before the current prompt (as LLM::Message objects)
+      # in the wire body's `input` array.
+      input_msgs = messages_to_llm_objects(messages)
+      opts = { model: model_id, stream: sink, **params }
+      opts[:input] = input_msgs if input_msgs.any?
+      response = llm.responses.create(prompt, **opts)
       response.respond_to?(:output_text) ? response.output_text.to_s : ""
     end
 
     private
+
+    # ─── Multi-turn history support ─────────────────────────────────────
+    # Pre-seed an LLM::Session's internal @messages buffer with prior
+    # turns so the current `session.chat(prompt)` call sees them as
+    # role-tagged conversation history — instead of the historical
+    # "concatenate everything into one user string" packaging that made
+    # models re-execute the previous prompt's task instead of the new one.
+    def seed_session_messages!(session, messages)
+      objs = messages_to_llm_objects(messages)
+      return if objs.empty?
+      session.messages.concat objs
+    end
+
+    # Convert a wire-shape `[{role: "user"|"assistant"|"system", content: "..."}]`
+    # array into a list of `LLM::Message` objects. Nils, missing keys, and
+    # blank content are dropped defensively so a malformed history doesn't
+    # blow up the whole turn.
+    def messages_to_llm_objects(messages)
+      return [] if messages.nil? || (messages.respond_to?(:empty?) && messages.empty?)
+      Array(messages).filter_map do |m|
+        h = m.respond_to?(:to_h) ? m.to_h : m
+        role    = (h[:role]    || h["role"]).to_s
+        content = (h[:content] || h["content"]).to_s
+        next if role.empty? || content.empty?
+        LLM::Message.new(role, content)
+      end
+    end
 
     # llm.rb's Anthropic provider hard-defaults max_tokens to 1024, which
     # truncates longer answers (stop_reason "max_tokens"). Other providers
@@ -241,15 +276,17 @@ module LlmRbFacade
       model.id
     end
 
-    def execute_chat!(llm, model_id, prompt, generation_params)
+    def execute_chat!(llm, model_id, prompt, generation_params, messages: nil)
       bot = LLM::Session.new llm, model: model_id, **generation_params
-      messages = bot.chat prompt
+      seed_session_messages!(bot, messages)
+      messages_ret = bot.chat prompt
 
-      messages.choices[-1]&.content || ""
+      messages_ret.choices[-1]&.content || ""
     end
 
-    def execute_chat_with_tools!(llm, model_id, prompt, tools, generation_params)
+    def execute_chat_with_tools!(llm, model_id, prompt, tools, generation_params, messages: nil)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
+      seed_session_messages!(session, messages)
       response = session.chat prompt
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
       Rails.logger.info "[LlmRbFacade] functions.any?=#{session.functions.any?} " \
@@ -271,8 +308,9 @@ module LlmRbFacade
     # the bubble empty. Loop until the model emits text or we hit the cap.
     MAX_TOOL_ITERATIONS = 5
 
-    def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change)
+    def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change, messages: nil)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
+      seed_session_messages!(session, messages)
       response = session.chat prompt, stream: false # turn 1: explicitly non-streamed
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
       Rails.logger.info "[LlmRbFacade] turn=1 functions.any?=#{session.functions.any?} " \

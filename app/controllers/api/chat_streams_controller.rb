@@ -52,6 +52,7 @@ class Api::ChatStreamsController < ApiController
           images: images.presence,
           image: image,
           document: document,
+          messages: messages_param,
           on_tool_calls: on_tool_calls,
           on_phase_change: on_phase_change,
           endpoint: LlmModelMap.endpoint_for(model_name, llm_type: llm_api_key&.llm_type)
@@ -72,6 +73,7 @@ class Api::ChatStreamsController < ApiController
         images: images.presence,
         image: image,
         document: document,
+        messages: messages_param,
         on_tool_calls: on_tool_calls,
         on_phase_change: on_phase_change,
         endpoint: LlmModelMap.endpoint_for(model_name)
@@ -171,6 +173,22 @@ class Api::ChatStreamsController < ApiController
       data_b64 = entry[:data_b64].to_s
       next if mime.empty? || data_b64.empty?
       { mime: mime, data_b64: data_b64 }
+    end
+  end
+
+  # Role-tagged conversation history from the client. Optional — when
+  # absent the facade falls back to the legacy single-`prompt`-string form.
+  # See LlmRbFacade#seed_session_messages! for how these get pushed into
+  # the LLM::Session buffer.
+  ALLOWED_MESSAGE_ROLES = %w[user assistant system].freeze
+  def messages_param
+    raw = params.permit(messages: [ :role, :content ])[:messages]
+    return nil if raw.blank?
+    Array(raw).filter_map do |entry|
+      role    = entry[:role].to_s
+      content = entry[:content].to_s
+      next if content.empty? || !ALLOWED_MESSAGE_ROLES.include?(role)
+      { role: role, content: content }
     end
   end
 

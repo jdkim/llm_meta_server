@@ -145,6 +145,99 @@ RSpec.describe LlmRbFacade do
     end
   end
 
+  describe "#messages_to_llm_objects (private) — history array → LLM::Message list" do
+    it "converts symbol-keyed and string-keyed entries uniformly" do
+      out = described_class.send(:messages_to_llm_objects, [
+        { role: "user", content: "u1" },
+        { "role" => "assistant", "content" => "a1" }
+      ])
+      expect(out.length).to eq(2)
+      expect(out.map(&:role).map(&:to_s)).to eq([ "user", "assistant" ])
+      expect(out.map(&:content)).to eq([ "u1", "a1" ])
+    end
+
+    it "drops entries with blank content or missing role" do
+      out = described_class.send(:messages_to_llm_objects, [
+        { role: "user", content: "" },
+        { role: "",     content: "x" },
+        { role: "user", content: "keep me" }
+      ])
+      expect(out.length).to eq(1)
+      expect(out.first.content).to eq("keep me")
+    end
+
+    it "returns [] for nil / empty input" do
+      expect(described_class.send(:messages_to_llm_objects, nil)).to eq([])
+      expect(described_class.send(:messages_to_llm_objects, [])).to eq([])
+    end
+  end
+
+  describe "messages: kwarg — pre-seeds LLM::Session history before the current turn" do
+    let(:anthropic_key) {
+      user = User.create!(email: "seed@example.com", google_id: "g-seed")
+      user.llm_api_keys.create!(llm_type: "anthropic", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-anth"))
+    }
+    let(:anth_client)     { double("LLM::Anthropic") }
+    let(:session)         { instance_double("LLM::Session") }
+    let(:messages_buffer) { double("MessagesBuffer") }
+    let(:response)        { instance_double("Response", choices: [ instance_double("Choice", content: "ok") ], body: nil) }
+    let(:sink)            { Class.new { def <<(x); self; end }.new }
+
+    let(:history) {
+      [
+        { role: "user",      content: "Extract the appraised evidence as JSON" },
+        { role: "assistant", content: "{\"appraised_evidence\": []}" }
+      ]
+    }
+
+    before do
+      allow_any_instance_of(ApiKeyEncrypter).to receive(:encrypt).and_return("ENC")
+      allow_any_instance_of(ApiKeyDecrypter).to receive(:decrypt).and_return("sk-anth")
+
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+      allow(LLM).to receive(:anthropic).and_return(anth_client)
+      allow(anth_client).to receive_message_chain(:class, :name).and_return("LLM::Anthropic")
+      # Anthropic's native web_search auto-attaches — surface an empty tool
+      # registry for this test so the request lands in the vanilla branch.
+      allow(anth_client).to receive(:server_tools).and_return({})
+
+      allow(LLM::Session).to receive(:new).and_return(session)
+      allow(session).to receive(:messages).and_return(messages_buffer)
+      allow(messages_buffer).to receive(:concat)
+      allow(session).to receive(:chat).and_return(response)
+    end
+
+    it "stream!: concatenates history LLM::Message objects into session.messages before .chat" do
+      described_class.stream!("claude-sonnet-4-6", "draft candidate hypothesis",
+                              sink: sink, llm_api_key: anthropic_key, messages: history)
+
+      expect(messages_buffer).to have_received(:concat) do |msgs|
+        expect(msgs.length).to eq(2)
+        expect(msgs.map(&:role).map(&:to_s)).to eq([ "user", "assistant" ])
+        expect(msgs[0].content).to eq("Extract the appraised evidence as JSON")
+        expect(msgs[1].content).to eq("{\"appraised_evidence\": []}")
+      end
+      # And the current user turn is passed to .chat as the CURRENT prompt.
+      expect(session).to have_received(:chat).with("draft candidate hypothesis", stream: sink)
+    end
+
+    it "stream!: skips the seed step when messages is nil (backward compat)" do
+      described_class.stream!("claude-sonnet-4-6", "hi",
+                              sink: sink, llm_api_key: anthropic_key, messages: nil)
+      expect(messages_buffer).not_to have_received(:concat)
+    end
+
+    it "call!: also pre-seeds the session before the .chat call" do
+      described_class.call!("claude-sonnet-4-6", "draft candidate hypothesis",
+                            llm_api_key: anthropic_key, messages: history)
+
+      expect(messages_buffer).to have_received(:concat) do |msgs|
+        expect(msgs.map(&:content)).to eq([ history[0][:content], history[1][:content] ])
+      end
+    end
+  end
+
   describe "native-tool wiring through stream! / call! (Anthropic)" do
     # Verify that native_server_tools' output actually reaches the downstream
     # LLM::Session. Guards against silent regressions in the branching logic
