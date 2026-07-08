@@ -144,9 +144,13 @@ class Api::ChatStreamsController < ApiController
   end
 
   # Per-request generation_params layered over per-model defaults from the
-  # catalog. Per-request values win.
+  # catalog. Per-request values win at the deepest key. Uses `deep_merge` —
+  # a shallow merge would silently drop the catalog's `options.num_ctx`
+  # (the Ollama context-window override) the moment a user tweaks any
+  # other option like `options.temperature`, reverting Ollama to its 2048
+  # default and re-triggering the front-truncation / babble bug.
   def effective_generation_params(model_name, llm_type)
-    LlmModelMap.defaults_for(model_name, llm_type: llm_type).merge(generation_params)
+    LlmModelMap.defaults_for(model_name, llm_type: llm_type).deep_merge(generation_params)
   end
 
   def image_context_param

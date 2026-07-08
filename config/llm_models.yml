@@ -100,6 +100,13 @@ google:
     supports_vision: true
 
 ollama:
+  # Every Ollama model here sets `options.num_ctx: 32768`. Ollama's own
+  # default is 2048 tokens — dramatically undersized once you factor in a
+  # few conversation turns, tool schemas, or non-English (which uses more
+  # tokens per character). Silent front-truncation manifested as
+  # repetition-loop babble and 5-minute read-timeouts. 32K covers realistic
+  # multi-turn tool-using chats; bump higher only if the host has spare KV
+  # cache VRAM.
   qwen3-6-35b-fast:
     api_id: qwen3.6:35b-fast
     display_name: qwen3.6:35b-fast
@@ -110,11 +117,16 @@ ollama:
     # override per-request via the Settings panel.
     defaults:
       think: false
+      options:
+        num_ctx: 32768
   qwen3-6-35b:
     api_id: qwen3.6:35b
     display_name: qwen3.6:35b
     supports_vision: true
     supports_tools: true
+    defaults:
+      options:
+        num_ctx: 32768
   medgemma1-5-4b:
     api_id: medgemma1.5:4b
     display_name: medgemma1.5:4b
@@ -124,3 +136,6 @@ ollama:
     # but the model still emits `<unused94>...<unused95>` blocks inline.
     # If that becomes a problem, strip those tokens response-side rather
     # than via the API.
+    defaults:
+      options:
+        num_ctx: 32768

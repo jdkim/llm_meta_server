@@ -55,6 +55,54 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       expect(response.body).to include('"message":"bad input"')
     end
 
+    it "merges the catalog's Ollama options.num_ctx default into generation_params when the user sends nothing" do
+      allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+      # Chat controller's model_name defaults to "llama3.2" up top; that
+      # isn't in the catalog, so pin a real Ollama meta_id here to hit the
+      # catalog-defaults path.
+      ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
+
+      post :create, params: { llm_api_key_uuid: uuid, model_name: ollama_meta, prompt: "Hi" }
+
+      expect(LlmRbFacade).to have_received(:stream!) do |_, _, generation_params:, **|
+        expect(generation_params.dig(:options, :num_ctx)).to eq(32768)
+      end
+    end
+
+    it "deep-merges: user overrides options.temperature but the catalog's options.num_ctx survives" do
+      allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+      ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
+
+      post :create, params: {
+        llm_api_key_uuid: uuid, model_name: ollama_meta, prompt: "Hi",
+        # User touches only temperature — a shallow merge would drop
+        # the catalog's num_ctx, silently reverting to Ollama's 2048.
+        generation_settings: { options: { temperature: 0.7 } }
+      }, as: :json
+
+      expect(LlmRbFacade).to have_received(:stream!) do |_, _, generation_params:, **|
+        expect(generation_params.dig(:options, :num_ctx)).to eq(32768)
+        expect(generation_params.dig(:options, :temperature)).to eq(0.7)
+      end
+    end
+
+    it "user override at the deepest key wins: options.num_ctx sent explicitly replaces the catalog default" do
+      allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+      ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
+
+      post :create, params: {
+        llm_api_key_uuid: uuid, model_name: ollama_meta, prompt: "Hi",
+        generation_settings: { options: { num_ctx: 65536 } }
+      }, as: :json
+
+      expect(LlmRbFacade).to have_received(:stream!) do |_, _, generation_params:, **|
+        expect(generation_params.dig(:options, :num_ctx)).to eq(65536)
+      end
+    end
+
     it "passes generation_settings through to the facade verbatim (pass-through, any keys)" do
       allow(LlmRbFacade).to receive(:stream!).and_return("ok")
 

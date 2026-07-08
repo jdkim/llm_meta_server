@@ -87,8 +87,11 @@ class Api::ChatsController < ApiController
   # Per-request generation_params layered over per-model defaults from the
   # catalog. Per-request values win — the catalog's `defaults:` block only
   # supplies a key when the caller didn't.
+  # See Api::ChatStreamsController#effective_generation_params for why
+  # this uses deep_merge (shallow merge would drop nested catalog defaults
+  # like Ollama's `options.num_ctx` on any per-request options override).
   def effective_generation_params(model_name, llm_type)
-    LlmModelMap.defaults_for(model_name, llm_type: llm_type).merge(generation_params)
+    LlmModelMap.defaults_for(model_name, llm_type: llm_type).deep_merge(generation_params)
   end
 
   def format_response(result)
