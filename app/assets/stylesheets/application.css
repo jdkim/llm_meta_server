@@ -62,6 +62,17 @@ nav .brand-tld {
   letter-spacing: 0;
 }
 
+nav .brand-version {
+  /* Semantic app version rendered next to the wordmark. Small, muted,
+     intentionally understated so it doesn't compete with the brand. */
+  margin-left: 8px;
+  font-size: 0.65em;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.4);
+  vertical-align: middle;
+  letter-spacing: 0;
+}
+
 nav .brand-dot {
   font-weight: 700;
   font-size: 1.15em;
