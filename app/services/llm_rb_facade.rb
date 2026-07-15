@@ -260,10 +260,10 @@ module LlmRbFacade
       return [] unless llm.respond_to?(:server_tools)
 
       keys = case llm.class.name
-             when "LLM::Gemini"    then NATIVE_GEMINI_TOOLS
-             when "LLM::Anthropic" then NATIVE_ANTHROPIC_TOOLS
-             else                       return []
-             end
+      when "LLM::Gemini"    then NATIVE_GEMINI_TOOLS
+      when "LLM::Anthropic" then NATIVE_ANTHROPIC_TOOLS
+      else                       return []
+      end
       llm.server_tools.values_at(*keys).compact
     rescue StandardError => e
       Rails.logger.warn "[LlmRbFacade] native tool resolution failed: #{e.class}: #{e.message}"

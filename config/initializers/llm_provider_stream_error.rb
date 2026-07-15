@@ -20,7 +20,7 @@ class LLM::Provider
 
   def execute(request:, operation:, stream: nil, stream_parser: self.stream_parser, model: nil, &b)
     span = @tracer.on_request_start(operation:, model:)
-    args = (Net::HTTP === client) ? [request] : [URI.join(base_uri, request.path), request]
+    args = (Net::HTTP === client) ? [ request ] : [ URI.join(base_uri, request.path), request ]
     res = if stream
       client.request(*args) do |res|
         if Net::HTTPSuccess === res
@@ -42,6 +42,6 @@ class LLM::Provider
       b ? client.request(*args) { (Net::HTTPSuccess === _1) ? b.call(_1) : _1 } :
           client.request(*args)
     end
-    [handle_response(res, span), span]
+    [ handle_response(res, span), span ]
   end
 end

@@ -17,9 +17,9 @@ class LLM::Ollama
   private
 
   def normalize_complete_params(params)
-    params = {role: :user, model: default_model, stream: true}.merge!(params)
+    params = { role: :user, model: default_model, stream: true }.merge!(params)
     tools  = resolve_tools(params.delete(:tools))
-    params = [params, {format: params[:schema]}, adapt_tools(tools)].inject({}, &:merge!).compact
+    params = [ params, { format: params[:schema] }, adapt_tools(tools) ].inject({}, &:merge!).compact
     role, stream = params.delete(:role), params.delete(:stream)
     params[:stream] = if stream == false
       false
@@ -28,7 +28,7 @@ class LLM::Ollama
     else
       !!stream
     end
-    [params, stream, tools, role]
+    [ params, stream, tools, role ]
   end
 end
 

@@ -215,9 +215,9 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
 
     it "emits a tool_calls event before deltas when the facade reports tool calls" do
       allow(LlmRbFacade).to receive(:stream!) do |_, _, sink:, on_tool_calls: nil, **|
-        on_tool_calls.call([{ id: "c1", name: "do_thing", arguments: { q: 42 } }]) if on_tool_calls
+        on_tool_calls.call([ { id: "c1", name: "do_thing", arguments: { q: 42 } } ]) if on_tool_calls
         sink << "Result text"
-        { message: "Result text", tool_calls: [{ id: "c1", name: "do_thing", arguments: { q: 42 } }] }
+        { message: "Result text", tool_calls: [ { id: "c1", name: "do_thing", arguments: { q: 42 } } ] }
       end
 
       post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi" }
