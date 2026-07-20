@@ -23,7 +23,7 @@
         <% if @mcp_servers.any? %>
           <div class="space-y-4">
             <% @mcp_servers.each_with_index do |server, index| %>
-              <details class="mcp-server-pane p-4 bg-gray-50 rounded-lg border group">
+              <details class="mcp-server-pane p-4 bg-gray-50 rounded-lg border group" data-server-uuid="<%= server.uuid %>">
                 <summary class="flex items-center justify-between cursor-pointer mb-3">
                   <div class="flex items-center space-x-3">
                     <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"
@@ -229,3 +229,42 @@
     </div>
   </div>
 </div>
+
+<script>
+  // Persist per-pane open/closed state in localStorage so a redirect
+  // (fetch-tools, activate, edit, etc.) doesn't collapse everything.
+  // Keyed on the server's UUID so state survives reorders / renames.
+  (function () {
+    var STORAGE_PREFIX = "mcp-pane-open:";
+
+    function restore(details) {
+      var uuid = details.dataset.serverUuid;
+      if (!uuid) return;
+      if (localStorage.getItem(STORAGE_PREFIX + uuid) === "1") {
+        details.open = true;
+      }
+    }
+
+    function persist(details) {
+      var uuid = details.dataset.serverUuid;
+      if (!uuid) return;
+      if (details.open) {
+        localStorage.setItem(STORAGE_PREFIX + uuid, "1");
+      } else {
+        localStorage.removeItem(STORAGE_PREFIX + uuid);
+      }
+    }
+
+    function init() {
+      document.querySelectorAll("details.mcp-server-pane").forEach(function (d) {
+        restore(d);
+        d.addEventListener("toggle", function () { persist(d); });
+      });
+    }
+
+    // Turbo navigations fire turbo:load; plain loads fire DOMContentLoaded.
+    // Register both — whichever fires runs init once.
+    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("turbo:load", init);
+  })();
+</script>
