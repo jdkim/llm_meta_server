@@ -18,6 +18,36 @@
 # To validate the catalog: bin/rails models:validate
 
 openai:
+  gpt-5-5-pro:
+    api_id: gpt-5.5-pro
+    display_name: GPT-5.5 Pro
+    supports_vision: true
+    supports_tools: true
+    # PROVISIONAL pricing — verify against openai.com/api/pricing.
+    # WebFetch was blocked at review time; using a pro-tier premium
+    # over gpt-5.5 based on OpenAI's historical Pro pricing multiplier.
+    endpoint: responses
+    defaults:
+      reasoning:
+        summary: auto
+    pricing:
+      input: 5.00
+      output: 40.00
+      reviewed_at: 2026-07-21
+  gpt-5-5:
+    api_id: gpt-5.5
+    display_name: GPT-5.5
+    supports_vision: true
+    supports_tools: true
+    # PROVISIONAL pricing — verify against openai.com/api/pricing.
+    endpoint: responses
+    defaults:
+      reasoning:
+        summary: auto
+    pricing:
+      input: 1.50
+      output: 12.00
+      reviewed_at: 2026-07-21
   gpt-5:
     api_id: gpt-5
     display_name: GPT-5
@@ -36,6 +66,20 @@ openai:
       input: 1.25
       output: 10.00
       reviewed_at: 2026-06-08
+  gpt-5-4-mini:
+    api_id: gpt-5.4-mini
+    display_name: GPT-5.4 Mini
+    supports_vision: true
+    supports_tools: true
+    # PROVISIONAL pricing — verify against openai.com/api/pricing.
+    endpoint: responses
+    defaults:
+      reasoning:
+        summary: auto
+    pricing:
+      input: 0.25
+      output: 2.00
+      reviewed_at: 2026-07-21
   gpt-5-mini:
     api_id: gpt-5-mini
     display_name: GPT-5 Mini
@@ -49,8 +93,42 @@ openai:
       input: 0.25
       output: 2.00
       reviewed_at: 2026-06-08
+  gpt-image-1:
+    api_id: gpt-image-1
+    display_name: GPT Image 1
+    kind: image
+    supports_vision: true
+    # kind: image → billed per-image by OpenAI, not per-token.
+    # No pricing block; per-image cost integration is pending.
 
 anthropic:
+  claude-fable-5:
+    api_id: claude-fable-5
+    display_name: Claude Fable 5
+    supports_vision: true
+    supports_tools: true
+    # Anthropic's premium tier — priced above Opus. Uses the newer
+    # tokenizer (~30% more tokens for the same text). If Fable rejects
+    # adaptive thinking, drop the defaults block.
+    defaults:
+      thinking:
+        type: adaptive
+    pricing:
+      input: 10.00
+      output: 50.00
+      reviewed_at: 2026-07-21
+  claude-opus-4-8:
+    api_id: claude-opus-4-8
+    display_name: Claude Opus 4.8
+    supports_vision: true
+    supports_tools: true
+    defaults:
+      thinking:
+        type: adaptive
+    pricing:
+      input: 5.00
+      output: 25.00
+      reviewed_at: 2026-07-21
   claude-opus-4-7:
     api_id: claude-opus-4-7
     display_name: Claude Opus 4.7
@@ -63,10 +141,25 @@ anthropic:
     defaults:
       thinking:
         type: adaptive
+    # Price reduced by Anthropic from $15/$75 to $5/$25 (verified 2026-07-21).
     pricing:
-      input: 15.00
-      output: 75.00
-      reviewed_at: 2026-06-08
+      input: 5.00
+      output: 25.00
+      reviewed_at: 2026-07-21
+  claude-sonnet-5:
+    api_id: claude-sonnet-5
+    display_name: Claude Sonnet 5
+    supports_vision: true
+    supports_tools: true
+    defaults:
+      thinking:
+        type: adaptive
+    # Introductory pricing through Aug 31, 2026 ($2/$10); standard $3/$15
+    # begins Sep 1, 2026 — bump reviewed_at + pricing then.
+    pricing:
+      input: 2.00
+      output: 10.00
+      reviewed_at: 2026-07-21
   claude-sonnet-4-6:
     api_id: claude-sonnet-4-6
     display_name: Claude Sonnet 4.6
@@ -100,11 +193,20 @@ google:
     display_name: Gemini 3.1 Pro
     supports_vision: true
     supports_tools: true
-    # Gemini 3.x is preview-tier — pricing is provisional, verify at GA.
+    # Gemini 3.x is preview-tier — verify at GA.
     pricing:
-      input: 1.25
-      output: 10.00
-      reviewed_at: 2026-06-08
+      input: 2.00
+      output: 12.00
+      reviewed_at: 2026-07-21
+  gemini-3-5-flash:
+    api_id: gemini-3.5-flash
+    display_name: Gemini 3.5 Flash
+    supports_vision: true
+    supports_tools: true
+    pricing:
+      input: 1.50
+      output: 9.00
+      reviewed_at: 2026-07-21
   gemini-3-flash:
     api_id: gemini-3-flash-preview
     display_name: Gemini 3 Flash
@@ -114,6 +216,15 @@ google:
       input: 0.30
       output: 2.50
       reviewed_at: 2026-06-08
+  gemini-3-1-flash-lite:
+    api_id: gemini-3.1-flash-lite
+    display_name: Gemini 3.1 Flash-Lite
+    supports_vision: true
+    supports_tools: true
+    pricing:
+      input: 0.25
+      output: 1.50
+      reviewed_at: 2026-07-21
   gemini-2-5-pro:
     api_id: gemini-2.5-pro
     display_name: Gemini 2.5 Pro
@@ -124,7 +235,9 @@ google:
       output: 10.00
       reviewed_at: 2026-06-08
   gemini-3-1-flash-image:
-    api_id: gemini-3.1-flash-image-preview
+    # Google dropped the -preview suffix on GA — old api_id
+    # (gemini-3.1-flash-image-preview) no longer resolves.
+    api_id: gemini-3.1-flash-image
     display_name: Gemini 3.1 Flash Image (Nano Banana 2)
     kind: image
     supports_vision: true
@@ -132,7 +245,7 @@ google:
     # No pricing block; shared-key flow should skip these until per-image
     # cost is integrated.
   gemini-3-pro-image:
-    api_id: gemini-3-pro-image-preview
+    api_id: gemini-3-pro-image
     display_name: Gemini 3 Pro Image (Nano Banana Pro)
     kind: image
     supports_vision: true

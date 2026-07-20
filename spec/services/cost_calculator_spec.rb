@@ -52,14 +52,14 @@ RSpec.describe CostCalculator do
     end
 
     it "computes a high-cost Opus call correctly" do
-      # claude-opus-4-7: input 15.00/MTok, output 75.00/MTok
-      # 50_000 input → 0.75 USD = 75 cents
-      # 10_000 output → 0.75 USD = 75 cents
+      # claude-opus-4-7: input 5.00/MTok, output 25.00/MTok (as of 2026-07-21)
+      # 50_000 input → 0.25 USD = 25 cents
+      # 10_000 output → 0.25 USD = 25 cents
       cents = described_class.compute(
         llm_type: "anthropic", meta_id: "claude-opus-4-7",
         input_tokens: 50_000, output_tokens: 10_000
       )
-      expect(cents).to eq(150)
+      expect(cents).to eq(50)
     end
   end
 end
