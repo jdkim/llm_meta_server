@@ -3,6 +3,11 @@
      relying on Tailwind arbitrary-value variants (which need a rebuild). */
   details.mcp-server-pane > summary { list-style: none; }
   details.mcp-server-pane > summary::-webkit-details-marker { display: none; }
+
+  /* Rotate the custom chevron to point down when the pane is open. Kept
+     here (not as a Tailwind utility) for the same reason as above. */
+  details.mcp-server-pane > summary svg { transition: transform 150ms; }
+  details.mcp-server-pane[open] > summary svg { transform: rotate(90deg); }
 </style>
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
