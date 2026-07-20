@@ -12,7 +12,7 @@ class LlmModelMap
   # deep_symbolize_keys (not transform_keys) so nested `defaults:` blocks come
   # through with symbol keys — they're splatted as keyword args into
   # LLM::Session.new further down the stack.
-  MODEL_MAP = YAML.safe_load_file(CATALOG_PATH, permitted_classes: [ Symbol ])
+  MODEL_MAP = YAML.safe_load_file(CATALOG_PATH, permitted_classes: [ Symbol, Date ])
                   .transform_values { |models|
                     models.transform_values(&:deep_symbolize_keys)
                   }

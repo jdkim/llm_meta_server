@@ -7,8 +7,15 @@
 #     supports_vision: <bool>    # Optional. Defaults to false. Set true for vision-capable models.
 #     supports_tools:  <bool>    # Optional. Defaults to false. Set true for tool/function-calling models.
 #     kind:           <symbol>   # Optional. `image` for image-generation models.
+#     endpoint:       <string>   # Optional. `responses` routes OpenAI through llm.responses.create.
+#     defaults:       <hash>     # Optional. Per-request kwargs merged UNDER user params.
+#     pricing:                   # REQUIRED for chargeable models (skip for ollama and kind: image).
+#       input:      <float>      # USD per 1M input tokens.
+#       output:     <float>      # USD per 1M output tokens.
+#       reviewed_at: <YYYY-MM-DD> # When these values were last verified against the provider's pricing page.
 #
 # To add/remove a model: edit this file and restart the server. No Ruby change.
+# To validate the catalog: bin/rails models:validate
 
 openai:
   gpt-5:
@@ -25,6 +32,10 @@ openai:
     defaults:
       reasoning:
         summary: auto
+    pricing:
+      input: 1.25
+      output: 10.00
+      reviewed_at: 2026-06-08
   gpt-5-mini:
     api_id: gpt-5-mini
     display_name: GPT-5 Mini
@@ -34,6 +45,10 @@ openai:
     defaults:
       reasoning:
         summary: auto
+    pricing:
+      input: 0.25
+      output: 2.00
+      reviewed_at: 2026-06-08
 
 anthropic:
   claude-opus-4-7:
@@ -48,6 +63,10 @@ anthropic:
     defaults:
       thinking:
         type: adaptive
+    pricing:
+      input: 15.00
+      output: 75.00
+      reviewed_at: 2026-06-08
   claude-sonnet-4-6:
     api_id: claude-sonnet-4-6
     display_name: Claude Sonnet 4.6
@@ -57,6 +76,10 @@ anthropic:
     defaults:
       thinking:
         type: adaptive
+    pricing:
+      input: 3.00
+      output: 15.00
+      reviewed_at: 2026-06-08
   claude-haiku-4-5:
     api_id: claude-haiku-4-5
     display_name: Claude Haiku 4.5
@@ -66,6 +89,10 @@ anthropic:
     # on this model"). No thinking default declared — Haiku just answers
     # directly. If a `thinking.type: "enabled"` shape is confirmed
     # working on Haiku, add it here.
+    pricing:
+      input: 1.00
+      output: 5.00
+      reviewed_at: 2026-06-08
 
 google:
   gemini-3-1-pro:
@@ -73,21 +100,37 @@ google:
     display_name: Gemini 3.1 Pro
     supports_vision: true
     supports_tools: true
+    # Gemini 3.x is preview-tier — pricing is provisional, verify at GA.
+    pricing:
+      input: 1.25
+      output: 10.00
+      reviewed_at: 2026-06-08
   gemini-3-flash:
     api_id: gemini-3-flash-preview
     display_name: Gemini 3 Flash
     supports_vision: true
     supports_tools: true
+    pricing:
+      input: 0.30
+      output: 2.50
+      reviewed_at: 2026-06-08
   gemini-2-5-pro:
     api_id: gemini-2.5-pro
     display_name: Gemini 2.5 Pro
     supports_vision: true
     supports_tools: true
+    pricing:
+      input: 1.25
+      output: 10.00
+      reviewed_at: 2026-06-08
   gemini-3-1-flash-image:
     api_id: gemini-3.1-flash-image-preview
     display_name: Gemini 3.1 Flash Image (Nano Banana 2)
     kind: image
     supports_vision: true
+    # kind: image → billed per-image by the provider, not per-token.
+    # No pricing block; shared-key flow should skip these until per-image
+    # cost is integrated.
   gemini-3-pro-image:
     api_id: gemini-3-pro-image-preview
     display_name: Gemini 3 Pro Image (Nano Banana Pro)
@@ -107,6 +150,8 @@ ollama:
   # repetition-loop babble and 5-minute read-timeouts. 32K covers realistic
   # multi-turn tool-using chats; bump higher only if the host has spare KV
   # cache VRAM.
+  #
+  # Ollama models run locally → no `pricing` block (always $0).
   qwen3-6-35b-fast:
     api_id: qwen3.6:35b-fast
     display_name: qwen3.6:35b-fast

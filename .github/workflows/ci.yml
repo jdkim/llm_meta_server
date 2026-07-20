@@ -102,6 +102,21 @@ jobs:
           RAILS_ENV: test
         run: bin/rails tailwindcss:build
 
+      - name: Validate LLM model catalog
+        env:
+          RAILS_ENV: test
+          DB_HOST: localhost
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: us-east-1
+          KMS_KEY_ID: alias/test
+          GOOGLE_CLIENT_ID: test.apps.googleusercontent.com
+          GOOGLE_CLIENT_SECRET: test-secret
+          ALLOWED_GOOGLE_CLIENT_IDS: test.apps.googleusercontent.com
+        run: bin/rails models:validate
+
       - name: Run RSpec unit tests
         env:
           RAILS_ENV: test

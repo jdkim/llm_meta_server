@@ -1,9 +1,6 @@
 require "rails_helper"
 
 RSpec.describe CostCalculator do
-  before { described_class.reset_pricing! }
-  after  { described_class.reset_pricing! }
-
   describe ".compute" do
     it "computes input+output cost for a known model" do
       # claude-sonnet-4-6: input 3.00/MTok, output 15.00/MTok
