@@ -73,12 +73,74 @@ RSpec.describe McpTool, type: :model do
 
     it 'includes expected keys' do
       json = tool.as_json
-      expect(json.keys).to match_array(%w[id name description input_schema active])
+      expect(json.keys).to match_array(%w[id name description input_schema active annotations])
     end
 
     it 'does not include mcp_server_id' do
       json = tool.as_json
       expect(json).not_to have_key("mcp_server_id")
+    end
+  end
+
+  describe 'annotation accessors' do
+    let(:tool) do
+      McpTool.create!(mcp_server: server, name: "read_file",
+                      input_schema: { "type" => "object" },
+                      annotations: annotations_hash)
+    end
+
+    context 'when the server sets every hint' do
+      let(:annotations_hash) do
+        {
+          "title" => "Read a file",
+          "readOnlyHint" => true,
+          "destructiveHint" => true,
+          "idempotentHint" => true,
+          "openWorldHint" => true
+        }
+      end
+
+      it 'surfaces every accessor as true and returns the title' do
+        expect(tool.title).to eq("Read a file")
+        expect(tool.read_only_hint?).to be true
+        expect(tool.destructive_hint?).to be true
+        expect(tool.idempotent_hint?).to be true
+        expect(tool.open_world_hint?).to be true
+      end
+    end
+
+    context 'when the server omits hints (empty annotations)' do
+      let(:annotations_hash) { {} }
+
+      it 'returns false for every hint (missing hint means no claim, treated as absent)' do
+        expect(tool.title).to be_nil
+        expect(tool.read_only_hint?).to be false
+        expect(tool.destructive_hint?).to be false
+        expect(tool.idempotent_hint?).to be false
+        expect(tool.open_world_hint?).to be false
+      end
+    end
+
+    context 'when a hint is explicitly set to false' do
+      let(:annotations_hash) { { "readOnlyHint" => false, "destructiveHint" => true } }
+
+      it 'returns false for the false hint and true for the true one' do
+        expect(tool.read_only_hint?).to be false
+        expect(tool.destructive_hint?).to be true
+      end
+    end
+
+    context 'when annotations column is nil (pre-migration rows)' do
+      # Simulate by writing nil directly, bypassing the default.
+      it 'defaults to false for all hints without raising' do
+        raw = McpTool.create!(mcp_server: server, name: "raw", input_schema: { "type" => "object" })
+        raw.update_column(:annotations, nil)
+        raw.reload
+        expect(raw.annotations).to be_nil
+        expect { raw.read_only_hint? }.not_to raise_error
+        expect(raw.read_only_hint?).to be false
+        expect(raw.title).to be_nil
+      end
     end
   end
 

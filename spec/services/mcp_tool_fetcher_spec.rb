@@ -49,6 +49,95 @@ RSpec.describe McpToolFetcher do
       described_class.new(authed_server).fetch!
     end
 
+    context "when tools carry MCP annotations" do
+      let(:tools_data) do
+        [
+          {
+            "name" => "read_file",
+            "description" => "Read a file",
+            "inputSchema" => { "type" => "object" },
+            "annotations" => {
+              "title" => "File reader",
+              "readOnlyHint" => true,
+              "openWorldHint" => false
+            }
+          },
+          {
+            "name" => "delete_file",
+            "description" => "Delete a file",
+            "inputSchema" => { "type" => "object" },
+            "annotations" => { "destructiveHint" => true, "idempotentHint" => true }
+          },
+          {
+            "name" => "no_hints",
+            "description" => "Nothing to declare",
+            "inputSchema" => { "type" => "object" }
+            # no "annotations" key at all
+          }
+        ]
+      end
+
+      it "persists annotations verbatim and surfaces them through model accessors" do
+        fetcher.fetch!
+
+        rf = mcp_server.mcp_tools.find_by!(name: "read_file")
+        expect(rf.annotations).to include("title" => "File reader", "readOnlyHint" => true, "openWorldHint" => false)
+        expect(rf.title).to eq("File reader")
+        expect(rf.read_only_hint?).to be true
+        expect(rf.open_world_hint?).to be false
+
+        del = mcp_server.mcp_tools.find_by!(name: "delete_file")
+        expect(del.destructive_hint?).to be true
+        expect(del.idempotent_hint?).to be true
+
+        none = mcp_server.mcp_tools.find_by!(name: "no_hints")
+        expect(none.annotations).to eq({}) # column default
+        expect(none.read_only_hint?).to be false
+      end
+
+      it "updates annotations on subsequent fetches (server tightening/relaxing hints)" do
+        fetcher.fetch!
+        rf = mcp_server.mcp_tools.find_by!(name: "read_file")
+        expect(rf.destructive_hint?).to be false
+
+        # Second fetch: the server now flags read_file as destructive.
+        allow(mock_client).to receive(:list_tools!).and_return([
+          {
+            "name" => "read_file",
+            "description" => "Read a file",
+            "inputSchema" => { "type" => "object" },
+            "annotations" => { "destructiveHint" => true }
+          }
+        ])
+        fetcher.fetch!
+        expect(rf.reload.destructive_hint?).to be true
+        expect(rf.read_only_hint?).to be false # replaced, not merged
+      end
+
+      it "clears the stored annotations when a subsequent fetch omits the annotations key" do
+        fetcher.fetch!
+        rf = mcp_server.mcp_tools.find_by!(name: "read_file")
+        expect(rf.read_only_hint?).to be true # sanity: baseline had readOnlyHint: true
+
+        # Server retracts all hints — the tool descriptor no longer carries an annotations block.
+        allow(mock_client).to receive(:list_tools!).and_return([
+          {
+            "name" => "read_file",
+            "description" => "Read a file",
+            "inputSchema" => { "type" => "object" }
+            # no "annotations" key
+          }
+        ])
+        fetcher.fetch!
+
+        rf.reload
+        expect(rf.annotations).to eq({}) # cleared, not preserved
+        expect(rf.read_only_hint?).to be false
+        expect(rf.destructive_hint?).to be false
+        expect(rf.title).to be_nil
+      end
+    end
+
     it 'updates server info' do
       fetcher.fetch!
       mcp_server.reload

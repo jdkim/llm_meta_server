@@ -23,6 +23,35 @@ class McpTool < ApplicationRecord
   end
 
   def as_json(options = {})
-    super({ only: %i[id name description input_schema active] }.merge(options))
+    super({ only: %i[id name description input_schema active annotations] }.merge(options))
+  end
+
+  # MCP 2025-03-26 tool annotations. Each hint is optional; a missing hint
+  # means "no claim either way", not false — surface only when explicitly set.
+  # See modelcontextprotocol.io/specification for the semantics.
+  def title
+    annotations_hash["title"]
+  end
+
+  def read_only_hint?
+    annotations_hash["readOnlyHint"] == true
+  end
+
+  def destructive_hint?
+    annotations_hash["destructiveHint"] == true
+  end
+
+  def idempotent_hint?
+    annotations_hash["idempotentHint"] == true
+  end
+
+  def open_world_hint?
+    annotations_hash["openWorldHint"] == true
+  end
+
+  private
+
+  def annotations_hash
+    annotations.is_a?(Hash) ? annotations : {}
   end
 end

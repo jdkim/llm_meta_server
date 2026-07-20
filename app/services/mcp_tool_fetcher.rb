@@ -37,16 +37,20 @@ class McpToolFetcher
     tools.each do |tool_data|
       existing = mcp_server.mcp_tools.find_by(name: tool_data["name"])
 
+      annotations = tool_data["annotations"].is_a?(Hash) ? tool_data["annotations"] : {}
+
       if existing
         existing.update!(
           description: tool_data["description"],
-          input_schema: tool_data["inputSchema"] || {}
+          input_schema: tool_data["inputSchema"] || {},
+          annotations: annotations
         )
       else
         mcp_server.mcp_tools.create!(
           name: tool_data["name"],
           description: tool_data["description"],
-          input_schema: tool_data["inputSchema"] || {}
+          input_schema: tool_data["inputSchema"] || {},
+          annotations: annotations
         )
       end
     end

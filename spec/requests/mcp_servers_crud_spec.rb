@@ -31,6 +31,39 @@ RSpec.describe "McpServer CRUD (web)", type: :request do
       expect(response.body).to include(mine.name)
       expect(response.body).not_to include("theirs")
     end
+
+    it "renders each MCP tool annotation as its own badge only when the hint is set" do
+      server = user.mcp_servers.create!(name: "annotated", url: "https://ann.example.com/rpc")
+      server.mcp_tools.create!(name: "reader",     input_schema: { type: "object" }, annotations: { "readOnlyHint" => true })
+      server.mcp_tools.create!(name: "wiper",      input_schema: { type: "object" }, annotations: { "destructiveHint" => true })
+      server.mcp_tools.create!(name: "idem_op",    input_schema: { type: "object" }, annotations: { "idempotentHint" => true })
+      server.mcp_tools.create!(name: "outward",    input_schema: { type: "object" }, annotations: { "openWorldHint" => true })
+      server.mcp_tools.create!(name: "everything", input_schema: { type: "object" },
+                               annotations: { "readOnlyHint" => true, "destructiveHint" => true,
+                                              "idempotentHint" => true, "openWorldHint" => true })
+      server.mcp_tools.create!(name: "unhinted",   input_schema: { type: "object" }) # column default → {}
+
+      get base_path
+      body = response.body
+
+      # Each label should appear once per tool that carries the hint.
+      # The "everything" tool carries all four, so each label appears at least twice
+      # (once for the single-hint tool + once for "everything").
+      expect(body.scan("Read-only").length).to   eq(2)
+      expect(body.scan("Destructive").length).to eq(2)
+      expect(body.scan("Idempotent").length).to  eq(2)
+      expect(body.scan("Open-world").length).to  eq(2)
+
+      # The unhinted tool must render its name but no annotation badges next to it.
+      # Locate its tool row and confirm no badge text appears within a short window after its name.
+      idx = body.index("unhinted")
+      expect(idx).to be_present
+      slice = body[idx, 400] # generous window covering the tool's row markup
+      expect(slice).not_to include("Read-only")
+      expect(slice).not_to include("Destructive")
+      expect(slice).not_to include("Idempotent")
+      expect(slice).not_to include("Open-world")
+    end
   end
 
   describe "POST create" do
