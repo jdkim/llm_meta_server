@@ -94,12 +94,7 @@
                         <div class="flex items-center justify-between p-2 bg-white rounded border">
                           <div class="flex-1">
                             <div class="flex items-center gap-2 flex-wrap">
-                              <span class="text-sm font-medium text-gray-900"><%= tool.name %></span>
-                              <% if tool.active? %>
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
-                              <% else %>
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Inactive</span>
-                              <% end %>
+                              <span class="text-sm font-medium <%= tool.active? ? 'text-gray-900' : 'text-gray-500' %>"><%= tool.name %></span>
                               <% if tool.read_only_hint? %>
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="Server declared this tool does not modify its environment">Read-only</span>
                               <% end %>
@@ -117,10 +112,17 @@
                               <p class="text-xs text-gray-500 mt-1"><%= tool.description %></p>
                             <% end %>
                           </div>
-                          <%= link_to (tool.active? ? "Deactivate" : "Activate"),
-                                      toggle_user_mcp_server_mcp_tool_path(current_user, server, tool),
-                                      class: "text-xs #{tool.active? ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' : 'bg-green-100 text-green-700 hover:bg-green-200'} px-2 py-1 rounded transition-colors ml-2",
-                                      data: { turbo_method: :patch } %>
+                          <%= link_to toggle_user_mcp_server_mcp_tool_path(current_user, server, tool),
+                                      class: "shrink-0 ml-2 inline-block",
+                                      title: (tool.active? ? "Active — click to deactivate" : "Inactive — click to activate"),
+                                      "aria-label": (tool.active? ? "Deactivate tool" : "Activate tool"),
+                                      role: "switch",
+                                      "aria-checked": tool.active?.to_s,
+                                      data: { turbo_method: :patch } do %>
+                            <span style="position: relative; display: inline-block; width: 36px; height: 20px; border-radius: 9999px; vertical-align: middle; background-color: <%= tool.active? ? '#10b981' : '#d1d5db' %>; transition: background-color 150ms;">
+                              <span style="position: absolute; top: 2px; <%= tool.active? ? 'right: 2px' : 'left: 2px' %>; width: 16px; height: 16px; border-radius: 9999px; background: white; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.15);"></span>
+                            </span>
+                          <% end %>
                         </div>
                       <% end %>
                     </div>
