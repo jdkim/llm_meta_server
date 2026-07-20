@@ -141,6 +141,85 @@ RSpec.describe McpServer, type: :model do
     end
   end
 
+  describe '#auth_token' do
+    let(:server) { McpServer.new(user: user, name: "S", url: "https://s.example.com/mcp") }
+
+    it 'round-trips plaintext through the encrypted column' do
+      server.auth_token = "mcp_secret_xyz"
+      expect(server.encrypted_auth_token).to be_present
+      expect(server.encrypted_auth_token).not_to include("mcp_secret_xyz") # ciphertext, not plain
+      expect(server.auth_token).to eq("mcp_secret_xyz")
+    end
+
+    it 'reads back plaintext across an in-memory reload of the wrapper' do
+      server.auth_token = "abc123"
+      server.save!
+      reloaded = McpServer.find(server.id)
+      expect(reloaded.auth_token).to eq("abc123")
+      expect(reloaded).to have_attributes(has_auth_token?: true)
+    end
+
+    it 'clears the encrypted column when assigned nil or empty string' do
+      server.auth_token = "something"
+      expect(server.encrypted_auth_token).to be_present
+
+      server.auth_token = nil
+      expect(server.encrypted_auth_token).to be_nil
+      expect(server.auth_token).to be_nil
+
+      server.auth_token = "again"
+      server.auth_token = ""
+      expect(server.encrypted_auth_token).to be_nil
+    end
+
+    it 'reports has_auth_token? false when never set' do
+      expect(server.has_auth_token?).to be false
+      expect(server.auth_token).to be_nil
+    end
+  end
+
+  describe 'public + auth_token combination' do
+    it 'is invalid when public=true and an auth token is set (token would leak to other users)' do
+      s = McpServer.new(user: user, name: "S", url: "https://s.example.com/mcp",
+                        public: true)
+      s.auth_token = "secret"
+      expect(s).not_to be_valid
+      expect(s.errors[:public].join).to include("cannot be true when an auth token is set")
+    end
+
+    it 'is valid when public=true and no auth token' do
+      s = McpServer.new(user: user, name: "S", url: "https://s.example.com/mcp", public: true)
+      expect(s).to be_valid
+    end
+
+    it 'is valid when public=false and an auth token is set' do
+      s = McpServer.new(user: user, name: "S", url: "https://s.example.com/mcp", public: false)
+      s.auth_token = "secret"
+      expect(s).to be_valid
+    end
+  end
+
+  describe '#as_json (auth token redaction)' do
+    let(:server) do
+      s = McpServer.create!(user: user, name: "S", url: "https://s.example.com/mcp")
+      s.update!(encrypted_auth_token: "cipher-xyz")
+      s
+    end
+
+    it 'exposes has_auth_token but not the encrypted or plaintext token' do
+      json = server.as_json
+      expect(json["has_auth_token"]).to be true
+      expect(json).not_to have_key("auth_token")
+      expect(json).not_to have_key("encrypted_auth_token")
+      expect(json.values.compact.map(&:to_s).join(" ")).not_to include("cipher-xyz")
+    end
+
+    it 'reports has_auth_token=false when no token is set' do
+      plain = McpServer.create!(user: user, name: "P", url: "https://p.example.com/mcp")
+      expect(plain.as_json["has_auth_token"]).to be false
+    end
+  end
+
   describe 'dependent destroy' do
     let(:server) { McpServer.create!(user: user, name: "Test Server", url: "https://example.com/mcp") }
 

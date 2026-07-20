@@ -9,8 +9,9 @@ class McpClient
 
   attr_reader :url, :session_id, :server_info, :protocol_version
 
-  def initialize(url)
+  def initialize(url, auth_token: nil)
     @url = url
+    @auth_token = auth_token
     @session_id = nil
     @server_info = nil
     @protocol_version = nil
@@ -99,6 +100,7 @@ class McpClient
       "Content-Type" => CONTENT_TYPE,
       "Accept" => ACCEPT_HEADER
     }
+    headers["Authorization"] = "Bearer #{@auth_token}" if @auth_token.present?
     headers["Mcp-Session-Id"] = @session_id if @session_id
     headers
   end

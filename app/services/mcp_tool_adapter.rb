@@ -8,13 +8,14 @@ class McpToolAdapter
 
     def build_function(mcp_tool)
       server_url = mcp_tool.mcp_server.url
+      auth_token = mcp_tool.mcp_server.auth_token
       tool_name = mcp_tool.name
 
       LLM::Function.new(tool_name) do |fn|
         fn.description mcp_tool.description
         set_params(fn, mcp_tool.input_schema)
         fn.define ->(**arguments) {
-          McpClient.new(server_url).tap(&:initialize_connection!).call_tool!(tool_name, arguments)
+          McpClient.new(server_url, auth_token: auth_token).tap(&:initialize_connection!).call_tool!(tool_name, arguments)
         }
       end
     end

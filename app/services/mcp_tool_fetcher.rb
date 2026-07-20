@@ -6,7 +6,7 @@ class McpToolFetcher
   end
 
   def fetch!
-    client = McpClient.new(mcp_server.url)
+    client = McpClient.new(mcp_server.url, auth_token: mcp_server.auth_token)
 
     client.initialize_connection!
 

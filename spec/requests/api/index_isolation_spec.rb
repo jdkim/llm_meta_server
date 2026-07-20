@@ -64,7 +64,7 @@ RSpec.describe "JSON API index isolation", type: :request do
       # server — stub the client so the spec stays offline. We're testing
       # the response shape, not the fetch behavior.
       mock_client = instance_double(McpClient)
-      allow(McpClient).to receive(:new).with(my_server.url).and_return(mock_client)
+      allow(McpClient).to receive(:new).with(my_server.url, auth_token: nil).and_return(mock_client)
       allow(mock_client).to receive(:initialize_connection!)
       allow(mock_client).to receive(:server_info).and_return("name" => "mine", "version" => "1")
       allow(mock_client).to receive(:protocol_version).and_return("2025-03-26")

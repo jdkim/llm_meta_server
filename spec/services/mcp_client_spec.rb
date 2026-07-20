@@ -234,6 +234,76 @@ RSpec.describe McpClient do
     end
   end
 
+  describe 'auth_token: header injection' do
+    let(:init_response) do
+      instance_double(
+        HTTParty::Response,
+        success?: true,
+        code: 200,
+        headers: { "content-type" => "application/json", "mcp-session-id" => "session-auth" },
+        body: {
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            protocolVersion: "2025-03-26",
+            serverInfo: { name: "authed-server", version: "1.0.0" },
+            capabilities: {}
+          }
+        }.to_json
+      )
+    end
+
+    let(:notification_response) do
+      instance_double(HTTParty::Response, success?: true, code: 200, headers: {}, body: "")
+    end
+
+    it "sends Authorization: Bearer <token> when auth_token: is given" do
+      authed = described_class.new(url, auth_token: "mcp_deadbeef")
+      captured = []
+      allow(HTTParty).to receive(:post) do |_url, opts|
+        captured << opts[:headers]
+        init_response
+      end.and_return(init_response, notification_response)
+
+      authed.initialize_connection!
+
+      # First call is initialize (request), second is the notifications/initialized (notification).
+      # Both must carry the Authorization header.
+      expect(captured).not_to be_empty
+      captured.each do |h|
+        expect(h["Authorization"]).to eq("Bearer mcp_deadbeef")
+      end
+    end
+
+    it "omits Authorization header when auth_token: is not given" do
+      unauth = described_class.new(url)
+      captured = []
+      allow(HTTParty).to receive(:post) do |_url, opts|
+        captured << opts[:headers]
+        init_response
+      end.and_return(init_response, notification_response)
+
+      unauth.initialize_connection!
+
+      expect(captured).not_to be_empty
+      captured.each { |h| expect(h).not_to have_key("Authorization") }
+    end
+
+    it "omits Authorization header when auth_token: is nil or blank string" do
+      [ nil, "" ].each do |empty|
+        client = described_class.new(url, auth_token: empty)
+        captured = nil
+        allow(HTTParty).to receive(:post) do |_url, opts|
+          captured = opts[:headers]
+          init_response
+        end.and_return(init_response, notification_response)
+
+        client.initialize_connection!
+        expect(captured).not_to have_key("Authorization"), "expected no Authorization header for auth_token=#{empty.inspect}"
+      end
+    end
+  end
+
   describe '#list_tools!' do
     let(:init_response) do
       instance_double(

@@ -167,4 +167,60 @@ RSpec.describe "McpServer CRUD (web)", type: :request do
       expect(other_server.reload.active).to be true
     end
   end
+
+  describe "auth_token round-trip" do
+    it "stores the token encrypted on create and never exposes plaintext in the response" do
+      post base_path, params: {
+        mcp_server: { name: "glama", url: "https://glama.ai/endpoints/x/mcp", auth_token: "mcp_supersecret" }
+      }
+      follow_redirect!
+
+      row = user.mcp_servers.last
+      expect(row.encrypted_auth_token).to be_present
+      expect(row.encrypted_auth_token).not_to include("mcp_supersecret") # ciphertext
+      expect(row.auth_token).to eq("mcp_supersecret")
+      expect(response.body).not_to include("mcp_supersecret")
+    end
+
+    it "leaves the encrypted token unchanged when update omits auth_token or sends it blank" do
+      server = user.mcp_servers.create!(name: "s", url: "https://s.example.com/mcp")
+      server.auth_token = "initial-token"
+      server.save!
+      original_ciphertext = server.encrypted_auth_token
+
+      patch "#{base_path}/#{server.id}", params: {
+        mcp_server: { name: "renamed", url: server.url, auth_token: "" }
+      }
+      follow_redirect!
+
+      expect(server.reload.encrypted_auth_token).to eq(original_ciphertext)
+      expect(server.auth_token).to eq("initial-token")
+      expect(server.name).to eq("renamed")
+    end
+
+    it "replaces the token when update sends a non-blank auth_token" do
+      server = user.mcp_servers.create!(name: "s", url: "https://s.example.com/mcp")
+      server.auth_token = "old-token"
+      server.save!
+
+      patch "#{base_path}/#{server.id}", params: {
+        mcp_server: { name: server.name, url: server.url, auth_token: "new-token" }
+      }
+      follow_redirect!
+
+      expect(server.reload.auth_token).to eq("new-token")
+    end
+
+    it "rejects public=true when an auth token is present (would leak the token to other users)" do
+      server = user.mcp_servers.create!(name: "s", url: "https://s.example.com/mcp")
+      server.auth_token = "secret"
+      server.save!
+
+      # Toggle public via the toggle_public endpoint — should fail validation and stay private.
+      patch "#{base_path}/#{server.id}/toggle_public"
+      # The action wraps update! but on failure Rails 8 raises RecordInvalid; we bubble to the flash.
+      # Whichever way it lands, the row must remain private.
+      expect(server.reload.public).to be_falsey
+    end
+  end
 end

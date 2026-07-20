@@ -52,6 +52,8 @@ class McpServersController < ApplicationController
   end
 
   def mcp_server_params
-    params.expect(mcp_server: [ :name, :url ])
+    permitted = params.expect(mcp_server: [ :name, :url, :auth_token ])
+    permitted.delete(:auth_token) if permitted[:auth_token].blank? && action_name == "update"
+    permitted
   end
 end

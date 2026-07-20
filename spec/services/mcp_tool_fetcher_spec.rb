@@ -25,7 +25,7 @@ RSpec.describe McpToolFetcher do
   end
 
   before do
-    allow(McpClient).to receive(:new).with(mcp_server.url).and_return(mock_client)
+    allow(McpClient).to receive(:new).with(mcp_server.url, auth_token: nil).and_return(mock_client)
     allow(mock_client).to receive(:initialize_connection!)
     allow(mock_client).to receive(:server_info).and_return(server_info)
     allow(mock_client).to receive(:protocol_version).and_return(protocol_version)
@@ -35,6 +35,18 @@ RSpec.describe McpToolFetcher do
   describe '#fetch!' do
     it 'creates tools in the database' do
       expect { fetcher.fetch! }.to change(McpTool, :count).by(2)
+    end
+
+    it "threads the server's auth_token into McpClient.new when the server has one" do
+      # Fresh server with a token; use its own McpClient stub so the default
+      # `before` (auth_token: nil) doesn't shadow this expectation.
+      authed_server = McpServer.create!(user: user, name: "AuthedSrv", url: "https://authed.example.com/mcp")
+      authed_server.auth_token = "mcp_secret_token"
+      authed_server.save!
+
+      expect(McpClient).to receive(:new).with(authed_server.url, auth_token: "mcp_secret_token").and_return(mock_client)
+
+      described_class.new(authed_server).fetch!
     end
 
     it 'updates server info' do

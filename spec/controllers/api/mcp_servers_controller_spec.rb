@@ -115,4 +115,25 @@ RSpec.describe Api::McpServersController, type: :controller do
       expect(json['active']).to be true
     end
   end
+
+  describe 'auth token is never leaked on the API surface' do
+    let!(:server) do
+      s = McpServer.create!(user: user, name: "authed", url: "https://authed.example.com/mcp")
+      s.auth_token = "mcp_supersecret_token"
+      s.save!
+      s
+    end
+
+    it "GET #index omits the plaintext and encrypted token but exposes has_auth_token=true" do
+      get :index
+      body = response.body
+      expect(body).not_to include("mcp_supersecret_token")
+      expect(body).not_to include(server.encrypted_auth_token)
+
+      row = JSON.parse(body)['mcp_servers'].find { |s| s['name'] == 'authed' }
+      expect(row['has_auth_token']).to be true
+      expect(row).not_to have_key('auth_token')
+      expect(row).not_to have_key('encrypted_auth_token')
+    end
+  end
 end
