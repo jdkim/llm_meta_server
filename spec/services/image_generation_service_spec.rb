@@ -42,16 +42,103 @@ RSpec.describe ImageGenerationService do
   end
 
   describe "provider routing" do
-    it "raises for a non-google llm_api_key" do
-      expect {
-        described_class.generate!(model_id: model_id, prompt: "hi", llm_api_key: openai_key)
-      }.to raise_error(ArgumentError, /not supported for provider/)
-    end
-
     it "raises for a nil llm_api_key" do
       expect {
         described_class.generate!(model_id: model_id, prompt: "hi", llm_api_key: nil)
       }.to raise_error(ArgumentError, /not supported for provider/)
+    end
+
+    it "raises for an unrecognized provider (llm_type not google or openai)" do
+      other_key = user.llm_api_keys.create!(llm_type: "anthropic", description: "personal",
+                                            encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-ant"))
+      expect {
+        described_class.generate!(model_id: model_id, prompt: "hi", llm_api_key: other_key)
+      }.to raise_error(ArgumentError, /not supported for provider/)
+    end
+  end
+
+  describe "OpenAI branch (gpt-image-1)" do
+    let(:openai_model) { "gpt-image-1" }
+    let(:generations_endpoint) { "https://api.openai.com/v1/images/generations" }
+    let(:edits_endpoint) { "https://api.openai.com/v1/images/edits" }
+
+    context "text-only prompt (no image_context, no fresh image)" do
+      it "POSTs to /images/generations with Bearer auth and returns a markdown data-URI" do
+        stub_request(:post, generations_endpoint)
+          .with(headers: { "Authorization" => "Bearer sk-openai", "Content-Type" => "application/json" })
+          .to_return(status: 200, body: { data: [ { b64_json: "IMAGE_BYTES" } ] }.to_json,
+                     headers: { "Content-Type" => "application/json" })
+
+        md = described_class.generate!(model_id: openai_model, prompt: "a blue car", llm_api_key: openai_key)
+
+        expect(md).to eq("![](data:image/png;base64,IMAGE_BYTES)")
+        expect(WebMock).to have_requested(:post, generations_endpoint).with { |req|
+          body = JSON.parse(req.body)
+          expect(body["model"]).to eq("gpt-image-1")
+          expect(body["prompt"]).to eq("a blue car")
+          true
+        }
+        expect(WebMock).not_to have_requested(:post, edits_endpoint)
+      end
+    end
+
+    context "with a freshly-attached reference image" do
+      it "routes to /images/edits with multipart/form-data (not /generations)" do
+        stub_request(:post, edits_endpoint)
+          .with(headers: { "Authorization" => "Bearer sk-openai" }) do |req|
+            req.headers["Content-Type"].to_s.start_with?("multipart/form-data")
+          end
+          .to_return(status: 200, body: { data: [ { b64_json: "EDITED" } ] }.to_json,
+                     headers: { "Content-Type" => "application/json" })
+
+        fresh = { mime: "image/png", data_b64: Base64.strict_encode64("PNG-BYTES") }
+        md = described_class.generate!(model_id: openai_model, prompt: "make it red",
+                                       llm_api_key: openai_key, image: fresh)
+
+        expect(md).to eq("![](data:image/png;base64,EDITED)")
+        expect(WebMock).to have_requested(:post, edits_endpoint)
+        expect(WebMock).not_to have_requested(:post, generations_endpoint)
+      end
+    end
+
+    context "with a prior assistant image in image_context (refinement loop)" do
+      it "routes to /images/edits, carrying forward the last generated image" do
+        stub_request(:post, edits_endpoint)
+          .to_return(status: 200, body: { data: [ { b64_json: "REFINED" } ] }.to_json,
+                     headers: { "Content-Type" => "application/json" })
+
+        prior_b64 = Base64.strict_encode64("EARLIER-BYTES")
+        image_context = [
+          { response: "Sure, here's your image:\n\n![](data:image/png;base64,#{prior_b64})" }
+        ]
+
+        md = described_class.generate!(model_id: openai_model, prompt: "add a hat",
+                                       llm_api_key: openai_key, image_context: image_context)
+
+        expect(md).to eq("![](data:image/png;base64,REFINED)")
+        expect(WebMock).to have_requested(:post, edits_endpoint)
+        expect(WebMock).not_to have_requested(:post, generations_endpoint)
+      end
+    end
+
+    it "raises a descriptive error when OpenAI returns non-2xx" do
+      stub_request(:post, generations_endpoint)
+        .to_return(status: 429, body: { error: { message: "Rate limit exceeded" } }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      expect {
+        described_class.generate!(model_id: openai_model, prompt: "a cat", llm_api_key: openai_key)
+      }.to raise_error(/OpenAI API 429:.*Rate limit exceeded/)
+    end
+
+    it "raises when OpenAI returns 200 but no image data" do
+      stub_request(:post, generations_endpoint)
+        .to_return(status: 200, body: { data: [ { b64_json: "" } ] }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+
+      expect {
+        described_class.generate!(model_id: openai_model, prompt: "a cat", llm_api_key: openai_key)
+      }.to raise_error(/OpenAI returned no image data/)
     end
   end
 
