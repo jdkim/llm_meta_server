@@ -1,6 +1,6 @@
 class McpServer < ApplicationRecord
   belongs_to :user
-  has_many :mcp_tools, dependent: :destroy
+  has_many :mcp_tools, -> { order(:id) }, dependent: :destroy
 
   validates :uuid, uniqueness: true
   validates :name, presence: true
