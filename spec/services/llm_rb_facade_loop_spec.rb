@@ -56,8 +56,12 @@ RSpec.describe LlmRbFacade do
 
       described_class.stream!(model_id, "loop", sink: sink, tools: [ tool ])
 
-      # Turn 1 + 5 iterations = 6 chat calls total.
-      expect(session).to have_received(:chat).exactly(6).times
+      # Turn 1 + MAX_TOOL_ITERATIONS iterations. Compute the expected count
+      # from the constant so bumping the cap doesn't require a numeric edit
+      # here — the intent is "one more than the cap", not "6". The constant
+      # lives on the singleton class (defined inside `class << self`).
+      cap = described_class.singleton_class::MAX_TOOL_ITERATIONS
+      expect(session).to have_received(:chat).exactly(cap + 1).times
       expect(sink.buf).to include("stopped after")
       expect(sink.buf).to include("tool rounds")
     end

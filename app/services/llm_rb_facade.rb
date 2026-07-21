@@ -382,7 +382,11 @@ module LlmRbFacade
     # Maximum tool-call rounds. Small models (notably qwen3.6:35b-fast) will often
     # chain another tool call instead of synthesizing text in turn 2, leaving
     # the bubble empty. Loop until the model emits text or we hit the cap.
-    MAX_TOOL_ITERATIONS = 5
+    # Bumped from 5 to 10 (2026-07-22): Gemini + broker-aggregated tools
+    # regularly need ≥6 rounds to converge (e.g. YouTube-transcript demo:
+    # search → 5 parallel transcripts → synthesis). 10 still bounds runaway
+    # loops; the fallback notice below fires if we hit the cap.
+    MAX_TOOL_ITERATIONS = 10
 
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
