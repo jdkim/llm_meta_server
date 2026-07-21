@@ -625,4 +625,126 @@ RSpec.describe LlmRbFacade do
       )
     end
   end
+
+  describe "#apply_provider_defaults (private) — Google branch" do
+    # Google-specific request-param defaults. The Google branch does two
+    # things: exposes internal thinking via generationConfig.thinkingConfig,
+    # and enables tool_config.include_server_side_tool_invocations (required
+    # when Gemini's native server tools coexist with MCP function tools).
+    let(:google_key) {
+      user = User.create!(email: "gdef@example.com", google_id: "g-gdef")
+      user.llm_api_keys.create!(llm_type: "google", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "AIzasomething"))
+    }
+
+    def call(input = {})
+      described_class.send(:apply_provider_defaults, input, google_key)
+    end
+
+    describe "tool_config.include_server_side_tool_invocations" do
+      it "sets it to true by default (required for native + function tools together)" do
+        params = call
+        expect(params[:tool_config]).to eq(include_server_side_tool_invocations: true)
+      end
+
+      it "preserves any other tool_config keys the caller already set" do
+        params = call(tool_config: { function_calling_config: { mode: "AUTO" } })
+        expect(params[:tool_config][:function_calling_config]).to eq(mode: "AUTO")
+        expect(params[:tool_config][:include_server_side_tool_invocations]).to eq(true)
+      end
+
+      it "does not overwrite an explicit include_server_side_tool_invocations from the caller" do
+        params = call(tool_config: { include_server_side_tool_invocations: false })
+        expect(params[:tool_config][:include_server_side_tool_invocations]).to eq(false)
+      end
+    end
+
+    describe "generationConfig.thinkingConfig.includeThoughts (regression coverage — was untested)" do
+      it "sets includeThoughts: true by default" do
+        params = call
+        expect(params[:generationConfig][:thinkingConfig]).to eq(includeThoughts: true)
+      end
+
+      it "preserves user-set generationConfig keys" do
+        params = call(generationConfig: { temperature: 0.5 })
+        expect(params[:generationConfig][:temperature]).to eq(0.5)
+        expect(params[:generationConfig][:thinkingConfig][:includeThoughts]).to eq(true)
+      end
+    end
+
+    describe "scope guard — non-Google providers must not receive Google-only defaults" do
+      # If the Google branch is ever accidentally hoisted above its
+      # llm_type == "google" guard, tests here catch it: Anthropic requests
+      # would ship keys Anthropic doesn't understand (tool_config,
+      # generationConfig), producing cryptic 400s downstream.
+      let(:anthropic_key) {
+        user = User.create!(email: "og@example.com", google_id: "g-og")
+        user.llm_api_keys.create!(llm_type: "anthropic", description: "personal",
+                                  encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-anth"))
+      }
+
+      it "does not add tool_config to Anthropic params" do
+        params = described_class.send(:apply_provider_defaults, {}, anthropic_key)
+        expect(params).not_to have_key(:tool_config)
+      end
+
+      it "does not add generationConfig to Anthropic params" do
+        params = described_class.send(:apply_provider_defaults, {}, anthropic_key)
+        expect(params).not_to have_key(:generationConfig)
+      end
+    end
+  end
+
+  describe "Google defaults wiring end-to-end (integration)" do
+    # Guards the call-site integration: apply_provider_defaults must run
+    # BEFORE LLM::Session.new at every entry point for Google. If either
+    # `call!` (facade line 9) or `stream!` (facade line 36) drops the
+    # apply_provider_defaults call in a refactor, tool_config would not
+    # reach the outgoing request and Gemini would 400 on tool-heavy chats.
+    let(:google_key) {
+      user = User.create!(email: "gint@example.com", google_id: "g-gint")
+      user.llm_api_keys.create!(llm_type: "google", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "AIzasomething"))
+    }
+    let(:google_client)   { double("LLM::Gemini") }
+    let(:session)         { instance_double("LLM::Session") }
+    let(:messages_buffer) { double("MessagesBuffer") }
+    let(:choice)          { instance_double("Choice", content: "ok") }
+    let(:response)        { instance_double("Response", choices: [ choice ], body: nil, functions: []) }
+    let(:sink)            { Class.new { def <<(x); self; end }.new }
+
+    before do
+      allow_any_instance_of(ApiKeyEncrypter).to receive(:encrypt).and_return("ENC")
+      allow_any_instance_of(ApiKeyDecrypter).to receive(:decrypt).and_return("AIzasomething")
+
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+      allow(LLM).to receive(:gemini).and_return(google_client)
+      allow(google_client).to receive_message_chain(:class, :name).and_return("LLM::Gemini")
+      # No native tools registered → the request lands in the vanilla branch.
+      allow(google_client).to receive(:server_tools).and_return({})
+
+      allow(LLM::Session).to receive(:new).and_return(session)
+      allow(session).to receive(:messages).and_return(messages_buffer)
+      allow(messages_buffer).to receive(:concat)
+      allow(session).to receive(:chat).and_return(response)
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:extract_tool_calls).and_return([])
+    end
+
+    it "stream! threads tool_config.include_server_side_tool_invocations into LLM::Session.new" do
+      described_class.stream!("gemini-3-5-flash", "hi", sink: sink, llm_api_key: google_key)
+
+      expect(LLM::Session).to have_received(:new).with(
+        google_client, hash_including(tool_config: hash_including(include_server_side_tool_invocations: true))
+      )
+    end
+
+    it "call! (non-streaming) threads tool_config through execute_chat!" do
+      described_class.call!("gemini-3-5-flash", "hi", llm_api_key: google_key)
+
+      expect(LLM::Session).to have_received(:new).with(
+        google_client, hash_including(tool_config: hash_including(include_server_side_tool_invocations: true))
+      )
+    end
+  end
 end

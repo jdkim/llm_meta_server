@@ -207,6 +207,17 @@ module LlmRbFacade
         tc[:includeThoughts] = true unless tc.key?(:includeThoughts)
         gc[:thinkingConfig] = tc
         params[:generationConfig] = gc
+
+        # Required when native server tools (Google Search grounding,
+        # url_context) coexist with user-defined function tools (MCP).
+        # Otherwise the API 400s with
+        #   "Please enable tool_config.include_server_side_tool_invocations
+        #   to use Built-in tools with Function calling."
+        # Safe to set unconditionally — Gemini ignores the flag when only
+        # one tool category is present.
+        tool_cfg = (params[:tool_config] || {}).to_h.symbolize_keys
+        tool_cfg[:include_server_side_tool_invocations] = true unless tool_cfg.key?(:include_server_side_tool_invocations)
+        params[:tool_config] = tool_cfg
       end
       params
     end
