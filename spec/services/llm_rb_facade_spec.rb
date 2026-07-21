@@ -422,4 +422,207 @@ RSpec.describe LlmRbFacade do
       expect(yielded).to eq([])
     end
   end
+
+  describe "#apply_anthropic_system! (private)" do
+    # Anthropic rejects role:"system" inline in messages; we extract to the
+    # top-level `system:` param. Other providers accept inline system messages,
+    # so we must NOT touch them.
+    let(:anthropic) { instance_double("LLM::Anthropic").tap { |d| allow(d.class).to receive(:name).and_return("LLM::Anthropic") } }
+    let(:openai)    { instance_double("LLM::OpenAI").tap    { |d| allow(d.class).to receive(:name).and_return("LLM::OpenAI") } }
+
+    def call(chat_params, messages, llm)
+      described_class.send(:apply_anthropic_system!, chat_params, messages, llm)
+    end
+
+    context "with Anthropic + system message inline" do
+      it "moves system content into chat_params[:system] and drops it from messages" do
+        params, filtered = call({}, [
+          { "role" => "system",    "content" => "be terse" },
+          { "role" => "user",      "content" => "hi" },
+          { "role" => "assistant", "content" => "hello" }
+        ], anthropic)
+
+        expect(params[:system]).to eq("be terse")
+        expect(filtered.map { |m| m["role"] }).to eq([ "user", "assistant" ])
+      end
+
+      it "concatenates multiple system messages with a blank line" do
+        params, _ = call({}, [
+          { role: "system", content: "one" },
+          { role: "user",   content: "hi" },
+          { role: "system", content: "two" }
+        ], anthropic)
+
+        expect(params[:system]).to eq("one\n\ntwo")
+      end
+
+      it "preserves an existing chat_params[:system] and appends the extracted content" do
+        # If the caller already set :system explicitly, don't clobber it.
+        params, _ = call({ system: "existing persona" }, [
+          { role: "system", content: "extra directive" }
+        ], anthropic)
+
+        expect(params[:system]).to eq("existing persona\n\nextra directive")
+      end
+
+      it "returns chat_params and messages unchanged when there are no system messages" do
+        original_params  = { temperature: 0.5 }
+        original_msgs = [ { role: "user", content: "hi" } ]
+
+        params, filtered = call(original_params, original_msgs, anthropic)
+
+        expect(params).to eq(original_params)
+        expect(filtered).to eq(original_msgs)
+      end
+    end
+
+    context "with a non-Anthropic provider (OpenAI)" do
+      it "returns chat_params and messages untouched, even with role:system inline" do
+        # OpenAI + Ollama accept role:"system" inline — must not extract.
+        original_params  = { temperature: 0.5 }
+        original_msgs = [
+          { role: "system", content: "be terse" },
+          { role: "user",   content: "hi" }
+        ]
+
+        params, filtered = call(original_params, original_msgs, openai)
+
+        expect(params).to eq(original_params)
+        expect(filtered).to eq(original_msgs)
+      end
+    end
+
+    context "edge cases" do
+      it "handles nil messages" do
+        params, filtered = call({}, nil, anthropic)
+        expect(params).to eq({})
+        expect(filtered).to be_nil
+      end
+
+      it "handles empty messages array" do
+        params, filtered = call({}, [], anthropic)
+        expect(params).to eq({})
+        expect(filtered).to eq([])
+      end
+
+      it "handles nil llm" do
+        original_msgs = [ { role: "system", content: "x" } ]
+        params, filtered = call({}, original_msgs, nil)
+        expect(params).to eq({})
+        expect(filtered).to eq(original_msgs)
+      end
+
+      it "skips system messages whose content is blank" do
+        params, filtered = call({}, [
+          { role: "system", content: "" },
+          { role: "user",   content: "hi" }
+        ], anthropic)
+
+        # No system content to move — chat_params gets no :system, but the
+        # empty system entry is still filtered out of the messages array.
+        expect(params).not_to have_key(:system)
+        expect(filtered.map { |m| m[:role] }).to eq([ "user" ])
+      end
+    end
+  end
+
+  describe "Anthropic system-message wiring end-to-end" do
+    # These tests guard the CALL-SITE integration: apply_anthropic_system!
+    # must run BEFORE LLM::Session.new at every entry point that touches
+    # Anthropic, otherwise the system message would go inline in messages:
+    # and Anthropic would 400. A regression here is what shipped as the
+    # invalid_request_error we hit in dev.
+    let(:anthropic_key) {
+      user = User.create!(email: "sys@example.com", google_id: "g-sys")
+      user.llm_api_keys.create!(llm_type: "anthropic", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-anth"))
+    }
+    let(:anth_client)     { double("LLM::Anthropic") }
+    let(:session)         { instance_double("LLM::Session") }
+    let(:messages_buffer) { double("MessagesBuffer") }
+    let(:choice)          { instance_double("Choice", content: "ok") }
+    let(:response)        { instance_double("Response", choices: [ choice ], body: nil, functions: []) }
+    let(:sink)            { Class.new { def <<(x); self; end }.new }
+
+    let(:history_with_system) {
+      [
+        { role: "system", content: "be terse" },
+        { role: "user",   content: "hello" }
+      ]
+    }
+
+    before do
+      allow_any_instance_of(ApiKeyEncrypter).to receive(:encrypt).and_return("ENC")
+      allow_any_instance_of(ApiKeyDecrypter).to receive(:decrypt).and_return("sk-anth")
+
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+      allow(LLM).to receive(:anthropic).and_return(anth_client)
+      allow(anth_client).to receive_message_chain(:class, :name).and_return("LLM::Anthropic")
+      allow(anth_client).to receive(:server_tools).and_return({})
+
+      allow(LLM::Session).to receive(:new).and_return(session)
+      allow(session).to receive(:messages).and_return(messages_buffer)
+      allow(messages_buffer).to receive(:concat)
+      allow(session).to receive(:chat).and_return(response)
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:extract_tool_calls).and_return([])
+    end
+
+    it "stream! (plain path): threads system: into LLM::Session.new and strips it from seeded messages" do
+      described_class.stream!("claude-opus-4-8", "hi",
+                              sink: sink, llm_api_key: anthropic_key,
+                              messages: history_with_system)
+
+      # 1. The system content reached LLM::Session.new as a top-level kwarg
+      expect(LLM::Session).to have_received(:new).with(
+        anth_client, hash_including(system: "be terse")
+      )
+      # 2. And the seeded history no longer contains role:system —
+      #    only the user turn survives (assistant history unchanged).
+      expect(messages_buffer).to have_received(:concat) do |msgs|
+        expect(msgs.map(&:role).map(&:to_s)).to eq([ "user" ])
+      end
+    end
+
+    it "stream_chat_with_tools! (tools path — the one that failed in dev): threads system: through" do
+      tool = double("tool")
+      # Provide a full tools-loop stub so the branch actually runs.
+      allow(session).to receive(:chat).with("hi", stream: false).and_return(response)
+      allow(session).to receive(:functions).and_return([])
+
+      described_class.stream!("claude-opus-4-8", "hi",
+                              sink: sink, llm_api_key: anthropic_key,
+                              tools: [ tool ], messages: history_with_system)
+
+      expect(LLM::Session).to have_received(:new).with(
+        anth_client, hash_including(system: "be terse", tools: [ tool ])
+      )
+      expect(messages_buffer).to have_received(:concat) do |msgs|
+        expect(msgs.map(&:role).map(&:to_s)).to eq([ "user" ])
+      end
+    end
+
+    it "call! (non-streaming path): threads system: through execute_chat!" do
+      described_class.call!("claude-opus-4-8", "hi",
+                            llm_api_key: anthropic_key,
+                            messages: history_with_system)
+
+      expect(LLM::Session).to have_received(:new).with(
+        anth_client, hash_including(system: "be terse")
+      )
+      expect(messages_buffer).to have_received(:concat) do |msgs|
+        expect(msgs.map(&:role).map(&:to_s)).to eq([ "user" ])
+      end
+    end
+
+    it "does NOT set system: when messages contain no role:system entry (backward compat)" do
+      described_class.stream!("claude-opus-4-8", "hi",
+                              sink: sink, llm_api_key: anthropic_key,
+                              messages: [ { role: "user", content: "hi again" } ])
+
+      expect(LLM::Session).to have_received(:new).with(
+        anth_client, hash_not_including(:system)
+      )
+    end
+  end
 end

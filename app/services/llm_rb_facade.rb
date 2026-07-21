@@ -69,12 +69,14 @@ module LlmRbFacade
           elsif native.any?
             # Native-only (e.g. Gemini grounding / url_context): provider-side
             # tools, no function round-trip — stream the grounded answer directly.
+            chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
             session = LLM::Session.new llm, model: model_id, tools: native, **chat_params
             seed_session_messages!(session, messages)
             response = session.chat effective_prompt, stream: sink
             log_finish_diagnostics(response, "native")
             response.choices[-1]&.content || ""
           else
+            chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
             session = LLM::Session.new llm, model: model_id, **chat_params
             seed_session_messages!(session, messages)
             # Controller already emitted "thinking" at the top. The model may
@@ -140,6 +142,43 @@ module LlmRbFacade
         next if role.empty? || content.empty?
         LLM::Message.new(role, content)
       end
+    end
+
+    # Anthropic's API rejects role:"system" messages inline in `messages:`; the
+    # system prompt must be passed via a top-level `system:` field. llm.rb 4.3.1
+    # has no code that does this extraction — it forwards role as-is — so we do
+    # it here for Anthropic only. Other providers (OpenAI, Ollama, Gemini) still
+    # accept inline system messages, so their message arrays pass through
+    # untouched. Returns [updated_chat_params, filtered_messages].
+    def apply_anthropic_system!(chat_params, messages, llm)
+      return [ chat_params, messages ] unless anthropic_provider?(llm)
+      return [ chat_params, messages ] if messages.blank?
+
+      system_msgs, other_msgs = Array(messages).partition do |m|
+        h = m.respond_to?(:to_h) ? m.to_h : m
+        (h[:role] || h["role"]).to_s == "system"
+      end
+      return [ chat_params, messages ] if system_msgs.empty?
+
+      system_text = system_msgs.filter_map { |m|
+        h = m.respond_to?(:to_h) ? m.to_h : m
+        (h[:content] || h["content"]).to_s.presence
+      }.join("\n\n")
+
+      # Keep original chat_params if the user already set :system explicitly —
+      # theirs wins; append ours below for context. This preserves whatever
+      # persona-shaping the caller specifically configured.
+      merged_system = [ chat_params[:system].to_s.presence, system_text.presence ].compact.join("\n\n")
+
+      # If nothing to add (all system messages had blank content and no prior
+      # :system was set), leave chat_params alone — but still filter the
+      # blank system entries out of messages so they don't reach Anthropic.
+      updated = merged_system.empty? ? chat_params : chat_params.merge(system: merged_system)
+      [ updated, other_msgs ]
+    end
+
+    def anthropic_provider?(llm)
+      llm && llm.class.name == "LLM::Anthropic"
     end
 
     # llm.rb's Anthropic provider hard-defaults max_tokens to 1024, which
@@ -301,6 +340,7 @@ module LlmRbFacade
     end
 
     def execute_chat!(llm, model_id, prompt, generation_params, messages: nil)
+      generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
       bot = LLM::Session.new llm, model: model_id, **generation_params
       seed_session_messages!(bot, messages)
       messages_ret = bot.chat prompt
@@ -309,6 +349,7 @@ module LlmRbFacade
     end
 
     def execute_chat_with_tools!(llm, model_id, prompt, tools, generation_params, messages: nil)
+      generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
       seed_session_messages!(session, messages)
       response = session.chat prompt
@@ -333,6 +374,7 @@ module LlmRbFacade
     MAX_TOOL_ITERATIONS = 5
 
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change, messages: nil)
+      generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
       seed_session_messages!(session, messages)
       response = session.chat prompt, stream: false # turn 1: explicitly non-streamed
