@@ -399,9 +399,15 @@ module LlmRbFacade
 
       iterations = 0
       while session.functions.any? && iterations < MAX_TOOL_ITERATIONS
-        on_tool_calls&.call(session.extract_tool_calls)
-        tool_results = session.functions.map(&:call)
+        # Snapshot the call metadata BEFORE execution — session.extract_tool_calls
+        # walks the assistant messages that will still be there after execution,
+        # but capturing now keeps the pairing with tool_results 1:1 obvious.
+        tool_call_meta = session.extract_tool_calls
+        tool_results   = session.functions.map(&:call)
         emit_tool_errors_to_sink(tool_results, sink)
+        # Fire on_tool_calls AFTER execution with results attached, so the
+        # chat UI can show what each tool returned (essential for debugging).
+        on_tool_calls&.call(zip_tool_calls_with_results(tool_call_meta, tool_results))
         # Each iteration may think again before emitting content — re-signal
         # so the role label flips back to "thinking" between turns.
         on_phase_change&.call("thinking")
@@ -440,6 +446,53 @@ module LlmRbFacade
         "**Tool `#{r.name}` failed:** #{msg}"
       end
       sink << lines.join("\n\n") + "\n\n"
+    end
+
+    # Max characters of a tool result to include in the tool_calls event.
+    # Chosen to fit comfortably in a collapsed <details> block without
+    # bloating the persisted assistant message. Users can hit the tool
+    # directly via the browsable URL (see MCP tool responses) to see full
+    # output.
+    TOOL_RESULT_TRUNCATE_LEN = 1500
+
+    # Pair each { id:, name:, arguments: } from extract_tool_calls with the
+    # matching Return value from session.functions.map(&:call). Match by id
+    # when available (safest across providers that batch multiple parallel
+    # tool calls); fall back to positional pairing for providers that don't
+    # populate id.
+    def zip_tool_calls_with_results(call_meta, tool_results)
+      results_by_id = tool_results.each_with_object({}) do |r, h|
+        id = r.respond_to?(:id) ? r.id : nil
+        h[id] = r if id
+      end
+
+      call_meta.each_with_index.map do |call, i|
+        result = results_by_id[call[:id]] || tool_results[i]
+        call.merge(result: extract_tool_result_text(result&.value))
+      end
+    end
+
+    # Reduce an arbitrary tool result to a display-friendly string. MCP tools
+    # return `{content: [{type: "text", text: "..."}, ...]}` — concat those
+    # text parts. Anything else gets JSON-serialized. Then truncate.
+    def extract_tool_result_text(value)
+      raw =
+        if value.is_a?(Hash) && value["content"].is_a?(Array)
+          value["content"].filter_map { |c| c.is_a?(Hash) ? c["text"] : nil }.join("\n").presence ||
+            value.to_json
+        elsif value.nil?
+          ""
+        elsif value.is_a?(String)
+          value
+        else
+          value.to_json rescue value.to_s
+        end
+      truncate_for_display(raw)
+    end
+
+    def truncate_for_display(str)
+      return str.to_s if str.to_s.length <= TOOL_RESULT_TRUNCATE_LEN
+      "#{str[0, TOOL_RESULT_TRUNCATE_LEN]}… (truncated, #{str.length - TOOL_RESULT_TRUNCATE_LEN} more chars)"
     end
 
     # Anthropic's response_adapter only builds `choices` from text parts of the

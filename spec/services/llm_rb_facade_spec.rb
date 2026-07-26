@@ -747,4 +747,89 @@ RSpec.describe LlmRbFacade do
       )
     end
   end
+
+  describe "#extract_tool_result_text (private) — display-friendly result formatting" do
+    def call(value)
+      described_class.send(:extract_tool_result_text, value)
+    end
+
+    it "concatenates text parts from MCP {content: [{type:text, text:...}]} shape" do
+      result = call({ "content" => [ { "type" => "text", "text" => "one" }, { "type" => "text", "text" => "two" } ] })
+      expect(result).to eq("one\ntwo")
+    end
+
+    it "falls back to JSON when the MCP-shape content array yields no text (e.g. binary parts)" do
+      result = call({ "content" => [ { "type" => "image", "data" => "..." } ] })
+      # `content.filter_map { text }` is empty → fallback to JSON of the whole hash.
+      expect(result).to include('"content"').and include('"type":"image"')
+    end
+
+    it "returns a plain String unchanged when it fits" do
+      expect(call("just a string")).to eq("just a string")
+    end
+
+    it "returns empty string for nil (defensive — some upstream errors return nothing)" do
+      expect(call(nil)).to eq("")
+    end
+
+    it "JSON-serializes arbitrary hashes/arrays that don't match the MCP shape" do
+      expect(call({ "custom" => "shape" })).to eq('{"custom":"shape"}')
+      expect(call([ 1, 2, 3 ])).to eq("[1,2,3]")
+    end
+
+    it "truncates long text and appends a '(truncated, N more chars)' marker" do
+      long = "A" * (LlmRbFacade.singleton_class::TOOL_RESULT_TRUNCATE_LEN + 42)
+      result = call(long)
+      expect(result.length).to be < long.length
+      expect(result).to end_with("… (truncated, 42 more chars)")
+      expect(result).to start_with("A" * 100)  # first bytes preserved verbatim
+    end
+
+    it "does not touch text exactly at the truncation boundary" do
+      # Edge case: length == limit should NOT be marked as truncated.
+      boundary = "B" * LlmRbFacade.singleton_class::TOOL_RESULT_TRUNCATE_LEN
+      expect(call(boundary)).to eq(boundary)
+    end
+  end
+
+  describe "#zip_tool_calls_with_results (private)" do
+    # Return-like double: match the shape of LLM::Function::Return (id, name, value)
+    def ret(id:, name: "t", value:)
+      double("Return", id: id, name: name, value: value)
+    end
+
+    it "pairs each call with its result by id (preferred — safe under batched parallel calls)" do
+      # Simulate two parallel tool calls whose results come back in a different
+      # order — id-based pairing must survive the reorder.
+      call_meta = [
+        { id: "call-A", name: "search", arguments: { q: "a" } },
+        { id: "call-B", name: "search", arguments: { q: "b" } }
+      ]
+      results = [
+        ret(id: "call-B", value: "result-B"),
+        ret(id: "call-A", value: "result-A")
+      ]
+
+      out = described_class.send(:zip_tool_calls_with_results, call_meta, results)
+      expect(out[0][:result]).to eq("result-A")
+      expect(out[1][:result]).to eq("result-B")
+    end
+
+    it "falls back to positional pairing when ids are missing (some providers)" do
+      call_meta = [ { id: nil, name: "t", arguments: {} }, { id: nil, name: "t", arguments: {} } ]
+      results   = [ ret(id: nil, value: "first"), ret(id: nil, value: "second") ]
+
+      out = described_class.send(:zip_tool_calls_with_results, call_meta, results)
+      expect(out.map { |c| c[:result] }).to eq([ "first", "second" ])
+    end
+
+    it "preserves the original call fields (id, name, arguments) alongside the added :result" do
+      call_meta = [ { id: "x", name: "list", arguments: { q: "anatomy" } } ]
+      results   = [ ret(id: "x", value: { "content" => [ { "type" => "text", "text" => "found 3" } ] }) ]
+
+      out = described_class.send(:zip_tool_calls_with_results, call_meta, results)
+      expect(out.first).to include(id: "x", name: "list", arguments: { q: "anatomy" })
+      expect(out.first[:result]).to eq("found 3")
+    end
+  end
 end
