@@ -188,17 +188,29 @@ module LlmRbFacade
     end
 
     # Convert a wire-shape `[{role: "user"|"assistant"|"system", content: "..."}]`
-    # array into a list of `LLM::Message` objects. Nils, missing keys, and
-    # blank content are dropped defensively so a malformed history doesn't
-    # blow up the whole turn.
+    # array into a list of `LLM::Message` objects. Nils and missing keys are
+    # dropped defensively so a malformed history doesn't blow up the turn.
+    #
+    # Assistant messages with `tool_calls:` are preserved even when `content`
+    # is empty — this is the "I chose to invoke tool X" turn on the way back
+    # around a client-orchestrated round-trip; dropping it strips the LLM's
+    # own record of what it just requested and confuses the follow-up.
+    # tool_calls ride in the LLM::Message `extra` bag under `:tool_calls`,
+    # which is where llm.rb's Session#extract_tool_calls looks for them.
     def messages_to_llm_objects(messages)
       return [] if messages.nil? || (messages.respond_to?(:empty?) && messages.empty?)
       Array(messages).filter_map do |m|
         h = m.respond_to?(:to_h) ? m.to_h : m
-        role    = (h[:role]    || h["role"]).to_s
-        content = (h[:content] || h["content"]).to_s
-        next if role.empty? || content.empty?
-        LLM::Message.new(role, content)
+        role       = (h[:role]       || h["role"]).to_s
+        content    = (h[:content]    || h["content"]).to_s
+        tool_calls = h[:tool_calls]  || h["tool_calls"]
+        next if role.empty?
+        # Keep assistant messages that carry tool_calls even with empty content;
+        # drop all other empty-content messages as noise.
+        next if content.empty? && !(role == "assistant" && tool_calls.is_a?(Array) && tool_calls.any?)
+
+        extra = tool_calls.is_a?(Array) && tool_calls.any? ? { tool_calls: tool_calls } : {}
+        LLM::Message.new(role, content, extra)
       end
     end
 

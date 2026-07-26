@@ -170,6 +170,37 @@ RSpec.describe LlmRbFacade do
       expect(described_class.send(:messages_to_llm_objects, nil)).to eq([])
       expect(described_class.send(:messages_to_llm_objects, [])).to eq([])
     end
+
+    # Regression for Phase 2 D: client-orchestrated round-trip depends on
+    # replay of the assistant's tool_call turn. That turn has empty content
+    # (LLM emitted only tool_calls, no text). The previous "drop-if-content-
+    # empty" rule dropped it, breaking follow-up context.
+    it "preserves assistant messages with empty content when they carry tool_calls" do
+      out = described_class.send(:messages_to_llm_objects, [
+        { role: "user",      content: "annotate" },
+        { role: "assistant", content: "",
+          tool_calls: [ { id: "call_1", name: "text_annotation", arguments: { text: "…" } } ] },
+        { role: "tool", tool_call_id: "call_1", name: "text_annotation", content: "result" }
+      ])
+      assistant = out.find { |m| m.role.to_s == "assistant" }
+      expect(assistant).not_to be_nil, "assistant tool_call turn should not be dropped"
+      # tool_calls should be preserved via LLM::Message's `extra` bag so
+      # Session#extract_tool_calls can find them on rebuild.
+      expect(assistant.extra[:tool_calls]).to eq(
+        [ { id: "call_1", name: "text_annotation", arguments: { text: "…" } } ]
+      )
+    end
+
+    it "still drops empty-content non-assistant messages (and assistant messages with neither content nor tool_calls)" do
+      out = described_class.send(:messages_to_llm_objects, [
+        { role: "user",      content: "" },              # dropped — noise
+        { role: "assistant", content: "" },              # dropped — no tool_calls either
+        { role: "assistant", content: "", tool_calls: [] }, # dropped — empty tool_calls array
+        { role: "user",      content: "keep me" }
+      ])
+      expect(out.length).to eq(1)
+      expect(out.first.content).to eq("keep me")
+    end
   end
 
   describe "#strip_responses_only_params (private)" do
