@@ -1,4 +1,47 @@
 module LLM
+  # Override LLM::Message#functions to handle history-replay for the client-
+  # orchestrated flow (Api::SingleLlmCallsController). Upstream:
+  #
+  #   def functions
+  #     @functions ||= tool_calls.map do |fn|
+  #       function = available_tools.find { _1.name.to_s == fn["name"] }.dup
+  #       function.tap { _1.id = fn.id }
+  #       function.tap { _1.arguments = fn.arguments }
+  #     end
+  #   end
+  #
+  # `available_tools` is `response&.__tools__ || []`. For assistant messages
+  # we RECONSTRUCT from client-sent history via `messages_to_llm_objects`,
+  # there's no wrapping response — `available_tools` is `[]`, `.find` returns
+  # nil, `.dup` returns nil, `.tap { _1.id = ... }` raises. Building the
+  # LLM::Function object directly from the tool_call data (and marking it as
+  # already-called so Session#functions doesn't re-dispatch it) makes replay
+  # work without perturbing the hub-orchestrated path (where available_tools
+  # IS populated and the `find` succeeds).
+  class Message
+    def functions
+      @functions ||= tool_calls.map do |fn|
+        matched = available_tools.find { _1.name.to_s == fn["name"] }
+        if matched
+          # Hub-orchestrated flow: fresh response → available_tools populated →
+          # normal path. Function remains PENDING so the hub can dispatch it.
+          matched.dup
+            .tap { _1.id = fn["id"] || fn.id }
+            .tap { _1.arguments = fn["arguments"] || fn.arguments }
+        else
+          # Client-orchestrated flow: reconstructed history message has no
+          # wrapping response → available_tools is []. Build directly, and
+          # mark @called so Session#functions#select(&:pending?) skips it —
+          # the client already dispatched.
+          LLM::Function.new(fn["name"])
+            .tap { _1.id = fn["id"] || fn.id }
+            .tap { _1.arguments = fn["arguments"] || fn.arguments }
+            .tap { _1.instance_variable_set(:@called, true) }
+        end
+      end
+    end
+  end
+
   class Session
     def extract_tool_calls
       messages

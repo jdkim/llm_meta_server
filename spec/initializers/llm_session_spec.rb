@@ -49,3 +49,40 @@ RSpec.describe LLM::Session, "monkey-patched extract_tool_calls" do
     end
   end
 end
+
+RSpec.describe LLM::Message, "monkey-patched functions (history replay for client-orchestrated flow)" do
+  # Regression for Phase 2 · Class 2: when the widget round-trips a remote
+  # MCP tool_call, round 2's request contains the assistant-with-tool_calls
+  # turn as history. Reconstructed messages have no wrapping response, so
+  # LLM::Message#available_tools returns []. Upstream #functions then does
+  # `available_tools.find { ... }.dup.tap { _1.id = fn.id }` → NoMethodError
+  # for `id=` on nil. The initializer's override handles the nil-find case.
+  it "builds functions directly from tool_calls when no wrapping response provides available_tools" do
+    msg = LLM::Message.new("assistant", "", tool_calls: [
+      { "id" => "call_1", "name" => "list_dictionaries", "arguments" => {} }
+    ])
+    fns = msg.functions
+    expect(fns.length).to eq(1)
+    expect(fns.first.name.to_s).to eq("list_dictionaries")
+    expect(fns.first.id).to eq("call_1")
+    # Marked as already-called so Session#functions.select(&:pending?) skips it —
+    # client-orchestrated flow: the CLIENT dispatched, hub must not re-execute.
+    expect(fns.first.pending?).to eq(false)
+  end
+
+  it "keeps the upstream hub-orchestrated path — freshly-emitted tool_calls stay pending" do
+    # Simulate a freshly-emitted tool_call: available_tools IS populated
+    # (there's a wrapping response). Function must remain PENDING so the
+    # hub can dispatch it.
+    matching_tool = LLM::Function.new("some_tool")
+    # Fake a response object exposing __tools__:
+    fake_response = Struct.new(:__tools__).new([ matching_tool ])
+    msg = LLM::Message.new("assistant", "",
+                            tool_calls: [ { "id" => "call_x", "name" => "some_tool", "arguments" => { "q" => "hi" } } ],
+                            response: fake_response)
+    fns = msg.functions
+    expect(fns.length).to eq(1)
+    expect(fns.first.name.to_s).to eq("some_tool")
+    expect(fns.first.pending?).to eq(true), "freshly-emitted functions must remain pending"
+  end
+end
