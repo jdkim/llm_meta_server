@@ -57,7 +57,7 @@ RSpec.describe LlmModelMap do
       openai = described_class.available_models_for("openai")
       gpt5 = openai.find { |m| m["value"] == "gpt-5" }
 
-      expect(gpt5).to eq(
+      expect(gpt5).to include(
         "label" => "GPT-5",
         "value" => "gpt-5",
         "supports_vision" => true,
@@ -247,6 +247,57 @@ RSpec.describe LlmModelMap do
           expect(info[:supports_vision]).to be(true),
             "image model #{meta_id} must also have supports_vision: true"
         end
+      end
+    end
+  end
+
+  describe ".pricing_tier_and_label" do
+    it "returns $ for cheap models (output <= $3)" do
+      tier, label = described_class.pricing_tier_and_label(input: 0.25, output: 2.00)
+      expect(tier).to eq("$")
+      expect(label).to eq("$0.25 / $2.0 per 1M tokens")
+    end
+
+    it "returns $$ for mid-tier models (output between $3 and $15)" do
+      tier, _ = described_class.pricing_tier_and_label(input: 1.25, output: 10.00)
+      expect(tier).to eq("$$")
+    end
+
+    it "returns $$$ for premium models (output > $15)" do
+      tier, _ = described_class.pricing_tier_and_label(input: 15.00, output: 75.00)
+      expect(tier).to eq("$$$")
+    end
+
+    it "returns nils for pricing-less models (ollama, image-gen)" do
+      expect(described_class.pricing_tier_and_label(nil)).to eq([ nil, nil ])
+      expect(described_class.pricing_tier_and_label({})).to eq([ nil, nil ])
+    end
+
+    it "returns nils when pricing is a partial hash (missing output)" do
+      expect(described_class.pricing_tier_and_label(input: 1.0)).to eq([ nil, nil ])
+    end
+  end
+
+  describe "pricing hints in .available_models_for" do
+    it "surfaces pricing_tier + pricing_label for chargeable models" do
+      openai = described_class.available_models_for("openai")
+      gpt5 = openai.find { |m| m["value"] == "gpt-5" }
+      expect(gpt5["pricing_tier"]).to eq("$$")
+      expect(gpt5["pricing_label"]).to include("$1.25")
+      expect(gpt5["pricing_label"]).to include("$10")
+    end
+
+    it "omits pricing fields for Ollama (free / local) models" do
+      described_class.available_models_for("ollama").each do |m|
+        expect(m).not_to have_key("pricing_tier")
+        expect(m).not_to have_key("pricing_label")
+      end
+    end
+
+    it "surfaces pricing_tier + pricing_label for image-gen models (per_image billing) with a 'per image' label" do
+      described_class.available_models_for("google").select { |m| m["kind"] == "image" }.each do |m|
+        expect(m).to have_key("pricing_tier")
+        expect(m["pricing_label"]).to match(/per image/)
       end
     end
   end

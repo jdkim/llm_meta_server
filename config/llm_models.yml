@@ -98,8 +98,11 @@ openai:
     display_name: GPT Image 1
     kind: image
     supports_vision: true
-    # kind: image → billed per-image by OpenAI, not per-token.
-    # No pricing block; per-image cost integration is pending.
+    # OpenAI bills per-image; per_image is the standard 1024x1024 rate.
+    # HD variants (1024x1792) run up to ~$0.19 — verify at openai.com/api/pricing.
+    pricing:
+      per_image: 0.04
+      reviewed_at: 2026-07-21
 
 anthropic:
   claude-fable-5:
@@ -241,19 +244,27 @@ google:
     display_name: Gemini 3.1 Flash Image (Nano Banana 2)
     kind: image
     supports_vision: true
-    # kind: image → billed per-image by the provider, not per-token.
-    # No pricing block; shared-key flow should skip these until per-image
-    # cost is integrated.
+    # per_image is Google's 1K-resolution rate; 2K is ~$0.101, 4K ~$0.151.
+    pricing:
+      per_image: 0.067
+      reviewed_at: 2026-07-21
   gemini-3-pro-image:
     api_id: gemini-3-pro-image
     display_name: Gemini 3 Pro Image (Nano Banana Pro)
     kind: image
     supports_vision: true
+    # per_image is Google's 1K/2K-resolution rate; 4K is ~$0.24.
+    pricing:
+      per_image: 0.134
+      reviewed_at: 2026-07-21
   gemini-2-5-flash-image:
     api_id: gemini-2.5-flash-image
     display_name: Gemini 2.5 Flash Image (Nano Banana)
     kind: image
     supports_vision: true
+    pricing:
+      per_image: 0.039
+      reviewed_at: 2026-07-21
 
 ollama:
   # Every Ollama model here sets `options.num_ctx: 32768`. Ollama's own

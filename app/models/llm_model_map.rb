@@ -41,6 +41,7 @@ class LlmModelMap
 
   def self.available_models_for(llm_type)
     MODEL_MAP.fetch(llm_type).map do |key, value|
+      tier, label = pricing_tier_and_label(value[:pricing])
       {
         "label" => value[:display_name], # Display name: official model name
         "value" => key,                   # Internal ID: meta_id (without dots)
@@ -48,8 +49,47 @@ class LlmModelMap
         "supports_tools" => value[:supports_tools] == true,
         # `kind` is only emitted for image-gen models — the frontend
         # treats its absence as "regular chat model".
-        "kind" => value[:kind].to_s.presence
+        "kind" => value[:kind].to_s.presence,
+        # Pricing hints for the model picker chip. Nil for free (Ollama)
+        # and image-gen (per-image billing, not per-token) — the frontend
+        # renders no chip when these are absent.
+        "pricing_tier" => tier,
+        "pricing_label" => label
       }.compact
+    end
+  end
+
+  # Bucketed by output rate for per-token models, per-image rate for image-gen.
+  # Two-orders-of-magnitude gap between the two — hence separate thresholds.
+  #
+  # Per-token (output rate — usually dominates for chat):
+  #   $   ≤ $3/M output      (cheap — mini/lite/haiku)
+  #   $$  ≤ $15/M output     (mid — most flagships)
+  #   $$$ >  $15/M output    (premium — Opus/Fable/Pro tiers)
+  #
+  # Per-image (typical single-image cost):
+  #   $   ≤ $0.05/image      (cheap — flash-image tier)
+  #   $$  ≤ $0.10/image      (mid — newer flash-image)
+  #   $$$ >  $0.10/image     (premium — pro-image tier)
+  def self.pricing_tier_and_label(pricing)
+    return [ nil, nil ] unless pricing.is_a?(Hash)
+
+    if pricing[:per_image]
+      tier = case pricing[:per_image].to_f
+      when ..0.05  then "$"
+      when ..0.10  then "$$"
+      else              "$$$"
+      end
+      [ tier, "$#{pricing[:per_image]} per image" ]
+    elsif pricing[:input] && pricing[:output]
+      tier = case pricing[:output].to_f
+      when ..3.0   then "$"
+      when ..15.0  then "$$"
+      else              "$$$"
+      end
+      [ tier, "$#{pricing[:input]} / $#{pricing[:output]} per 1M tokens" ]
+    else
+      [ nil, nil ]
     end
   end
 

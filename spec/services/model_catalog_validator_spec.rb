@@ -24,7 +24,8 @@ RSpec.describe ModelCatalogValidator do
           },
           "google" => {
             "gemini-image" => {
-              api_id: "gemini-image", display_name: "Gemini Image", kind: "image"
+              api_id: "gemini-image", display_name: "Gemini Image", kind: "image",
+              pricing: { per_image: 0.04, reviewed_at: today }
             }
           }
         )
@@ -92,9 +93,23 @@ RSpec.describe ModelCatalogValidator do
         expect(described_class.validate(today: today)[:errors]).to be_empty
       end
 
-      it "does not require pricing for kind: image models" do
+      it "requires pricing.per_image on image-gen models (per-image billing)" do
         stub_catalog("google" => { "img" => { api_id: "img", display_name: "Img", kind: "image" } })
+        errs = described_class.validate(today: today)[:errors]
+        expect(errs).to include(/missing pricing block/)
+      end
+
+      it "accepts an image model with pricing.per_image" do
+        stub_catalog("google" => { "img" => { api_id: "img", display_name: "Img", kind: "image",
+                                              pricing: { per_image: 0.04, reviewed_at: today } } })
         expect(described_class.validate(today: today)[:errors]).to be_empty
+      end
+
+      it "flags missing per_image when the model is image-kind with an empty pricing block" do
+        stub_catalog("google" => { "img" => { api_id: "img", display_name: "Img", kind: "image",
+                                              pricing: { reviewed_at: today } } })
+        errs = described_class.validate(today: today)[:errors]
+        expect(errs).to include(/pricing\.per_image missing/)
       end
 
       it "warns if a non-chargeable model has a pricing block (would be ignored)" do

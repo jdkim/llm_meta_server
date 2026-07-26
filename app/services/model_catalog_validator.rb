@@ -4,12 +4,15 @@ class ModelCatalogValidator
   STALE_AFTER_DAYS  = 180 # ~6 months
 
   # A model is "chargeable" if the server bills the caller for its use.
-  # Ollama runs locally (always $0). Image-gen models bill per-image, not
-  # per-token — pricing is handled separately (or intentionally skipped).
-  def self.chargeable?(llm_type, model)
+  # Ollama runs locally (always $0). Image-gen bills per-image (pricing.per_image);
+  # everything else bills per-token (pricing.input + pricing.output).
+  def self.chargeable?(llm_type, _model)
     return false if llm_type == "ollama"
-    return false if model[:kind].to_s == "image"
     true
+  end
+
+  def self.per_image?(model)
+    model[:kind].to_s == "image"
   end
 
   # Runs all checks against LlmModelMap::MODEL_MAP.
@@ -37,13 +40,16 @@ class ModelCatalogValidator
           pricing = model[:pricing]
           if pricing.nil?
             errors << "#{prefix}: missing pricing block (chargeable model — required)"
+          elsif per_image?(model)
+            errors << "#{prefix}: pricing.per_image missing (image model — required)" unless pricing[:per_image].is_a?(Numeric)
+            warnings.concat(reviewed_at_warnings(prefix, pricing[:reviewed_at], today))
           else
             errors << "#{prefix}: pricing.input missing"  unless pricing[:input].is_a?(Numeric)
             errors << "#{prefix}: pricing.output missing" unless pricing[:output].is_a?(Numeric)
             warnings.concat(reviewed_at_warnings(prefix, pricing[:reviewed_at], today))
           end
         elsif model[:pricing]
-          warnings << "#{prefix}: has pricing block but is not chargeable (ollama or kind: image); pricing will be ignored"
+          warnings << "#{prefix}: has pricing block but is not chargeable (ollama); pricing will be ignored"
         end
       end
     end
