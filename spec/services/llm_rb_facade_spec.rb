@@ -832,4 +832,147 @@ RSpec.describe LlmRbFacade do
       expect(out.first[:result]).to eq("found 3")
     end
   end
+
+  describe ".single_llm_turn! — stateless per-turn primitive for client-orchestrated flow" do
+    # These are smoke tests for the extracted primitive that Task 3 will wire
+    # into an HTTP endpoint. Full HTTP flow + provider-specific behavior will
+    # be covered separately by the endpoint spec (Task 5).
+
+    let(:llm_client) { double("LLM::Provider") }
+    let(:session)    { instance_double("LLM::Session") }
+    let(:messages_buffer) { double("MessagesBuffer") }
+    let(:choice)     { instance_double("Choice", content: "Hello!") }
+    let(:response)   { instance_double("Response", choices: [ choice ], body: nil) }
+    let(:api_key)    { double("LlmApiKey") }
+
+    before do
+      allow(llm_client).to receive_message_chain(:class, :name).and_return("LLM::OpenAI")
+      allow(described_class).to receive(:create_llm_client).and_return(llm_client)
+      allow(described_class).to receive(:apply_provider_defaults) { |gp, _key| gp }
+      allow(described_class).to receive(:native_server_tools).and_return([])
+      allow(LLM::Session).to receive(:new).and_return(session)
+      allow(session).to receive(:messages).and_return(messages_buffer)
+      allow(messages_buffer).to receive(:concat)
+      allow(session).to receive(:chat).and_return(response)
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:extract_tool_calls).and_return([])
+    end
+
+    context "with a single user message" do
+      it "seeds no history, passes the message content as chat input, returns content + empty tool_calls" do
+        result = described_class.single_llm_turn!(
+          llm_api_key: api_key, model_id: "gpt-5",
+          messages: [ { "role" => "user", "content" => "hi" } ]
+        )
+
+        expect(session).to have_received(:chat).with("hi", stream: nil)
+        expect(messages_buffer).not_to have_received(:concat)
+        expect(result).to include(content: "Hello!", tool_calls: [], finish_reason: nil)
+      end
+    end
+
+    context "with a user turn following a prior assistant turn" do
+      it "seeds the assistant turn into session history, current user message goes to chat" do
+        result = described_class.single_llm_turn!(
+          llm_api_key: api_key, model_id: "gpt-5",
+          messages: [
+            { "role" => "user",      "content" => "one" },
+            { "role" => "assistant", "content" => "two" },
+            { "role" => "user",      "content" => "three" }
+          ]
+        )
+
+        expect(messages_buffer).to have_received(:concat) do |msgs|
+          expect(msgs.length).to eq(2)
+          expect(msgs.map(&:role).map(&:to_s)).to eq(%w[user assistant])
+          expect(msgs.map(&:content)).to eq(%w[one two])
+        end
+        expect(session).to have_received(:chat).with("three", stream: nil)
+        expect(result[:content]).to eq("Hello!")
+      end
+    end
+
+    context "with trailing tool-result messages (multiple, from parallel tool_calls)" do
+      it "bundles them into one Function::Return array as the current input" do
+        described_class.single_llm_turn!(
+          llm_api_key: api_key, model_id: "gpt-5",
+          messages: [
+            { "role" => "user",      "content" => "annotate" },
+            { "role" => "assistant", "content" => "",
+              "tool_calls" => [ { id: "1", name: "search" }, { id: "2", name: "search" } ] },
+            { "role" => "tool", "tool_call_id" => "1", "name" => "search", "content" => "result A" },
+            { "role" => "tool", "tool_call_id" => "2", "name" => "search", "content" => "result B" }
+          ]
+        )
+
+        expect(session).to have_received(:chat) do |input, **|
+          expect(input).to be_an(Array).and(have_attributes(length: 2))
+          expect(input.map(&:id)).to eq(%w[1 2])
+          expect(input.map(&:name)).to eq(%w[search search])
+          expect(input.map(&:value)).to eq([ "result A", "result B" ])
+        end
+      end
+    end
+
+    context "when the LLM emits tool_calls" do
+      it "returns them WITHOUT looping (session.chat called once, no re-entry after tool_calls)" do
+        tool_calls = [ { id: "1", name: "add_dictionaries", arguments: { names: [ "uberon" ] } } ]
+        allow(session).to receive(:extract_tool_calls).and_return(tool_calls)
+
+        result = described_class.single_llm_turn!(
+          llm_api_key: api_key, model_id: "gpt-5",
+          messages: [ { "role" => "user", "content" => "add uberon" } ]
+        )
+
+        # session.chat called EXACTLY once — no tool-execution loop.
+        # Contrast to stream_chat_with_tools! which loops while functions.any?
+        # and calls session.functions.map(&:call) between chat invocations.
+        expect(session).to have_received(:chat).once
+        expect(result[:tool_calls]).to eq(tool_calls)
+      end
+    end
+
+    context "when messages is empty or nil" do
+      it "raises ArgumentError" do
+        expect {
+          described_class.single_llm_turn!(llm_api_key: api_key, model_id: "gpt-5", messages: [])
+        }.to raise_error(ArgumentError, /at least one message/)
+
+        expect {
+          described_class.single_llm_turn!(llm_api_key: api_key, model_id: "gpt-5", messages: nil)
+        }.to raise_error(ArgumentError, /at least one message/)
+      end
+    end
+
+    context "when llm_api_key is nil for a non-Ollama model" do
+      it "raises LlmApiKeyRequiredError (same rule as call!/stream!)" do
+        allow(LlmModelMap).to receive(:ollama_model?).with("gpt-5").and_return(false)
+        expect {
+          described_class.single_llm_turn!(
+            llm_api_key: nil, model_id: "gpt-5",
+            messages: [ { "role" => "user", "content" => "hi" } ]
+          )
+        }.to raise_error(LlmApiKeyRequiredError)
+      end
+
+      it "does NOT raise for Ollama models" do
+        allow(LlmModelMap).to receive(:ollama_model?).with("qwen3.6:35b-fast").and_return(true)
+        expect {
+          described_class.single_llm_turn!(
+            llm_api_key: nil, model_id: "qwen3.6:35b-fast",
+            messages: [ { "role" => "user", "content" => "hi" } ]
+          )
+        }.not_to raise_error
+      end
+    end
+
+    it "passes the sink through to session.chat for streaming" do
+      sink = Class.new { def <<(x); self; end }.new
+      described_class.single_llm_turn!(
+        llm_api_key: api_key, model_id: "gpt-5",
+        messages: [ { "role" => "user", "content" => "hi" } ], sink: sink
+      )
+      expect(session).to have_received(:chat).with("hi", stream: sink)
+    end
+  end
 end

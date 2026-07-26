@@ -70,6 +70,7 @@ Rails.application.routes.draw do
       resources :models, only: [], param: :name do # These constraints allow to include dot in model_name
         resources :chats, only: [ :create ]
         resources :chat_streams, only: [ :create ]
+        resources :single_llm_calls, only: [ :create ]
       end
     end
 
@@ -84,6 +85,11 @@ Rails.application.routes.draw do
         end
       end
     end
+
+    # Client-orchestrated flow: dispatch a remote MCP tool_call by tool_id.
+    # Separate from the mcp_servers-nested :tools resource because visibility
+    # is McpTool.lookup (own + active public), not ownership-only.
+    post "/mcp_tools/:tool_id/call", to: "mcp_tool_calls#create"
   end
 
   # Defines the root path route ("/")

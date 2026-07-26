@@ -102,6 +102,64 @@ module LlmRbFacade
       response.respond_to?(:output_text) ? response.output_text.to_s : ""
     end
 
+    # Single LLM turn — the primitive used by the client-orchestrated flow.
+    # Takes the full message history as declared by the client and calls the
+    # LLM ONCE. Does NOT execute any tool_calls the LLM emits; instead returns
+    # them for the client to dispatch (locally via window.aiActions, or by
+    # POSTing back to the hub's MCP proxy).
+    #
+    # Contract:
+    #   - Client sends the full conversation each turn (stateless server) —
+    #     including any assistant messages with tool_calls and any tool result
+    #     messages from prior turns.
+    #   - The LAST message in `messages` is what triggers this turn. If the
+    #     trailing messages are `role: "tool"` results (possibly multiple —
+    #     the LLM may emit parallel tool_calls), they are bundled together as
+    #     the input to session.chat.
+    #   - Response is streamed via `sink`; the return value is a summary of
+    #     what the LLM emitted (final content + any tool_calls it wants
+    #     dispatched next).
+    #
+    # Returns: { content:, tool_calls:, finish_reason: }
+    #   - content: assistant's text output (may be empty if only tool_calls)
+    #   - tool_calls: [{id:, name:, arguments:}, ...] — NOT executed
+    #   - finish_reason: provider-specific finish reason if surfaced
+    def single_llm_turn!(model_id:, messages:, llm_api_key: nil, tools: [], generation_params: {}, sink: nil, on_phase_change: nil)
+      raise ArgumentError, "model_id is required" if model_id.blank?
+      raise ArgumentError, "messages must contain at least one message" if messages.nil? || messages.empty?
+      if llm_api_key.nil? && !LlmModelMap.ollama_model?(model_id)
+        raise LlmApiKeyRequiredError, model_id
+      end
+
+      generation_params = apply_provider_defaults(generation_params, llm_api_key)
+      llm = create_llm_client(llm_api_key, model_id)
+      tools = tools + native_server_tools(llm)
+
+      generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
+
+      # Bundle trailing tool-result messages together as the "input" — the LLM
+      # may have emitted N parallel tool_calls, and their N results must arrive
+      # in one call to session.chat (llm.rb wraps them into one tool_result
+      # block per provider adapter). Non-tool trailing messages (user, system)
+      # are single-message inputs.
+      history_msgs, input_msgs = split_history_from_current_input(messages)
+
+      session = LLM::Session.new(llm, model: model_id, tools: tools, **generation_params)
+      seed_session_messages!(session, history_msgs) if history_msgs.any?
+
+      input = messages_to_session_input(input_msgs)
+
+      on_phase_change&.call("thinking")
+      response = session.chat(input, stream: sink)
+      rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
+
+      {
+        content: response.choices[-1]&.content || "",
+        tool_calls: session.extract_tool_calls,
+        finish_reason: extract_finish_reason(response)
+      }
+    end
+
     private
 
     # Params that only OpenAI's Responses endpoint accepts. When a model
@@ -377,6 +435,77 @@ module LlmRbFacade
       end
 
       build_response_with_tools(response, session)
+    end
+
+    # Split client-sent messages into (prior-history, current-input). Bundles
+    # trailing tool-result messages (possibly multiple, from parallel tool
+    # calls in a prior assistant turn) as one input block.
+    def split_history_from_current_input(messages)
+      trailing_tools = []
+      cutoff = messages.length
+      messages.reverse_each do |m|
+        role = message_role(m)
+        break unless role == "tool"
+        trailing_tools.unshift(m)
+        cutoff -= 1
+      end
+
+      if trailing_tools.any?
+        [ messages[0...cutoff], trailing_tools ]
+      else
+        [ messages[0..-2], [ messages[-1] ] ]
+      end
+    end
+
+    # Convert one-or-more client message hashes into what session.chat expects.
+    # - user/system → the content string
+    # - tool → an array of LLM::Function::Return (one per tool-result message),
+    #   because a single assistant turn may have emitted multiple parallel
+    #   tool_calls whose results must arrive together.
+    def messages_to_session_input(msgs)
+      first_role = message_role(msgs.first)
+
+      case first_role
+      when "tool"
+        msgs.map do |m|
+          h = m.respond_to?(:to_h) ? m.to_h : m
+          tool_call_id = h[:tool_call_id] || h["tool_call_id"]
+          name         = h[:name]         || h["name"]
+          content      = h[:content]      || h["content"]
+          LLM::Function::Return.new(tool_call_id, name.to_s, content)
+        end
+      when "user", "system", "assistant"
+        h = msgs.first.respond_to?(:to_h) ? msgs.first.to_h : msgs.first
+        (h[:content] || h["content"]).to_s
+      else
+        raise ArgumentError, "unsupported role for current-input message: #{first_role.inspect}"
+      end
+    end
+
+    def message_role(msg)
+      h = msg.respond_to?(:to_h) ? msg.to_h : msg
+      (h[:role] || h["role"]).to_s
+    end
+
+    # Provider-specific finish reason where surfaced. Anthropic uses
+    # `stop_reason` on the response body; OpenAI uses `finish_reason` on
+    # choices; Gemini uses `finishReason` on candidates. Best-effort.
+    def extract_finish_reason(response)
+      body = response.body rescue nil
+      # Anthropic top-level stop_reason
+      sr = body.respond_to?(:stop_reason) ? body.stop_reason : nil
+      return sr.to_s if sr && !sr.to_s.empty?
+      # OpenAI-style choices[].finish_reason
+      choice = response.choices[-1] rescue nil
+      fr = choice.respond_to?(:finish_reason) ? choice.finish_reason : nil
+      return fr.to_s if fr && !fr.to_s.empty?
+      # Gemini candidates[].finishReason
+      cand = body.respond_to?(:candidates) ? body.candidates[-1] : nil
+      gr = cand.respond_to?(:finishReason) ? cand.finishReason : nil
+      return gr.to_s if gr && !gr.to_s.empty?
+      nil
+    rescue StandardError
+      nil
     end
 
     # Maximum tool-call rounds. Small models (notably qwen3.6:35b-fast) will often
