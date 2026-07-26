@@ -29,11 +29,27 @@ module LLM
     private
 
     def normalize_tool_call(tc)
+      raw_args = tc.respond_to?(:arguments) ? tc.arguments : (tc[:arguments] || tc["arguments"])
+      args = coerce_tool_arguments(raw_args)
       if tc.respond_to?(:id)
-        { id: tc.id, name: tc.name, arguments: tc.arguments }
+        { id: tc.id, name: tc.name, arguments: args }
       else
-        { id: tc[:id] || tc["id"], name: tc[:name] || tc["name"], arguments: tc[:arguments] || tc["arguments"] }
+        { id: tc[:id] || tc["id"], name: tc[:name] || tc["name"], arguments: args }
       end
+    end
+
+    # Coerce provider-parsed arguments to a plain Hash. Some adapters
+    # (Ollama's, notably) wrap them in LLM::Object — Ruby's JSON gem does
+    # not recursively call #to_json on LLM::Object values when the outer
+    # container is a Hash, and instead iterates as `each_pair`, producing
+    # [["names",…]] on the wire instead of {"names":…}. Coerce here so
+    # everything downstream (SSE frames, request specs, client dispatch)
+    # sees a real Hash.
+    def coerce_tool_arguments(raw)
+      return {} if raw.nil?
+      return raw if raw.is_a?(Hash)
+      return raw.to_h if raw.respond_to?(:to_h)
+      raw
     end
   end
 end

@@ -131,6 +131,45 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
     expect(body).to include("event: done")
   end
 
+  it "declares client-supplied local_tools to the LLM as functions with the given schema" do
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .to_return(status: 200,
+                 headers: { "Content-Type" => "text/event-stream" },
+                 body: openai_sse_body([ "acknowledged" ]))
+
+    input_schema = {
+      "type" => "object",
+      "properties" => { "names" => { "type" => "array", "items" => { "type" => "string" } } },
+      "required" => [ "names" ]
+    }
+
+    post "/api/llm_api_keys/#{openai_key.uuid}/models/gpt-5/single_llm_calls",
+         params: {
+           messages: [ { role: "user", content: "hi" } ],
+           local_tools: [ {
+             name: "add_dictionaries",
+             description: "Add the named dictionaries to the current selection.",
+             input_schema: input_schema
+           } ]
+         }.to_json,
+         headers: auth_headers.merge("Content-Type" => "application/json")
+
+    expect(response).to have_http_status(:ok)
+
+    # The upstream OpenAI call MUST carry the local_tools schema in its `tools`
+    # array — that's how the LLM learns the function exists.
+    expect(WebMock).to have_requested(:post, "https://api.openai.com/v1/chat/completions").with { |req|
+      req_body = JSON.parse(req.body)
+      tool_entry = (req_body["tools"] || []).find do |t|
+        t.dig("function", "name") == "add_dictionaries" || t["name"] == "add_dictionaries"
+      end
+      # OpenAI's chat-completions wire format nests the function under
+      # `function: {name, description, parameters}`. llm.rb serializes
+      # LLM::Function that way — we assert on the nested shape.
+      tool_entry && tool_entry.dig("function", "description")&.include?("Add the named dictionaries")
+    }
+  end
+
   it "emits event: error and skips done when the upstream call fails" do
     stub_request(:post, "https://api.openai.com/v1/chat/completions").to_return(
       status: 429,

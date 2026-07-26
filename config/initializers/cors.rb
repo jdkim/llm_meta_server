@@ -5,7 +5,13 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
     # Development environment
     origins "http://localhost:3001",
-            "http://127.0.0.1:3001"
+            "http://127.0.0.1:3001",
+            # PubDictionaries dev — Tier-1 chat-in-page pilot on text_annotation view.
+            # Local loopback (developer on the dev box) + the public TLS-terminated
+            # hostname (developer's laptop via https://test2.pubannotation.org).
+            "http://localhost:6000",
+            "http://127.0.0.1:6000",
+            "https://test2.pubannotation.org"
 
     resource "/api/*",
       headers: :any,

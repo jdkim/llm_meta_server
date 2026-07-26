@@ -31,7 +31,7 @@ class Api::SingleLlmCallsController < ApiController
     result = LlmRbFacade.single_llm_turn!(
       llm_api_key: llm_api_key,
       model_id: model_id,
-      tools: selected_tools,
+      tools: selected_tools + local_tools_as_llm_functions,
       generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
       messages: messages_param,
       sink: sink,
@@ -84,14 +84,43 @@ class Api::SingleLlmCallsController < ApiController
     params.expect(:llm_api_key_uuid, :model_name)
   end
 
-  # For Phase 1 the client references remote MCP tools by ID (server-side
-  # lookup keeps the DB authoritative for MCP schemas). Local page-embedded
-  # tools (window.aiActions) will land as an inline `local_tools:` list here
-  # in Phase 2.
+  # Registered MCP tools referenced by ID. Server-side lookup keeps the DB
+  # authoritative for MCP schemas. Distinct from local_tools_as_llm_functions
+  # below — those are inline schemas the CLIENT declares for its own
+  # page-embedded actions and dispatches itself after the LLM emits tool_calls.
   def selected_tools
     tool_ids = params.permit(tool_ids: [])[:tool_ids]
     return [] if tool_ids.blank?
     McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: current_user))
+  end
+
+  # Inline tool schemas the client declares — for page-embedded local actions
+  # (window.aiActions) that the client will dispatch AFTER the LLM emits a
+  # tool_call. The LLM sees them like any other tool; the server never invokes
+  # the handler (client-orchestrated flow: single_llm_turn! never calls
+  # session.functions.map(&:call), so an unset @runner is safe).
+  #
+  # Wire shape per entry: { name, description, input_schema } — matches MCP
+  # tool metadata + the JSON blob PubDictionaries embeds as #ai-actions.
+  def local_tools_as_llm_functions
+    raw = params.permit(local_tools: [ :name, :description, { input_schema: {} } ])[:local_tools]
+    return [] if raw.blank?
+
+    Array(raw).filter_map do |entry|
+      name = entry[:name].to_s
+      next if name.empty?
+      description = entry[:description].to_s
+      schema = entry[:input_schema].respond_to?(:to_unsafe_h) ? entry[:input_schema].to_unsafe_h : (entry[:input_schema] || {}).to_h
+
+      LLM::Function.new(name) do |fn|
+        fn.description description
+        fn.instance_variable_set(:@params, schema.deep_symbolize_keys) if schema.any?
+        # No fn.define(...) block — client-orchestrated flow never invokes
+        # the handler. If some future code path DOES try to call it, letting
+        # it fail loudly is better than silently no-op'ing (would mask a bug
+        # where a local tool got routed through the hub-orchestrated loop).
+      end
+    end
   end
 
   def generation_params
