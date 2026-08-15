@@ -460,10 +460,7 @@ Run Brakeman to check for security vulnerabilities:
 bin/brakeman
 ```
 
-## License
+## Related repositories
 
-[Specify your license here]
-
-## Contributing
-
-[Add contributing guidelines if applicable]
+- [`llm_meta_chat`](https://github.com/jdkim/llm_meta_chat) — a Rails chat application that talks to this server over REST
+- [`llm_meta_client`](https://github.com/jdkim/llm_meta_client) — the Rails Engine gem used by `llm_meta_chat` to communicate with this server
