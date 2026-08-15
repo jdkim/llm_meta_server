@@ -174,6 +174,30 @@ No external middleware services (Redis, PostgreSQL, etc.) are required for basic
    
    All services will run in a single terminal with color-coded output.
 
+6. **Verifying installation**
+
+   Run each of the following against a freshly-started server. Every check should pass before you connect a client app (`llm_meta_chat`, MCP client, etc.).
+
+   ```bash
+   # a) Rails health endpoint returns 200
+   curl -sI http://localhost:3000/up
+   # → HTTP/1.1 200 OK
+
+   # b) API rejects unauthenticated requests (Google ID token required)
+   curl -sD - -o /dev/null http://localhost:3000/api/llms
+   # → HTTP/1.1 401 Unauthorized
+
+   # c) Seeded platform rows exist
+   bin/rails runner 'puts Llm.pluck(:name).sort.join(", ")'
+   # → Anthropic, Google, Ollama, OpenAI
+
+   # d) Model catalog parses cleanly
+   bin/rails models:validate
+   # → validates every entry in config/llm_models.yml
+   ```
+
+   Then open [http://localhost:3000](http://localhost:3000) in a browser and sign in with Google. After the OAuth round-trip you should land on your user profile page. From there, "LLM API Keys" lets you register a provider API key, which unlocks the `/api/llm_api_keys/:uuid/models/:name/chats` endpoint documented below.
+
 ### Alternative: Using Rails commands separately
 
 If you prefer to run services separately:
