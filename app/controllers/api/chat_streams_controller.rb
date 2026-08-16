@@ -90,6 +90,12 @@ class Api::ChatStreamsController < ApiController
     safe_emit_error(sink, "argument_error", e.message)
   rescue ModelNotFoundError => e
     safe_emit_error(sink, "model_not_found", e.message)
+  rescue Net::ReadTimeout, Net::OpenTimeout, Timeout::Error => e
+    # Dedicated bucket so clients can distinguish an upstream stall (retry
+    # with backoff) from a server crash (internal_error). Provider read
+    # ceiling is PROVIDER_READ_TIMEOUT_SECONDS in LlmRbFacade.
+    Rails.logger.warn "[ChatStreams] provider timeout: #{e.class}: #{e.message}"
+    safe_emit_error(sink, "timeout", "Provider timed out — please try again")
   rescue => e
     Rails.logger.error "[ChatStreams] #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
     safe_emit_error(sink, "internal_error", e.message)

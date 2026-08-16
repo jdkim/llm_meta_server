@@ -55,6 +55,43 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       expect(response.body).to include('"message":"bad input"')
     end
 
+    it "cleans up silently when the client disconnects mid-stream (no post-cancel done)" do
+      # Simulate the browser closing its EventSource (or hitting Cancel)
+      # after the first delta has been flushed. The facade sees the write
+      # fail and raises ClientDisconnected upward; the controller must:
+      #   - swallow the exception (no unhandled error bubbles up),
+      #   - keep the partial delta the client already received in the body,
+      #   - NOT emit a spurious `done` event after the cancellation,
+      #   - close the stream via the ensure block (implicit — no crash here).
+      allow(LlmRbFacade).to receive(:stream!) do |_, _, sink:, **|
+        sink << "partial before cancel"
+        raise ActionController::Live::ClientDisconnected
+      end
+
+      expect {
+        post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi" }
+      }.not_to raise_error
+
+      body = response.body
+      expect(body).to include('data: {"delta":"partial before cancel"}')
+      expect(body).not_to include("event: done")
+      expect(body).not_to include("event: error")
+    end
+
+    it "surfaces a provider read timeout as a dedicated 'timeout' error code" do
+      # Provider stalled past PROVIDER_READ_TIMEOUT_SECONDS. Net::ReadTimeout
+      # (or Timeout::Error) must NOT bucket into the generic internal_error
+      # rescue — clients need to distinguish "server crash" from "give it
+      # another try" and back off appropriately.
+      allow(LlmRbFacade).to receive(:stream!).and_raise(Net::ReadTimeout, "upstream stalled")
+
+      post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi" }
+
+      expect(response.body).to include('event: error')
+      expect(response.body).to include('"code":"timeout"')
+      expect(response.body).not_to include('"code":"internal_error"')
+    end
+
     it "merges the catalog's Ollama options.num_ctx default into generation_params when the user sends nothing" do
       allow(LlmRbFacade).to receive(:stream!).and_return("ok")
       # Chat controller's model_name defaults to "llama3.2" up top; that
