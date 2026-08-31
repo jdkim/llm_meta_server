@@ -71,7 +71,7 @@ class Api::ChatsController < ApiController
     tool_ids = params.permit(tool_ids: [])[:tool_ids]
     return [] if tool_ids.blank?
 
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: current_user))
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: current_user), caller_ip: request.remote_ip)
   end
 
   # Pass-through: caller sends `generation_settings: {…}` (any keys/values),

@@ -7,6 +7,7 @@ class McpServer < ApplicationRecord
   validates :url, presence: true, format: { with: /\Ahttps?:\/\/.+\z/i, message: "must be a valid HTTP or HTTPS URL" }
   validates :url, uniqueness: { scope: :user_id, message: "has already been registered" }
   validate :public_and_auth_token_are_incompatible
+  validate :anonymous_visibility_requires_public
 
   before_validation :set_uuid
 
@@ -50,12 +51,12 @@ class McpServer < ApplicationRecord
       where("mcp_servers.user_id = :uid OR (mcp_servers.public = :p AND mcp_servers.active = :a)",
             uid: user_id, p: true, a: true)
     else
-      where(mcp_servers: { public: true, active: true })
+      where(mcp_servers: { public_to_anonymous: true, active: true })
     end
   }
 
   def as_json(options = {})
-    super({ only: %i[uuid name url active public server_name server_version protocol_version last_fetched_at last_error] }.merge(options))
+    super({ only: %i[uuid name url active public public_to_anonymous server_name server_version protocol_version last_fetched_at last_error] }.merge(options))
       .merge(
         "has_auth_token" => has_auth_token?,
         "tools" => mcp_tools.map(&:as_json)
@@ -71,6 +72,12 @@ class McpServer < ApplicationRecord
   def public_and_auth_token_are_incompatible
     if public? && encrypted_auth_token.present?
       errors.add(:public, "cannot be true when an auth token is set — the token would be used for other users' calls")
+    end
+  end
+
+  def anonymous_visibility_requires_public
+    if public_to_anonymous? && !public?
+      errors.add(:public_to_anonymous, "requires the server to be public (a server anonymous users can see must also be visible to signed-in users)")
     end
   end
 end

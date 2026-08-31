@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_20_063326) do
+ActiveRecord::Schema[8.0].define(version: 2026_08_31_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -75,6 +75,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_20_063326) do
     t.timestamptz "updated_at"
     t.boolean "public", default: false
     t.text "encrypted_auth_token"
+    t.boolean "public_to_anonymous", default: false, null: false
     t.index ["public"], name: "idx_2679888_index_mcp_servers_on_public"
     t.index ["user_id", "url"], name: "idx_2679888_index_mcp_servers_on_user_id_and_url", unique: true
     t.index ["user_id"], name: "idx_2679888_index_mcp_servers_on_user_id"

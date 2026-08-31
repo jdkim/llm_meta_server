@@ -55,7 +55,7 @@ RSpec.describe McpToolAdapter do
       fn = functions[0]
 
       mock_client = instance_double(McpClient)
-      allow(McpClient).to receive(:new).with("https://example.com/mcp", auth_token: nil).and_return(mock_client)
+      allow(McpClient).to receive(:new).with("https://example.com/mcp", auth_token: nil, caller_ip: nil).and_return(mock_client)
       allow(mock_client).to receive(:initialize_connection!)
       allow(mock_client).to receive(:call_tool!).with("read_file", { path: "/tmp/test.txt" }).and_return(
         { "content" => [ { "type" => "text", "text" => "file content" } ] }
@@ -82,7 +82,7 @@ RSpec.describe McpToolAdapter do
       mock_client = instance_double(McpClient)
       # This is the crux — the auth_token from the server must reach the client
       # constructor, otherwise every call to an authenticated server would fail.
-      expect(McpClient).to receive(:new).with("https://example.com/mcp", auth_token: "mcp_secret_token").and_return(mock_client)
+      expect(McpClient).to receive(:new).with("https://example.com/mcp", auth_token: "mcp_secret_token", caller_ip: nil).and_return(mock_client)
       allow(mock_client).to receive(:initialize_connection!)
       allow(mock_client).to receive(:call_tool!).with("read_file", { path: "/tmp/x" }).and_return({ "content" => [] })
 

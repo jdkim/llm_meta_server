@@ -250,6 +250,49 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       expect(response.body).not_to include('event: error')
     end
 
+    context "anonymous caller (no bearer token, no current_user)" do
+      # File-level before stubs `current_user` as `user`; in the real anon
+      # request path both current_user AND bearer_token are nil, so override
+      # here to match production reality — otherwise selected_tools sees a
+      # non-nil viewer and picks up ordinary public tools that a real anon
+      # caller wouldn't be allowed to reach.
+      before { allow(controller).to receive(:current_user).and_return(nil) }
+
+      it "threads tools through to the facade when tool_ids reference an anon-public MCP server" do
+        owner = User.create!(email: "owner@example.com", google_id: "g-owner")
+        server = McpServer.create!(user: owner, name: "anon-mcp", url: "https://ex.com/mcp",
+                                    public: true, public_to_anonymous: true, active: true)
+        tool = server.mcp_tools.create!(name: "anon_tool", description: "d",
+                                         input_schema: { "type" => "object" }, active: true)
+        allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+
+        post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi", tool_ids: [ tool.id.to_s ] }
+
+        expect(LlmRbFacade).to have_received(:stream!) do |_, _, tools:, **|
+          expect(tools).to be_an(Array)
+          expect(tools.length).to eq(1)
+        end
+      end
+
+      it "filters out non-anon-public MCP tools (visibility gate holds)" do
+        # A merely-public server (visible to signed-in users but NOT flagged
+        # public_to_anonymous) must NOT expose its tools to an anonymous
+        # caller even if that caller passes the tool's id explicitly.
+        owner = User.create!(email: "owner2@example.com", google_id: "g-owner2")
+        server = McpServer.create!(user: owner, name: "signed-only-mcp", url: "https://ex.com/mcp",
+                                    public: true, public_to_anonymous: false, active: true)
+        tool = server.mcp_tools.create!(name: "signed_only", description: "d",
+                                         input_schema: { "type" => "object" }, active: true)
+        allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+
+        post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi", tool_ids: [ tool.id.to_s ] }
+
+        expect(LlmRbFacade).to have_received(:stream!) do |_, _, tools:, **|
+          expect(tools).to eq([])
+        end
+      end
+    end
+
     it "emits a tool_calls event before deltas when the facade reports tool calls" do
       allow(LlmRbFacade).to receive(:stream!) do |_, _, sink:, on_tool_calls: nil, **|
         on_tool_calls.call([ { id: "c1", name: "do_thing", arguments: { q: 42 } } ]) if on_tool_calls

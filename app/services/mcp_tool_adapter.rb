@@ -9,14 +9,14 @@ class McpToolAdapter
   MAX_NAME_LEN = 64
 
   class << self
-    def to_llm_functions(mcp_tools)
+    def to_llm_functions(mcp_tools, caller_ip: nil)
       exposed = unique_exposed_names(mcp_tools.map { sanitize_name(it.name) })
-      mcp_tools.each_with_index.map { |t, i| build_function(t, exposed[i]) }
+      mcp_tools.each_with_index.map { |t, i| build_function(t, exposed[i], caller_ip: caller_ip) }
     end
 
     private
 
-    def build_function(mcp_tool, exposed_name)
+    def build_function(mcp_tool, exposed_name, caller_ip: nil)
       server_url    = mcp_tool.mcp_server.url
       auth_token    = mcp_tool.mcp_server.auth_token
       original_name = mcp_tool.name
@@ -25,7 +25,7 @@ class McpToolAdapter
         fn.description mcp_tool.description
         set_params(fn, mcp_tool.input_schema)
         fn.define ->(**arguments) {
-          McpClient.new(server_url, auth_token: auth_token).tap(&:initialize_connection!).call_tool!(original_name, arguments)
+          McpClient.new(server_url, auth_token: auth_token, caller_ip: caller_ip).tap(&:initialize_connection!).call_tool!(original_name, arguments)
         }
       end
     end

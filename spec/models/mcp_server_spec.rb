@@ -72,6 +72,23 @@ RSpec.describe McpServer, type: :model do
         expect(server).to be_valid
       end
     end
+
+    context 'with public_to_anonymous but not public' do
+      let(:server) { McpServer.new(user: user, name: "S", url: "https://a.example.com/mcp", public: false, public_to_anonymous: true) }
+
+      it 'is invalid' do
+        expect(server).not_to be_valid
+        expect(server.errors[:public_to_anonymous]).to be_present
+      end
+    end
+
+    context 'with public_to_anonymous and public both set' do
+      let(:server) { McpServer.new(user: user, name: "S", url: "https://a.example.com/mcp", public: true, public_to_anonymous: true) }
+
+      it 'is valid' do
+        expect(server).to be_valid
+      end
+    end
   end
 
   describe 'scopes' do
@@ -97,11 +114,13 @@ RSpec.describe McpServer, type: :model do
       let!(:own_private) { McpServer.create!(user: other, name: "other-private", url: "https://o-priv.example.com/mcp", public: false, active: true) }
       let!(:own_public)  { McpServer.create!(user: other, name: "other-public",  url: "https://o-pub.example.com/mcp",  public: true,  active: true) }
       let!(:public_but_inactive) { McpServer.create!(user: other, name: "other-public-down", url: "https://o-down.example.com/mcp", public: true, active: false) }
+      let!(:own_public_anon) { McpServer.create!(user: other, name: "other-public-anon", url: "https://o-anon.example.com/mcp", public: true, public_to_anonymous: true, active: true) }
 
       it "returns the viewer's own servers and other users' active+public servers" do
         names = McpServer.visible_to(user).pluck(:name)
         # 'Active Server' / 'Inactive Server' are this user's; both visible to owner.
-        expect(names).to contain_exactly("Active Server", "Inactive Server", "other-public")
+        # 'other-public' and 'other-public-anon' are visible to any signed-in viewer.
+        expect(names).to contain_exactly("Active Server", "Inactive Server", "other-public", "other-public-anon")
       end
 
       it "hides inactive public servers from non-owners" do
@@ -114,9 +133,9 @@ RSpec.describe McpServer, type: :model do
         expect(names).to include("other-public-down")
       end
 
-      it "with nil viewer returns only active+public (controller gates anonymous access)" do
+      it "with nil viewer returns only active servers marked public_to_anonymous" do
         names = McpServer.visible_to(nil).pluck(:name)
-        expect(names).to contain_exactly("other-public")
+        expect(names).to contain_exactly("other-public-anon")
       end
     end
   end

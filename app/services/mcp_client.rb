@@ -9,9 +9,10 @@ class McpClient
 
   attr_reader :url, :session_id, :server_info, :protocol_version
 
-  def initialize(url, auth_token: nil)
+  def initialize(url, auth_token: nil, caller_ip: nil)
     @url = url
     @auth_token = auth_token
+    @caller_ip = caller_ip
     @session_id = nil
     @server_info = nil
     @protocol_version = nil
@@ -102,6 +103,7 @@ class McpClient
     }
     headers["Authorization"] = "Bearer #{@auth_token}" if @auth_token.present?
     headers["Mcp-Session-Id"] = @session_id if @session_id
+    headers["X-Forwarded-For"] = @caller_ip if @caller_ip.present?
     headers
   end
 

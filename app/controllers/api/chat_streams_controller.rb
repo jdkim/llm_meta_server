@@ -69,6 +69,7 @@ class Api::ChatStreamsController < ApiController
       end
       LlmRbFacade.stream! model_id, prompt,
         sink: sink,
+        tools: selected_tools,
         generation_params: effective_generation_params(model_name, nil),
         images: images.presence,
         image: image,
@@ -137,7 +138,7 @@ class Api::ChatStreamsController < ApiController
     tool_ids = params.permit(tool_ids: [])[:tool_ids]
     return [] if tool_ids.blank?
 
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: current_user))
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: current_user), caller_ip: request.remote_ip)
   end
 
   # Pass-through: caller sends `generation_settings: {…}` (any keys/values).
