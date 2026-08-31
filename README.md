@@ -460,6 +460,12 @@ Run Brakeman to check for security vulnerabilities:
 bin/brakeman
 ```
 
+## Citation
+
+If you use this software in your research, please cite:
+
+> Kim, J.-D. (2026). *AIbranch: A platform for branched multi-model LLM conversations*. *SoftwareX*. <https://www.sciencedirect.com/science/article/pii/S2352711026004747>
+
 ## Related repositories
 
 - [`llm_meta_chat`](https://github.com/jdkim/llm_meta_chat) — a Rails chat application that talks to this server over REST
