@@ -28,7 +28,7 @@ This application serves as an **LLM API Call Meta-server** that:
 
 This application is built with Rails 8.0 and uses the following key dependencies:
 
-- **Database**: SQLite 3 (>= 2.1)
+- **Database**: PostgreSQL
 - **Web Server**: Puma
 - **Authentication**: Devise with OAuth support (Google OAuth2)
 - **Asset Pipeline**: Propshaft
@@ -42,14 +42,14 @@ This application is built with Rails 8.0 and uses the following key dependencies
 - **Token Verification**: Google Auth library for ID token verification
 - **CORS**: Rack::Cors for cross-origin resource sharing
 
-No external middleware services (Redis, PostgreSQL, etc.) are required for basic operation.
+No external middleware services beyond PostgreSQL are required for basic operation.
 
 ## Environment Setup
 
 ### Prerequisites
 
 1. Install Ruby 3.4.7 (or use a Ruby version manager like rbenv or rvm)
-2. Install SQLite 3
+2. Install PostgreSQL
 3. Install Node.js (for asset compilation)
 
 ### Installation Steps
