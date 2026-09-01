@@ -29,10 +29,27 @@ module LLM
     private
 
     def normalize_tool_call(tc)
-      if tc.respond_to?(:id)
-        { id: tc.id, name: tc.name, arguments: tc.arguments }
+      raw_args = if tc.respond_to?(:id)
+        tc.arguments
       else
-        { id: tc[:id] || tc["id"], name: tc[:name] || tc["name"], arguments: tc[:arguments] || tc["arguments"] }
+        tc[:arguments] || tc["arguments"]
+      end
+      # Coerce arguments to a plain Hash. LLM::Object's own #to_json is
+      # correct in isolation, but when nested as a Hash VALUE, Ruby's json
+      # encoder ignores custom #to_json and falls back to `each_pair`,
+      # emitting `[["k","v"],...]` instead of `{"k":"v",...}`. That garbled
+      # arguments payload got persisted into the assistant message's
+      # "Tool calls" section and then poisoned the next turn's LLM context.
+      # See project_ollama_traps memory for the earlier occurrence.
+      args = case raw_args
+             when Hash then raw_args
+             when nil  then {}
+             else raw_args.respond_to?(:to_h) ? raw_args.to_h : {}
+             end
+      if tc.respond_to?(:id)
+        { id: tc.id, name: tc.name, arguments: args }
+      else
+        { id: tc[:id] || tc["id"], name: tc[:name] || tc["name"], arguments: args }
       end
     end
   end
