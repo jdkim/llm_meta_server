@@ -33,6 +33,14 @@ class McpClient
     @server_info = result["serverInfo"]
     @protocol_version = result["protocolVersion"]
 
+    if @protocol_version.present? && @protocol_version != PROTOCOL_VERSION
+      # MCP spec allows the server to negotiate a different protocol version
+      # in the initialize response. We accept whatever the server offers but
+      # surface it in logs so version-drift issues are diagnosable.
+      Rails.logger.warn "[McpClient #{url}] protocol version negotiated: " \
+        "requested #{PROTOCOL_VERSION}, server offered #{@protocol_version}"
+    end
+
     send_notification("notifications/initialized")
 
     result
@@ -72,14 +80,27 @@ class McpClient
     update_session_id(response)
 
     unless response.success?
-      raise McpConnectionError, "HTTP #{response.code}"
+      raise McpConnectionError, "HTTP #{response.code} on #{method}"
     end
 
     response
   rescue HTTParty::Error, Errno::ECONNREFUSED, SocketError, Timeout::Error, Net::ReadTimeout, Net::OpenTimeout => e
-    raise McpConnectionError, "Failed to connect to MCP server: #{e.message}"
+    raise McpConnectionError, "Failed to send request '#{method}': #{e.message}"
   end
 
+  # JSON-RPC 2.0 notifications are fire-and-forget: the server MUST NOT
+  # respond. We POST the notification and treat post-write outcomes
+  # (Net::ReadTimeout, or a clean TCP close observed as a read timeout on
+  # the closed socket) as success — the write already reached the server.
+  # Only pre-write failures (connect timeout, DNS failure, connection
+  # refused) count as real errors, since those genuinely mean the
+  # notification never left our host.
+  #
+  # Prior to this: a spec-conformant server that closed the connection
+  # after receiving `notifications/initialized` (nothing to say back)
+  # crashed initialize_connection! with Net::ReadTimeout, so the client
+  # never got to tools/call. The MCP server would see `initialize` and
+  # then nothing further — the exact symptom PubDictionaries flagged.
   def send_notification(method, params = {})
     body = {
       jsonrpc: JSON_RPC_VERSION,
@@ -92,8 +113,13 @@ class McpClient
       headers: request_headers,
       timeout: 10
     })
-  rescue HTTParty::Error, Errno::ECONNREFUSED, SocketError, Timeout::Error, Net::ReadTimeout, Net::OpenTimeout => e
-    raise McpConnectionError, "Failed to send notification: #{e.message}"
+  rescue Net::ReadTimeout => e
+    # Write completed; server chose not to send a response (spec-compliant).
+    Rails.logger.info "[McpClient #{url}] notification '#{method}' delivered; " \
+      "no response (#{e.message}) — spec-compliant, continuing"
+    nil
+  rescue HTTParty::Error, Errno::ECONNREFUSED, SocketError, Timeout::Error, Net::OpenTimeout => e
+    raise McpConnectionError, "Failed to send notification '#{method}': #{e.message}"
   end
 
   def request_headers

@@ -92,10 +92,80 @@ RSpec.describe McpClient do
         allow(HTTParty).to receive(:post).and_raise(Errno::ECONNREFUSED, "Connection refused")
       end
 
-      it 'raises McpConnectionError' do
+      it 'raises McpConnectionError with the method name for grep-friendly logs' do
         expect { client.initialize_connection! }.to raise_error(
-          McpClient::McpConnectionError, /Failed to connect to MCP server/
+          McpClient::McpConnectionError, /Failed to send request 'initialize'/
         )
+      end
+    end
+
+    context "when the server closes the connection immediately after receiving notifications/initialized" do
+      # Regression guard for the "silent stop after initialize" bug: MCP
+      # notifications are fire-and-forget per JSON-RPC 2.0, so a spec-
+      # compliant server that closes the TCP connection right after
+      # receiving `notifications/initialized` (nothing to say back) used
+      # to crash initialize_connection! with Net::ReadTimeout, leaving
+      # the MCP server seeing `initialize` and then radio silence. We
+      # now swallow the post-write timeout on notifications specifically.
+      let(:init_response) do
+        instance_double(
+          HTTParty::Response,
+          success?: true,
+          code: 200,
+          headers: { "content-type" => "application/json", "mcp-session-id" => "s-1" },
+          body: {
+            jsonrpc: "2.0", id: 1,
+            result: { protocolVersion: "2025-03-26",
+                      serverInfo: { name: "srv", version: "1.0.0" }, capabilities: {} }
+          }.to_json
+        )
+      end
+
+      before do
+        # First HTTParty.post (initialize) succeeds; second one (notifications/initialized)
+        # raises Net::ReadTimeout — the write reached the server, and the
+        # server closed without a response.
+        call = 0
+        allow(HTTParty).to receive(:post) do |*_args|
+          call += 1
+          call == 1 ? init_response : raise(Net::ReadTimeout.new("Net::ReadTimeout with #<TCPSocket:(closed)>"))
+        end
+      end
+
+      it "completes initialize_connection! successfully (notification is fire-and-forget)" do
+        expect { client.initialize_connection! }.not_to raise_error
+        expect(client.server_info).to eq({ "name" => "srv", "version" => "1.0.0" })
+      end
+    end
+
+    context "when the server negotiates a different protocol version" do
+      # Server offers a newer version than we requested. Per spec this is
+      # allowed; we accept it but log a warning so version-drift issues
+      # are diagnosable when tools start behaving oddly.
+      let(:init_response) do
+        instance_double(
+          HTTParty::Response,
+          success?: true, code: 200,
+          headers: { "content-type" => "application/json" },
+          body: {
+            jsonrpc: "2.0", id: 1,
+            result: { protocolVersion: "2025-06-18",
+                      serverInfo: { name: "srv", version: "1.0.0" }, capabilities: {} }
+          }.to_json
+        )
+      end
+      let(:notification_response) do
+        instance_double(HTTParty::Response, success?: true, code: 200, headers: {}, body: "")
+      end
+
+      before do
+        allow(HTTParty).to receive(:post).and_return(init_response, notification_response)
+      end
+
+      it "accepts the server's version and logs a warning naming both" do
+        expect(Rails.logger).to receive(:warn).with(/requested 2025-03-26, server offered 2025-06-18/)
+        client.initialize_connection!
+        expect(client.protocol_version).to eq("2025-06-18")
       end
     end
 
