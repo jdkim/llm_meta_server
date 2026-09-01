@@ -7,6 +7,10 @@ RSpec.describe Api::McpToolsController, type: :controller do
   before do
     allow(controller).to receive(:authenticate_user!).and_return(true)
     allow(controller).to receive(:current_user).and_return(user)
+    # Signed-in path is discriminated by presence of a bearer token; stubs
+    # must reflect that or set_mcp_server falls into the anon branch (only
+    # public_to_anonymous servers are visible).
+    allow(controller).to receive(:bearer_token).and_return("stub-bearer")
   end
 
   describe 'GET #index' do

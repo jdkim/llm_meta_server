@@ -251,12 +251,19 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
     end
 
     context "anonymous caller (no bearer token, no current_user)" do
-      # File-level before stubs `current_user` as `user`; in the real anon
-      # request path both current_user AND bearer_token are nil, so override
-      # here to match production reality — otherwise selected_tools sees a
-      # non-nil viewer and picks up ordinary public tools that a real anon
-      # caller wouldn't be allowed to reach.
-      before { allow(controller).to receive(:current_user).and_return(nil) }
+      # File-level before stubs `current_user` as `user` and `bearer_token`
+      # as nil. Real production behaviour: `current_user` in ApiController
+      # RAISES "Token is missing" when there's no bearer — so the anon
+      # branch must never call `current_user`. Undo the file-level current_user
+      # stub here so a stray call surfaces as an error, and make bearer_token
+      # nil (already the file default, restated for clarity) to steer
+      # selected_tools' bearer-guard onto the anon lookup path.
+      before do
+        allow(controller).to receive(:current_user).and_raise(
+          ActionController::ParameterMissing.new("Token is missing")
+        )
+        allow(controller).to receive(:bearer_token).and_return(nil)
+      end
 
       it "threads tools through to the facade when tool_ids reference an anon-public MCP server" do
         owner = User.create!(email: "owner@example.com", google_id: "g-owner")

@@ -6,6 +6,10 @@ RSpec.describe Api::McpServersController, type: :controller do
   before do
     allow(controller).to receive(:authenticate_user!).and_return(true)
     allow(controller).to receive(:current_user).and_return(user)
+    # Signed-in path is discriminated by presence of a bearer token; stubs
+    # must reflect that or the controller falls into the anon branch and
+    # calls McpServer.visible_to(nil) (only public_to_anonymous servers).
+    allow(controller).to receive(:bearer_token).and_return("stub-bearer")
   end
 
   describe 'GET #index' do
@@ -34,6 +38,39 @@ RSpec.describe Api::McpServersController, type: :controller do
 
         names = json['mcp_servers'].map { it['name'] }
         expect(names).to contain_exactly('Server 1', 'Server 2')
+      end
+    end
+
+    context 'anonymous caller (no bearer token)' do
+      # A bearer-less request must be served — that's how the chat's
+      # tool_selector fetches the list for an unsigned visitor. Only
+      # public_to_anonymous servers are exposed, and shared_by (owner
+      # email) must NOT appear in the payload.
+      before do
+        allow(controller).to receive(:bearer_token).and_return(nil)
+        McpServer.create!(user: user, name: "private", url: "https://priv.example.com/mcp")
+        McpServer.create!(user: user, name: "shared-signed-in-only", url: "https://pub.example.com/mcp",
+                          public: true, public_to_anonymous: false, active: true)
+        McpServer.create!(user: user, name: "shared-anon", url: "https://anon.example.com/mcp",
+                          public: true, public_to_anonymous: true, active: true)
+      end
+
+      it 'returns only public_to_anonymous servers' do
+        get :index
+        json = JSON.parse(response.body)
+        expect(json['mcp_servers'].map { it['name'] }).to contain_exactly('shared-anon')
+      end
+
+      it 'omits shared_by (owner email) from every entry' do
+        get :index
+        json = JSON.parse(response.body)
+        expect(json['mcp_servers']).to all(satisfy { |s| !s.key?('shared_by') })
+      end
+
+      it 'marks every entry as owned: false' do
+        get :index
+        json = JSON.parse(response.body)
+        expect(json['mcp_servers']).to all(include('owned' => false))
       end
     end
   end

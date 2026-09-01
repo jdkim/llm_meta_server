@@ -71,7 +71,11 @@ class Api::ChatsController < ApiController
     tool_ids = params.permit(tool_ids: [])[:tool_ids]
     return [] if tool_ids.blank?
 
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: current_user), caller_ip: request.remote_ip)
+    # bearer-guard: `current_user` in ApiController raises "Token is missing"
+    # when the request carries no bearer. Match chat_streams' handling and
+    # pass nil on the anon path — routes through McpServer.visible_to(nil).
+    viewer = bearer_token.present? ? current_user : nil
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: request.remote_ip)
   end
 
   # Pass-through: caller sends `generation_settings: {…}` (any keys/values),

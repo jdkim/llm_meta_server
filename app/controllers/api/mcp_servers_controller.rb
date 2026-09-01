@@ -2,16 +2,24 @@ class Api::McpServersController < ApiController
   before_action :set_mcp_server, only: [ :update, :destroy, :toggle, :toggle_public ]
 
   def index
-    # Owned + others' public+active. Each row carries `owned: true/false`.
-    # For non-owned (shared) entries, also expose `shared_by` (the owner's
-    # email) so the requester can judge trust before invoking the tools —
-    # the owner consented to attribution when they toggled the server
+    # Signed-in caller: their own + all `public` servers. Each row carries
+    # `owned: true/false`. For non-owned (shared) entries, also expose
+    # `shared_by` (owner's email) so the caller can judge trust before
+    # invoking — the owner consented to that attribution when they toggled
     # public.
-    visible = McpServer.visible_to(current_user).includes(:mcp_tools, :user)
-    payload = visible.map do |s|
-      owned = (s.user_id == current_user.id)
-      base  = s.as_json.merge("owned" => owned)
-      owned ? base : base.merge("shared_by" => s.user.email)
+    #
+    # Anon caller (no bearer): only `public_to_anonymous` servers, and NO
+    # `shared_by` — anon has no legitimate need for the owner's email.
+    if bearer_token.present?
+      visible = McpServer.visible_to(current_user).includes(:mcp_tools, :user)
+      payload = visible.map do |s|
+        owned = (s.user_id == current_user.id)
+        base  = s.as_json.merge("owned" => owned)
+        owned ? base : base.merge("shared_by" => s.user.email)
+      end
+    else
+      visible = McpServer.visible_to(nil).includes(:mcp_tools)
+      payload = visible.map { |s| s.as_json.merge("owned" => false) }
     end
     render json: { mcp_servers: payload }
   end

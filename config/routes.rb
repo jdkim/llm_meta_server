@@ -49,6 +49,7 @@ Rails.application.routes.draw do
       member do
         patch :toggle
         patch :toggle_public
+        patch :toggle_public_to_anonymous
       end
       resources :mcp_tools, only: [ :index ] do
         member do

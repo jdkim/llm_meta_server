@@ -45,6 +45,9 @@
                     <% if server.public? %>
                       <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800" title="Visible to all signed-in users">Public</span>
                     <% end %>
+                    <% if server.public_to_anonymous? %>
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-fuchsia-100 text-fuchsia-800" title="Invokable by unsigned visitors (no login). Their originating IP is still forwarded to the MCP server via X-Forwarded-For.">Unsigned</span>
+                    <% end %>
                     <% if server.has_auth_token? %>
                       <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700" title="Sends Authorization: Bearer &lt;token&gt;">Authed</span>
                     <% end %>
@@ -57,6 +60,12 @@
                               toggle_public_user_mcp_server_path(current_user, server),
                               class: "text-sm #{server.public? ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'} px-3 py-1 rounded-md transition-colors",
                               data: { turbo_method: :patch, turbo_confirm: (server.public? ? nil : "Make '#{server.name}' (#{server.url}) visible to all signed-in users of this app? They will be able to invoke its tools through their chats.") } %>
+                  <% if server.public? %>
+                    <%= link_to (server.public_to_anonymous? ? "Require sign-in" : "Allow unsigned access"),
+                                toggle_public_to_anonymous_user_mcp_server_path(current_user, server),
+                                class: "text-sm #{server.public_to_anonymous? ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200'} px-3 py-1 rounded-md transition-colors",
+                                data: { turbo_method: :patch, turbo_confirm: (server.public_to_anonymous? ? nil : "Make '#{server.name}' (#{server.url}) invokable by visitors who haven't signed in? Their originating IP is still forwarded to the MCP server via X-Forwarded-For, but any costs accrue to the credentials this server uses. Continue?") } %>
+                  <% end %>
                   <%= link_to (server.active? ? "Deactivate" : "Activate"),
                               toggle_user_mcp_server_path(current_user, server),
                               class: "text-sm #{server.active? ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' : 'bg-green-100 text-green-700 hover:bg-green-200'} px-3 py-1 rounded-md transition-colors",

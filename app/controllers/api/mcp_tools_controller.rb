@@ -17,8 +17,13 @@ class Api::McpToolsController < ApiController
 
   private
 
+  # Signed-in callers can see their own MCP servers + any `public` server.
+  # Anon callers (no bearer) can see only `public_to_anonymous` servers.
+  # Either way, only allow toggling (:toggle action) if the caller owns it —
+  # `toggle` also runs current_user.mcp_servers.find_by! inside set_mcp_tool.
   def set_mcp_server
-    @mcp_server = current_user.mcp_servers.find_by!(uuid: params[:mcp_server_uuid])
+    scope = bearer_token.present? ? McpServer.visible_to(current_user) : McpServer.visible_to(nil)
+    @mcp_server = scope.find_by!(uuid: params[:mcp_server_uuid])
   end
 
   def set_mcp_tool
