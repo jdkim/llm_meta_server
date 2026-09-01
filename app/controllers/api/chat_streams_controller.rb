@@ -95,8 +95,29 @@ class Api::ChatStreamsController < ApiController
     # Dedicated bucket so clients can distinguish an upstream stall (retry
     # with backoff) from a server crash (internal_error). Provider read
     # ceiling is PROVIDER_READ_TIMEOUT_SECONDS in LlmRbFacade.
-    Rails.logger.warn "[ChatStreams] provider timeout: #{e.class}: #{e.message}"
-    safe_emit_error(sink, "timeout", "Provider timed out — please try again")
+    #
+    # Blame is intentionally ambiguous: this rescue fires for both the LLM
+    # provider call AND any MCP tool call that leaks a Timeout past
+    # McpClient's own rescue. Naming only the model would be wrong when the
+    # stall came from the tool side.
+    Rails.logger.warn "[ChatStreams] upstream timeout: #{e.class}: #{e.message}"
+    safe_emit_error(sink, "timeout",
+                    "An upstream call didn't respond within #{LlmRbFacade.singleton_class::PROVIDER_READ_TIMEOUT_SECONDS} seconds — " \
+                    "this could be the model (#{model_name.presence || 'unknown'}) or an MCP tool it invoked. " \
+                    "Try again in a moment, or try a smaller/faster model or a shorter prompt.")
+  rescue McpClient::McpConnectionError => e
+    # A tool the model called failed at the transport layer (HTTP timeout,
+    # DNS, HTTP 5xx from the MCP server). Distinct from the LLM path so the
+    # user knows to retry or drop the tool, not switch models.
+    Rails.logger.warn "[ChatStreams] MCP unavailable: #{e.class}: #{e.message}"
+    safe_emit_error(sink, "mcp_unavailable",
+                    "An MCP tool the model called is currently unavailable (#{e.message}). " \
+                    "It may be slow or offline — try again in a moment, or unselect the tool and retry.")
+  rescue McpClient::McpProtocolError => e
+    # The MCP server responded but with a malformed / JSON-RPC-error payload.
+    Rails.logger.warn "[ChatStreams] MCP protocol error: #{e.class}: #{e.message}"
+    safe_emit_error(sink, "mcp_protocol_error",
+                    "An MCP tool the model called returned an invalid response (#{e.message}).")
   rescue => e
     Rails.logger.error "[ChatStreams] #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
     safe_emit_error(sink, "internal_error", e.message)

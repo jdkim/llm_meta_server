@@ -82,14 +82,44 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       # Provider stalled past PROVIDER_READ_TIMEOUT_SECONDS. Net::ReadTimeout
       # (or Timeout::Error) must NOT bucket into the generic internal_error
       # rescue — clients need to distinguish "server crash" from "give it
-      # another try" and back off appropriately.
+      # another try" and back off appropriately. Message must name the
+      # model but stay ambiguous about which upstream side (model vs MCP
+      # tool) actually stalled — the timeout rescue catches either.
       allow(LlmRbFacade).to receive(:stream!).and_raise(Net::ReadTimeout, "upstream stalled")
 
       post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi" }
 
       expect(response.body).to include('event: error')
       expect(response.body).to include('"code":"timeout"')
+      expect(response.body).to include(model_name)
+      expect(response.body).to include("MCP tool")
       expect(response.body).not_to include('"code":"internal_error"')
+    end
+
+    it "surfaces an MCP tool transport failure as 'mcp_unavailable' with an actionable hint" do
+      # A tool the model called failed at the transport layer (e.g., HTTP 522
+      # from the MCP server's own edge). This must NOT bucket into 'timeout'
+      # (implies retry-with-backoff on the model) or 'internal_error'
+      # (implies our fault) — clients need to know it was tool-side so the
+      # user can drop the tool and retry.
+      allow(LlmRbFacade).to receive(:stream!).and_raise(McpClient::McpConnectionError, "HTTP 522")
+
+      post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi" }
+
+      expect(response.body).to include('event: error')
+      expect(response.body).to include('"code":"mcp_unavailable"')
+      expect(response.body).to include("HTTP 522")
+      expect(response.body).to include("unselect")
+    end
+
+    it "surfaces an MCP JSON-RPC error as 'mcp_protocol_error'" do
+      allow(LlmRbFacade).to receive(:stream!).and_raise(McpClient::McpProtocolError, "JSON-RPC error -32602: invalid params")
+
+      post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi" }
+
+      expect(response.body).to include('event: error')
+      expect(response.body).to include('"code":"mcp_protocol_error"')
+      expect(response.body).to include("invalid params")
     end
 
     it "merges the catalog's Ollama options.num_ctx default into generation_params when the user sends nothing" do

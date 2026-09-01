@@ -76,7 +76,7 @@ class McpClient
     end
 
     response
-  rescue HTTParty::Error, Errno::ECONNREFUSED, SocketError, Timeout::Error => e
+  rescue HTTParty::Error, Errno::ECONNREFUSED, SocketError, Timeout::Error, Net::ReadTimeout, Net::OpenTimeout => e
     raise McpConnectionError, "Failed to connect to MCP server: #{e.message}"
   end
 
@@ -92,7 +92,7 @@ class McpClient
       headers: request_headers,
       timeout: 10
     })
-  rescue HTTParty::Error, Errno::ECONNREFUSED, SocketError, Timeout::Error => e
+  rescue HTTParty::Error, Errno::ECONNREFUSED, SocketError, Timeout::Error, Net::ReadTimeout, Net::OpenTimeout => e
     raise McpConnectionError, "Failed to send notification: #{e.message}"
   end
 
