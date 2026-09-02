@@ -172,7 +172,7 @@ RSpec.describe LlmModelMap do
       # qwen3.6 ignores the SYSTEM /no_think text directive, so the catalog
       # pins think: false as the per-request default for this tag. Plus the
       # Ollama-wide num_ctx override (128K for the qwen3.6 tags).
-      expect(defaults).to eq(think: false, options: { num_ctx: 131072, num_predict: 8192 })
+      expect(defaults).to eq(think: false, options: { num_ctx: 131072, num_predict: 32768 })
     end
 
     it "returns an empty hash when the model has no defaults declared" do
@@ -184,7 +184,7 @@ RSpec.describe LlmModelMap do
 
     it "returns Ollama's num_ctx override for qwen3-6-35b (128K, was silently 2048)" do
       expect(described_class.defaults_for("qwen3-6-35b", llm_type: "ollama"))
-        .to eq(options: { num_ctx: 131072, num_predict: 8192 })
+        .to eq(options: { num_ctx: 131072, num_predict: 32768 })
     end
 
     it "returns Ollama's num_ctx override for medgemma1-5-4b" do
