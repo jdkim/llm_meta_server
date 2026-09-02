@@ -267,13 +267,24 @@ google:
       reviewed_at: 2026-07-21
 
 ollama:
-  # Every Ollama model here sets `options.num_ctx: 32768`. Ollama's own
-  # default is 2048 tokens — dramatically undersized once you factor in a
-  # few conversation turns, tool schemas, or non-English (which uses more
-  # tokens per character). Silent front-truncation manifested as
-  # repetition-loop babble and 5-minute read-timeouts. 32K covers realistic
-  # multi-turn tool-using chats; bump higher only if the host has spare KV
-  # cache VRAM.
+  # Ollama's own default is 2048 tokens — dramatically undersized once you
+  # factor in a few conversation turns, tool schemas, or non-English (which
+  # uses more tokens per character). Silent front-truncation manifested as
+  # repetition-loop babble and 5-minute read-timeouts.
+  #
+  # The qwen3.6 models run at 128K. 32K proved too tight in practice: a
+  # single MCP server's tool schemas can be large (TogoMCP's 30 tools are
+  # ~80KB of JSON ≈ 20K tokens), leaving too little room for tool results
+  # and the reply, which trips context-shift mid-generation. Measured KV
+  # cost on the dgx1 host for qwen3.6:35b-fast — all resident, no CPU spill:
+  #   32K → 27.23GB | 64K → 28.30GB | 128K → 30.44GB | 256K → 36.42GB
+  # 128K costs +3.2GB over 32K and leaves 256K (the model's native max)
+  # available if needed. medgemma1.5:4b stays at 32K — not measured, and
+  # it is not the model hitting the ceiling.
+  #
+  # NOTE: a large num_ctx is not a substitute for capping output length.
+  # It raises the ceiling a runaway generation can climb to, so it should
+  # be paired with a num_predict bound.
   #
   # Ollama models run locally → no `pricing` block (always $0).
   qwen3-6-35b-fast:
@@ -287,7 +298,7 @@ ollama:
     defaults:
       think: false
       options:
-        num_ctx: 32768
+        num_ctx: 131072
   qwen3-6-35b:
     api_id: qwen3.6:35b
     display_name: qwen3.6:35b
@@ -295,7 +306,7 @@ ollama:
     supports_tools: true
     defaults:
       options:
-        num_ctx: 32768
+        num_ctx: 131072
   medgemma1-5-4b:
     api_id: medgemma1.5:4b
     display_name: medgemma1.5:4b

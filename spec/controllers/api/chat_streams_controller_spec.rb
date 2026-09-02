@@ -133,7 +133,7 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       post :create, params: { llm_api_key_uuid: uuid, model_name: ollama_meta, prompt: "Hi" }
 
       expect(LlmRbFacade).to have_received(:stream!) do |_, _, generation_params:, **|
-        expect(generation_params.dig(:options, :num_ctx)).to eq(32768)
+        expect(generation_params.dig(:options, :num_ctx)).to eq(131072)
       end
     end
 
@@ -150,7 +150,7 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       }, as: :json
 
       expect(LlmRbFacade).to have_received(:stream!) do |_, _, generation_params:, **|
-        expect(generation_params.dig(:options, :num_ctx)).to eq(32768)
+        expect(generation_params.dig(:options, :num_ctx)).to eq(131072)
         expect(generation_params.dig(:options, :temperature)).to eq(0.7)
       end
     end

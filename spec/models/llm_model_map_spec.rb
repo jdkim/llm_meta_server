@@ -171,8 +171,8 @@ RSpec.describe LlmModelMap do
       defaults = described_class.defaults_for("qwen3-6-35b-fast", llm_type: "ollama")
       # qwen3.6 ignores the SYSTEM /no_think text directive, so the catalog
       # pins think: false as the per-request default for this tag. Plus the
-      # Ollama-wide num_ctx: 32768 override.
-      expect(defaults).to eq(think: false, options: { num_ctx: 32768 })
+      # Ollama-wide num_ctx override (128K for the qwen3.6 tags).
+      expect(defaults).to eq(think: false, options: { num_ctx: 131072 })
     end
 
     it "returns an empty hash when the model has no defaults declared" do
@@ -182,9 +182,9 @@ RSpec.describe LlmModelMap do
       expect(described_class.defaults_for("claude-haiku-4-5", llm_type: "anthropic")).to eq({})
     end
 
-    it "returns Ollama's num_ctx override for qwen3-6-35b (32K, was silently 2048)" do
+    it "returns Ollama's num_ctx override for qwen3-6-35b (128K, was silently 2048)" do
       expect(described_class.defaults_for("qwen3-6-35b", llm_type: "ollama"))
-        .to eq(options: { num_ctx: 32768 })
+        .to eq(options: { num_ctx: 131072 })
     end
 
     it "returns Ollama's num_ctx override for medgemma1-5-4b" do
@@ -197,11 +197,11 @@ RSpec.describe LlmModelMap do
     end
 
     it "defaults to the ollama family when llm_type is nil" do
-      # Ollama models all set `options.num_ctx: 32768` in the catalog; qwen3-6-35b-fast
-      # additionally has `think: false`. Assert both are present.
+      # Every Ollama model sets `options.num_ctx` in the catalog (128K for the
+      # qwen3.6 tags); qwen3-6-35b-fast additionally has `think: false`.
       out = described_class.defaults_for("qwen3-6-35b-fast")
       expect(out[:think]).to eq(false)
-      expect(out.dig(:options, :num_ctx)).to eq(32768)
+      expect(out.dig(:options, :num_ctx)).to eq(131072)
     end
 
     it "returns the per-model thinking shape for Claude Opus 4.7 and Sonnet 4.6 (adaptive)" do
