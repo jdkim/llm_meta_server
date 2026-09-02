@@ -48,7 +48,11 @@ class Api::McpServersController < ApiController
     render json: @mcp_server.as_json.merge("owned" => true)
   end
 
+  # Super-user-only, mirroring McpServersController#toggle_public. 403 rather
+  # than the 404 used for non-owned servers: the caller owns this one, they
+  # just may not publish it.
   def toggle_public
+    return render json: { error: "Only an administrator can change an MCP server's visibility" }, status: :forbidden unless current_user.super_user?
     @mcp_server.update!(public: !@mcp_server.public)
     render json: @mcp_server.as_json.merge("owned" => true)
   end

@@ -106,6 +106,10 @@ RSpec.describe "Api::McpServersController isolation + bad-param paths", type: :r
   describe "PATCH toggle_public (owner)" do
     let!(:mine) { user.mcp_servers.create!(name: "mine", url: "https://mine.example.com/rpc") }
 
+    # Publishing is super-user-only; these owner cases assert the allowed path,
+    # so the owner must also be an admin. The non-admin case is below.
+    before { allow(User).to receive(:super_user_emails).and_return([ user.email ]) }
+
     it "flips public from false to true" do
       patch "/api/mcp_servers/#{mine.uuid}/toggle_public", headers: auth_headers
       expect(response).to have_http_status(:ok)
@@ -119,6 +123,27 @@ RSpec.describe "Api::McpServersController isolation + bad-param paths", type: :r
       mine.update!(public: true)
       patch "/api/mcp_servers/#{mine.uuid}/toggle_public", headers: auth_headers
       expect(mine.reload.public).to be false
+    end
+  end
+
+  describe "PATCH toggle_public (owner but not a super_user)" do
+    let!(:mine) { user.mcp_servers.create!(name: "mine", url: "https://mine.example.com/rpc") }
+
+    before { allow(User).to receive(:super_user_emails).and_return([]) }
+
+    it "returns 403 and leaves the server private" do
+      patch "/api/mcp_servers/#{mine.uuid}/toggle_public", headers: auth_headers
+
+      expect(response).to have_http_status(:forbidden)
+      expect(mine.reload.public).to be_falsey
+    end
+
+    it "cannot un-publish either — the gate covers both directions" do
+      mine.update!(public: true)
+      patch "/api/mcp_servers/#{mine.uuid}/toggle_public", headers: auth_headers
+
+      expect(response).to have_http_status(:forbidden)
+      expect(mine.reload.public).to be true
     end
   end
 

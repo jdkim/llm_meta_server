@@ -56,6 +56,9 @@
                 </summary>
 
                 <div class="flex justify-end space-x-2 mb-3">
+                  <%# Visibility is super-user-only (see McpServersController). Non-admins
+                      still see the Public / Unsigned badges above, just not the controls. %>
+                  <% if current_user.super_user? %>
                   <%= link_to (server.public? ? "Make Private" : "Make Public"),
                               toggle_public_user_mcp_server_path(current_user, server),
                               class: "text-sm #{server.public? ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'} px-3 py-1 rounded-md transition-colors",
@@ -65,6 +68,7 @@
                                 toggle_public_to_anonymous_user_mcp_server_path(current_user, server),
                                 class: "text-sm #{server.public_to_anonymous? ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200'} px-3 py-1 rounded-md transition-colors",
                                 data: { turbo_method: :patch, turbo_confirm: (server.public_to_anonymous? ? nil : "Make '#{server.name}' (#{server.url}) invokable by visitors who haven't signed in? Their originating IP is still forwarded to the MCP server via X-Forwarded-For, but any costs accrue to the credentials this server uses. Continue?") } %>
+                  <% end %>
                   <% end %>
                   <%= link_to (server.active? ? "Deactivate" : "Activate"),
                               toggle_user_mcp_server_path(current_user, server),

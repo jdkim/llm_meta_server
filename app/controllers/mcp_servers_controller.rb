@@ -1,6 +1,12 @@
 class McpServersController < ApplicationController
   before_action :authenticate_user!
   before_action :set_mcp_server, only: [ :update, :destroy, :toggle, :toggle_public, :toggle_public_to_anonymous ]
+  # Publishing a server exposes its tools to other users' chats. The same
+  # upstream server is often registered by several users, so leaving this
+  # open produces duplicate tool names in every consumer's picker. Restrict
+  # both visibility tiers to super_users; owners keep full control of
+  # everything else about their own servers.
+  before_action :require_super_user!, only: [ :toggle_public, :toggle_public_to_anonymous ]
 
   def index
     @mcp_servers = current_user.mcp_servers.includes(:mcp_tools)
@@ -66,9 +72,17 @@ class McpServersController < ApplicationController
     redirect_to user_mcp_servers_path(current_user), alert: "The specified MCP server was not found"
   end
 
+  def require_super_user!
+    return if current_user.super_user?
+    redirect_to user_mcp_servers_path(current_user),
+                alert: "Only an administrator can change an MCP server's visibility"
+  end
+
   def mcp_server_params
     permitted = params.expect(mcp_server: [ :name, :url, :auth_token, :public_to_anonymous ])
     permitted.delete(:auth_token) if permitted[:auth_token].blank? && action_name == "update"
+    # create/update must not become a side door around require_super_user!
+    permitted.delete(:public_to_anonymous) unless current_user.super_user?
     permitted
   end
 end

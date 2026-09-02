@@ -245,6 +245,9 @@ RSpec.describe "McpServer CRUD (web)", type: :request do
     end
 
     it "rejects public=true when an auth token is present (would leak the token to other users)" do
+      # Admin, so the request reaches the model validation instead of stopping
+      # at the super-user gate on toggle_public.
+      allow(User).to receive(:super_user_emails).and_return([ user.email ])
       server = user.mcp_servers.create!(name: "s", url: "https://s.example.com/mcp")
       server.auth_token = "secret"
       server.save!
@@ -254,6 +257,64 @@ RSpec.describe "McpServer CRUD (web)", type: :request do
       # The action wraps update! but on failure Rails 8 raises RecordInvalid; we bubble to the flash.
       # Whichever way it lands, the row must remain private.
       expect(server.reload.public).to be_falsey
+    end
+  end
+
+  # Publishing a server exposes its tools to every other user's chat, and the
+  # same upstream server is often registered by several users. Visibility is
+  # therefore super-user-only; ownership alone is not enough.
+  describe "visibility is super-user-only" do
+    let!(:server) { user.mcp_servers.create!(name: "s", url: "https://s.example.com/mcp") }
+
+    context "as a non-super-user" do
+      before { allow(User).to receive(:super_user_emails).and_return([]) }
+
+      it "refuses toggle_public and leaves the server private" do
+        patch "#{base_path}/#{server.id}/toggle_public"
+
+        expect(response).to redirect_to(base_path)
+        expect(flash[:alert]).to match(/administrator/i)
+        expect(server.reload.public).to be_falsey
+      end
+
+      it "refuses toggle_public_to_anonymous" do
+        server.update!(public: true, public_to_anonymous: true)
+        patch "#{base_path}/#{server.id}/toggle_public_to_anonymous"
+
+        expect(flash[:alert]).to match(/administrator/i)
+        expect(server.reload.public_to_anonymous).to be true
+      end
+
+      it "ignores public_to_anonymous smuggled through update params" do
+        server.update!(public: true)
+        patch "#{base_path}/#{server.id}", params: {
+          mcp_server: { name: server.name, url: server.url, public_to_anonymous: "1" }
+        }
+
+        expect(server.reload.public_to_anonymous).to be_falsey
+      end
+
+      it "hides the visibility controls in the index view" do
+        get base_path
+
+        expect(response.body).not_to include("Make Public")
+      end
+    end
+
+    context "as a super_user" do
+      before { allow(User).to receive(:super_user_emails).and_return([ user.email ]) }
+
+      it "allows toggle_public" do
+        patch "#{base_path}/#{server.id}/toggle_public"
+
+        expect(server.reload.public).to be true
+      end
+
+      it "renders the visibility controls in the index view" do
+        get base_path
+
+        expect(response.body).to include("Make Public")
+      end
     end
   end
 end
