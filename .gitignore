@@ -105,3 +105,6 @@ yarn-debug.log*
 
 # vim backup files
 *~
+
+# Claude Code local state (settings, worktrees)
+/.claude/
