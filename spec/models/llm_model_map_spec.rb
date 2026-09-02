@@ -166,6 +166,36 @@ RSpec.describe LlmModelMap do
     end
   end
 
+  # gpt-5.5-pro does tool calling, but only exists on the Responses API.
+  # Attaching tools forces LlmRbFacade down the chat-completions path, which
+  # OpenAI rejects with "This is not a chat model" — seen in production on
+  # 2026-09-02. The catalog flags it `responses_only` so it is reported as
+  # tool-less rather than offered and then failing at request time.
+  describe "responses_only models" do
+    it "reports gpt-5-5-pro as not tool-capable despite supports_tools: true" do
+      expect(described_class.supports_tools?("gpt-5-5-pro", llm_type: "openai")).to be(false)
+    end
+
+    it "hides the tools flag from the model picker payload" do
+      pro = described_class.available_models_for("openai").find { |m| m["value"] == "gpt-5-5-pro" }
+      expect(pro["supports_tools"]).to be(false)
+    end
+
+    it "leaves the other Responses-endpoint models tool-capable (they exist on both endpoints)" do
+      %w[gpt-5-5 gpt-5 gpt-5-4-mini gpt-5-mini].each do |meta_id|
+        expect(described_class.supports_tools?(meta_id, llm_type: "openai")).to be(true), meta_id
+      end
+    end
+
+    it "still records the model's own capability in the catalog" do
+      # The flag must not be implemented by lying in `supports_tools`; the
+      # distinction is "the model can" vs "this server can route it".
+      raw = described_class::MODEL_MAP.dig("openai", "gpt-5-5-pro")
+      expect(raw[:supports_tools]).to be(true)
+      expect(raw[:responses_only]).to be(true)
+    end
+  end
+
   describe ".defaults_for" do
     it "returns the catalog's per-model defaults block (symbol-keyed)" do
       defaults = described_class.defaults_for("qwen3-6-35b-fast", llm_type: "ollama")

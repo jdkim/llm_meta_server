@@ -22,7 +22,16 @@ openai:
     api_id: gpt-5.5-pro
     display_name: GPT-5.5 Pro
     supports_vision: true
+    # The model itself does tool calling, but it exists ONLY on the Responses
+    # API — chat completions answers "This is not a chat model". Attaching
+    # tools forces the chat-completions path (LlmRbFacade#stream! takes the
+    # Responses branch only when no tools/images/history are present), so
+    # tools + this model is a guaranteed 400. `responses_only` makes
+    # LlmModelMap report it as tool-less, which keeps the combination out of
+    # the picker instead of failing at request time. Drop the flag once the
+    # facade grows a Responses-with-tools branch.
     supports_tools: true
+    responses_only: true
     # PROVISIONAL pricing — verify against openai.com/api/pricing.
     # WebFetch was blocked at review time; using a pro-tier premium
     # over gpt-5.5 based on OpenAI's historical Pro pricing multiplier.

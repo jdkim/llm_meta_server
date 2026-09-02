@@ -46,7 +46,7 @@ class LlmModelMap
         "label" => value[:display_name], # Display name: official model name
         "value" => key,                   # Internal ID: meta_id (without dots)
         "supports_vision" => value[:supports_vision] == true,
-        "supports_tools" => value[:supports_tools] == true,
+        "supports_tools" => tool_capable?(value),
         # `kind` is only emitted for image-gen models — the frontend
         # treats its absence as "regular chat model".
         "kind" => value[:kind].to_s.presence,
@@ -106,6 +106,19 @@ class LlmModelMap
   end
 
   def self.supports_tools?(meta_id, llm_type: nil)
-    MODEL_MAP.dig(llm_type || "ollama", meta_id, :supports_tools) == true
+    tool_capable?(MODEL_MAP.dig(llm_type || "ollama", meta_id))
+  end
+
+  # Whether tools can actually be used with this model *through this server*,
+  # as opposed to whether the model supports tool calling at all.
+  #
+  # Attaching tools forces the chat-completions path (LlmRbFacade#stream!
+  # only takes the Responses branch when no tools, images or history are
+  # present). A model flagged `responses_only` does not exist on chat
+  # completions, so that combination always 400s — report it as tool-less so
+  # the picker never offers it.
+  def self.tool_capable?(model)
+    return false unless model.is_a?(Hash)
+    model[:supports_tools] == true && model[:responses_only] != true
   end
 end
