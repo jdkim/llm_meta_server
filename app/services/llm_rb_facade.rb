@@ -74,6 +74,7 @@ module LlmRbFacade
             seed_session_messages!(session, messages)
             response = session.chat effective_prompt, stream: sink
             log_finish_diagnostics(response, "native")
+            emit_length_cap_notice(response, sink)
             response.choices[-1]&.content || ""
           else
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
@@ -83,6 +84,7 @@ module LlmRbFacade
             # still think for a while before emitting content; the client flips
             # the indicator to "streaming" on the first content delta.
             response = session.chat effective_prompt, stream: sink
+            emit_length_cap_notice(response, sink)
             response.choices[-1]&.content || ""
           end
         end
@@ -428,8 +430,21 @@ module LlmRbFacade
         # user instead of leaving the bubble silently empty.
         sink << "\n\n_(stopped after #{MAX_TOOL_ITERATIONS} tool rounds without a final answer)_"
       end
+      emit_length_cap_notice(response, sink)
 
       build_response_with_tools(response, session)
+    end
+
+    # Ollama stops at `options.num_predict` and reports `done_reason: "length"`.
+    # Left alone that reads as an answer trailing off mid-sentence, so name it
+    # — same contract as the MAX_TOOL_ITERATIONS notice above. Providers that
+    # do not report the field (everything but Ollama today) no-op here.
+    def emit_length_cap_notice(response, sink)
+      return if response.nil?
+      return unless response.respond_to?(:done_reason)
+      return unless response.done_reason.to_s == "length"
+      sink << "\n\n_(truncated at the output limit — narrow the question, " \
+              "or raise `options.num_predict`)_"
     end
 
     # If any tool returned an MCP-style {"isError": true, "content": [...]} payload,

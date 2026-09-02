@@ -65,6 +65,33 @@ RSpec.describe LlmRbFacade do
       expect(sink.buf).to include("stopped after")
       expect(sink.buf).to include("tool rounds")
     end
+
+    it "writes a truncation notice when Ollama stops on the num_predict cap" do
+      # Ollama reports `done_reason: "length"` on the final chunk when it hits
+      # options.num_predict. Without a notice the answer just stops mid-sentence.
+      capped = double("Response",
+                      choices: [ double("Choice", content: "half an ans") ],
+                      body: nil, done_reason: "length")
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:chat).and_return(capped)
+
+      described_class.stream!(model_id, "go", sink: sink, tools: [ tool ])
+
+      expect(sink.buf).to include("truncated at the output limit")
+      expect(sink.buf).to include("num_predict")
+    end
+
+    it "writes no truncation notice when the model stopped on its own" do
+      done = double("Response",
+                    choices: [ double("Choice", content: "a full answer") ],
+                    body: nil, done_reason: "stop")
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:chat).and_return(done)
+
+      described_class.stream!(model_id, "go", sink: sink, tools: [ tool ])
+
+      expect(sink.buf).not_to include("truncated at the output limit")
+    end
   end
 
   describe ".stream! with image" do
