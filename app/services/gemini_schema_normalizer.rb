@@ -13,6 +13,13 @@ class GeminiSchemaNormalizer
   #   3. `additionalProperties: <bool>` on object schemas →
   #      Gemini: "Cannot find field." Strip; extras are implicitly allowed.
   #
+  #   4. `enum` containing an empty string →
+  #      Gemini rejects the whole request with
+  #      "...parameters.properties[method].enum[0]: cannot be empty".
+  #      MCP servers use "" as the "no filter" member (TogoMCP's
+  #      search_pdb_entity `method`). Drop the empty members; callers ask
+  #      for "no filter" by omitting the optional property instead.
+  #
   # Anthropic and OpenAI accept the full JSON Schema, so this normalizer runs
   # only for Gemini (gated at the LLM::Function#adapt patch in initializers).
 
@@ -50,11 +57,33 @@ class GeminiSchemaNormalizer
           out[:items] = walk(value)
         when :oneOf, :anyOf, :allOf, :definitions
           out[key] = value.is_a?(Array) ? value.map { walk(_1) } : value
+        when :enum
+          cleaned = normalize_enum(value)
+          out[:enum] = cleaned unless cleaned.nil?
         else
           out[key] = value
         end
       end
-      out
+      prune_stale_default(out)
+    end
+
+    # Strip enum members Gemini rejects. An enum with nothing left is dropped
+    # whole rather than sent as `enum: []`, which is equally invalid.
+    def normalize_enum(value)
+      return value unless value.is_a?(Array)
+
+      cleaned = value.reject { |v| v.nil? || (v.is_a?(String) && v.strip.empty?) }
+      cleaned.empty? ? nil : cleaned
+    end
+
+    # A `default` that just lost its enum membership would contradict the
+    # schema we send, so drop it. These properties are optional anyway —
+    # omitting the key is how the caller now asks for the old "" behaviour.
+    def prune_stale_default(node)
+      return node unless node.key?(:default) && node[:enum].is_a?(Array)
+
+      node.delete(:default) unless node[:enum].include?(node[:default])
+      node
     end
 
     # `type` handling:

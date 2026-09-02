@@ -117,6 +117,57 @@ RSpec.describe GeminiSchemaNormalizer do
       end
     end
 
+    describe "empty enum members (Gemini's #4 rejection cause)" do
+      # Reproduces the live 400 from TogoMCP's search_pdb_entity:
+      #   parameters.properties[method].enum[0]: cannot be empty
+      it "strips the empty-string member from an enum" do
+        result = described_class.normalize(
+          type: "string",
+          enum: [ "", "xray", "nmr" ]
+        )
+        expect(result[:enum]).to eq([ "xray", "nmr" ])
+      end
+
+      it "strips nil and whitespace-only members too" do
+        result = described_class.normalize(enum: [ nil, " ", "em" ])
+        expect(result[:enum]).to eq([ "em" ])
+      end
+
+      it "drops the enum entirely when nothing declarable remains" do
+        result = described_class.normalize(type: "string", enum: [ "", nil ])
+        expect(result).not_to have_key(:enum)
+        expect(result[:type]).to eq("string")
+      end
+
+      it "leaves an enum with no empty members untouched" do
+        expect(described_class.normalize(enum: [ "a", "b" ])[:enum]).to eq([ "a", "b" ])
+      end
+
+      it "drops a default the pruned enum no longer offers" do
+        # search_pdb_entity declares `default: ""` alongside the "" member.
+        result = described_class.normalize(
+          type: "string", default: "", enum: [ "", "xray" ]
+        )
+        expect(result[:enum]).to eq([ "xray" ])
+        expect(result).not_to have_key(:default)
+      end
+
+      it "keeps a default that is still a member" do
+        result = described_class.normalize(
+          type: "string", default: "xray", enum: [ "", "xray" ]
+        )
+        expect(result[:default]).to eq("xray")
+      end
+
+      it "normalizes enums nested inside properties" do
+        result = described_class.normalize(
+          type: "object",
+          properties: { method: { type: "string", enum: [ "", "nmr" ] } }
+        )
+        expect(result[:properties][:method][:enum]).to eq([ "nmr" ])
+      end
+    end
+
     it "does not mutate the input schema" do
       input = { type: [ "string", "null" ], properties: { name: { type: "string" } }, additionalProperties: false }
       snapshot = Marshal.dump(input)

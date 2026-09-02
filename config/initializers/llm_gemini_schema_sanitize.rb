@@ -9,6 +9,13 @@
 # because Gemini's function-calling schema is a strict subset of JSON Schema
 # (Protocol-Buffer-backed).
 #
+# An `enum` carrying an empty-string member fails the same way, with a
+# different message:
+#   400 INVALID_ARGUMENT: GenerateContentRequest.tools[2]
+#   .function_declarations[8].parameters.properties[method].enum[0]:
+#   cannot be empty
+# (TogoMCP's search_pdb_entity uses "" as its "no filter" member.)
+#
 # Anthropic and OpenAI accept the full JSON Schema; we scope the normalization
 # to Gemini only.
 
