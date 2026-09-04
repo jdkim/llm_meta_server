@@ -47,4 +47,9 @@ Rails.application.configure do
 
   # Raise error when a before_action's only/except options reference missing actions.
   config.action_controller.raise_on_missing_callback_actions = true
+
+  # The suite seeds its model catalog from this file rather than
+  # config/llm_models.yml, so retiring a production model does not break every
+  # spec that names one. See spec/support/test_catalog.yml.
+  config.x.catalog_path = Rails.root.join("spec", "support", "test_catalog.yml")
 end

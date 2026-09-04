@@ -18,24 +18,24 @@
 # To validate the catalog: bin/rails models:validate
 
 openai:
+  # The model itself does tool calling, but it exists ONLY on the Responses
+  # API — chat completions answers "This is not a chat model". Attaching
+  # tools forces the chat-completions path (LlmRbFacade#stream! takes the
+  # Responses branch only when no tools/images/history are present), so
+  # tools + this model is a guaranteed 400. `responses_only` makes
+  # LlmModelMap report it as tool-less, which keeps the combination out of
+  # the picker instead of failing at request time. Drop the flag once the
+  # facade grows a Responses-with-tools branch.
+  # Pricing was extrapolated on 2026-07-21 (pricing page unreachable) and
+  # was wrong by ~6x: 5/40 against an actual 30/180. Corrected 2026-09-03
+  # from LiteLLM + OpenRouter, which agreed. Still `verified: false` — an
+  # aggregator is good evidence, not OpenAI's own page.
   gpt-5-5-pro:
     api_id: gpt-5.5-pro
     display_name: GPT-5.5 Pro
     supports_vision: true
-    # The model itself does tool calling, but it exists ONLY on the Responses
-    # API — chat completions answers "This is not a chat model". Attaching
-    # tools forces the chat-completions path (LlmRbFacade#stream! takes the
-    # Responses branch only when no tools/images/history are present), so
-    # tools + this model is a guaranteed 400. `responses_only` makes
-    # LlmModelMap report it as tool-less, which keeps the combination out of
-    # the picker instead of failing at request time. Drop the flag once the
-    # facade grows a Responses-with-tools branch.
     supports_tools: true
     responses_only: true
-    # Pricing was extrapolated on 2026-07-21 (pricing page unreachable) and
-    # was wrong by ~6x: 5/40 against an actual 30/180. Corrected 2026-09-03
-    # from LiteLLM + OpenRouter, which agreed. Still `verified: false` — an
-    # aggregator is good evidence, not OpenAI's own page.
     endpoint: responses
     defaults:
       reasoning:
@@ -46,127 +46,75 @@ openai:
       reviewed_at: 2026-09-03
       source: litellm+openrouter
       verified: false
-  gpt-5-5:
-    api_id: gpt-5.5
-    display_name: GPT-5.5
+  gpt-5-6-sol:
+    api_id: gpt-5.6-sol
+    display_name: GPT 5.6 Sol
     supports_vision: true
     supports_tools: true
-    # Was extrapolated on 2026-07-21 and under-priced; corrected 2026-09-03
-    # from LiteLLM + OpenRouter (agreed). Not yet verified against the provider.
-    endpoint: responses
-    defaults:
-      reasoning:
-        summary: auto
     pricing:
-      input: 5.00
-      output: 30.00
+      input: 4.00
+      output: 20.00
+      reviewed_at: 2026-09-04
+      source: litellm+openrouter
+      verified: false
+  gpt-5-6-terra:
+    api_id: gpt-5.6-terra
+    display_name: GPT 5.6 Terra
+    supports_vision: true
+    supports_tools: true
+    pricing:
+      input: 2.00
+      output: 12.00
+      reviewed_at: 2026-09-04
+      source: litellm+openrouter
+      verified: false
+  gpt-5-6-luna:
+    api_id: gpt-5.6-luna
+    display_name: GPT 5.6 Luna
+    supports_vision: true
+    supports_tools: true
+    pricing:
+      input: 0.20
+      output: 1.20
       reviewed_at: 2026-09-03
       source: litellm+openrouter
       verified: false
-  gpt-5:
-    api_id: gpt-5
-    display_name: GPT-5
-    supports_vision: true
-    supports_tools: true
-    # GPT-5 reasoning is only surfaced via the Responses API (the chat
-    # completions endpoint hides it). LlmRbFacade routes streaming
-    # no-tools / no-image requests through llm.responses.create for any
-    # model with `endpoint: responses`; everything else falls back to
-    # chat completions.
-    endpoint: responses
-    defaults:
-      reasoning:
-        summary: auto
-    pricing:
-      input: 1.25
-      output: 10.00
-      reviewed_at: 2026-06-08
-  gpt-5-4-mini:
-    api_id: gpt-5.4-mini
-    display_name: GPT-5.4 Mini
-    supports_vision: true
-    supports_tools: true
-    # Was extrapolated on 2026-07-21 and under-priced; corrected 2026-09-03
-    # from LiteLLM + OpenRouter (agreed). Not yet verified against the provider.
-    endpoint: responses
-    defaults:
-      reasoning:
-        summary: auto
-    pricing:
-      input: 0.75
-      output: 4.50
-      reviewed_at: 2026-09-03
-      source: litellm+openrouter
-      verified: false
-  gpt-5-mini:
-    api_id: gpt-5-mini
-    display_name: GPT-5 Mini
-    supports_vision: true
-    supports_tools: true
-    endpoint: responses
-    defaults:
-      reasoning:
-        summary: auto
-    pricing:
-      input: 0.25
-      output: 2.00
-      reviewed_at: 2026-06-08
+  # OpenAI bills per-image; per_image is the standard 1024x1024 rate.
+  # HD variants (1024x1792) run up to ~$0.19 — verify at openai.com/api/pricing.
   gpt-image-1:
     api_id: gpt-image-1
     display_name: GPT Image 1
-    kind: image
     supports_vision: true
-    # OpenAI bills per-image; per_image is the standard 1024x1024 rate.
-    # HD variants (1024x1792) run up to ~$0.19 — verify at openai.com/api/pricing.
+    kind: image
     pricing:
       per_image: 0.04
       reviewed_at: 2026-07-21
 
 anthropic:
-  claude-fable-5:
-    api_id: claude-fable-5
-    display_name: Claude Fable 5
+  claude-fable-5-1:
+    api_id: claude-fable-5-1
+    display_name: Claude Fable 5.1
     supports_vision: true
     supports_tools: true
-    # Anthropic's premium tier — priced above Opus. Uses the newer
-    # tokenizer (~30% more tokens for the same text). If Fable rejects
-    # adaptive thinking, drop the defaults block.
-    defaults:
-      thinking:
-        type: adaptive
     pricing:
       input: 10.00
       output: 50.00
-      reviewed_at: 2026-07-21
-  claude-opus-4-8:
-    api_id: claude-opus-4-8
-    display_name: Claude Opus 4.8
+      reviewed_at: 2026-09-03
+      source: litellm
+      verified: false
+  claude-opus-5:
+    api_id: claude-opus-5
+    display_name: Claude Opus 5
     supports_vision: true
     supports_tools: true
-    defaults:
-      thinking:
-        type: adaptive
     pricing:
       input: 5.00
       output: 25.00
-      reviewed_at: 2026-07-21
-  claude-opus-4-7:
-    api_id: claude-opus-4-7
-    display_name: Claude Opus 4.7
-    supports_vision: true
-    supports_tools: true
-    # Opus 4.7 accepts `adaptive` thinking but emits no thinking_delta
-    # events (internal-only reasoning) — the Reasoning block in the UI
-    # will stay empty. Still requesting adaptive so users can force more
-    # reasoning via {output_config: {effort: "high"}} in Settings.
-    defaults:
-      thinking:
-        type: adaptive
-    # Price reduced by Anthropic from $15/$75 to $5/$25 (verified 2026-07-21).
-    pricing:
-      input: 5.00
-      output: 25.00
-      reviewed_at: 2026-07-21
+      reviewed_at: 2026-09-03
+      source: litellm+openrouter
+      verified: false
+  # Introductory pricing through Aug 31, 2026 ($2/$10); standard $3/$15
+  # begins Sep 1, 2026 — bump reviewed_at + pricing then.
   claude-sonnet-5:
     api_id: claude-sonnet-5
     display_name: Claude Sonnet 5
@@ -175,50 +123,33 @@ anthropic:
     defaults:
       thinking:
         type: adaptive
-    # Introductory pricing ($2/$10) ran through Aug 31, 2026; standard $3/$15
-    # took effect Sep 1, 2026 and is applied here. Nothing caught the lapse
-    # automatically — the aggregators still quote the introductory figure, and
-    # reviewed_at was only 44 days old — so `verified: true` also stops a bulk
-    # "use reference price" from reverting it.
     pricing:
       input: 3.00
       output: 15.00
       reviewed_at: 2026-09-04
+      source: anthropic pricing page (introductory period ended 2026-09-01)
       verified: true
-  claude-sonnet-4-6:
-    api_id: claude-sonnet-4-6
-    display_name: Claude Sonnet 4.6
-    supports_vision: true
-    supports_tools: true
-    # Sonnet 4.6 exposes thinking_delta events in adaptive mode.
-    defaults:
-      thinking:
-        type: adaptive
-    pricing:
-      input: 3.00
-      output: 15.00
-      reviewed_at: 2026-06-08
+  # Haiku 4.5 rejects `adaptive` ("adaptive thinking is not supported
+  # on this model"). No thinking default declared — Haiku just answers
+  # directly. If a `thinking.type: "enabled"` shape is confirmed
+  # working on Haiku, add it here.
   claude-haiku-4-5:
     api_id: claude-haiku-4-5
     display_name: Claude Haiku 4.5
     supports_vision: true
     supports_tools: true
-    # Haiku 4.5 rejects `adaptive` ("adaptive thinking is not supported
-    # on this model"). No thinking default declared — Haiku just answers
-    # directly. If a `thinking.type: "enabled"` shape is confirmed
-    # working on Haiku, add it here.
     pricing:
       input: 1.00
       output: 5.00
       reviewed_at: 2026-06-08
 
 google:
+  # Gemini 3.x is preview-tier — verify at GA.
   gemini-3-1-pro:
     api_id: gemini-3.1-pro-preview
     display_name: Gemini 3.1 Pro
     supports_vision: true
     supports_tools: true
-    # Gemini 3.x is preview-tier — verify at GA.
     pricing:
       input: 2.00
       output: 12.00
@@ -232,17 +163,6 @@ google:
       input: 1.50
       output: 9.00
       reviewed_at: 2026-07-21
-  gemini-3-flash:
-    api_id: gemini-3-flash-preview
-    display_name: Gemini 3 Flash
-    supports_vision: true
-    supports_tools: true
-    pricing:
-      input: 0.50
-      output: 3.00
-      reviewed_at: 2026-09-03
-      source: litellm+openrouter
-      verified: false
   gemini-3-1-flash-lite:
     api_id: gemini-3.1-flash-lite
     display_name: Gemini 3.1 Flash-Lite
@@ -252,45 +172,61 @@ google:
       input: 0.25
       output: 1.50
       reviewed_at: 2026-07-21
-  gemini-2-5-pro:
-    api_id: gemini-2.5-pro
-    display_name: Gemini 2.5 Pro
-    supports_vision: true
-    supports_tools: true
-    pricing:
-      input: 1.25
-      output: 10.00
-      reviewed_at: 2026-06-08
-  gemini-3-1-flash-image:
-    # Google dropped the -preview suffix on GA — old api_id
-    # (gemini-3.1-flash-image-preview) no longer resolves.
-    api_id: gemini-3.1-flash-image
-    display_name: Gemini 3.1 Flash Image (Nano Banana 2)
-    kind: image
-    supports_vision: true
-    # per_image is Google's 1K-resolution rate; 2K is ~$0.101, 4K ~$0.151.
-    pricing:
-      per_image: 0.067
-      reviewed_at: 2026-07-21
+  # per_image is Google's 1K/2K-resolution rate; 4K is ~$0.24.
   gemini-3-pro-image:
     api_id: gemini-3-pro-image
     display_name: Gemini 3 Pro Image (Nano Banana Pro)
-    kind: image
     supports_vision: true
-    # per_image is Google's 1K/2K-resolution rate; 4K is ~$0.24.
+    kind: image
     pricing:
       per_image: 0.134
       reviewed_at: 2026-07-21
-  gemini-2-5-flash-image:
-    api_id: gemini-2.5-flash-image
-    display_name: Gemini 2.5 Flash Image (Nano Banana)
-    kind: image
+  # Google dropped the -preview suffix on GA — old api_id
+  # (gemini-3.1-flash-image-preview) no longer resolves.
+  # per_image is Google's 1K-resolution rate; 2K is ~$0.101, 4K ~$0.151.
+  gemini-3-1-flash-image:
+    api_id: gemini-3.1-flash-image
+    display_name: Gemini 3.1 Flash Image (Nano Banana 2)
     supports_vision: true
+    kind: image
     pricing:
-      per_image: 0.039
+      per_image: 0.067
       reviewed_at: 2026-07-21
+  gemini-3-1-flash-lite-image:
+    api_id: gemini-3.1-flash-lite-image
+    display_name: Gemini 3.1 Flash Lite Image (Nano Banana 2 Lite)
+    supports_vision: true
+    kind: image
+    pricing:
+      per_image: 0.0336
+      reviewed_at: 2026-09-04
+      source: litellm+openrouter
+      verified: false
 
 ollama:
+  # Ollama does not register MedGemma as a thinking-capable model
+  # (passing `think:` either way returns "does not support thinking"),
+  # but the model still emits `<unused94>...<unused95>` blocks inline.
+  # If that becomes a problem, strip those tokens response-side rather
+  # than via the API.
+  medgemma1-5-4b:
+    api_id: medgemma1.5:4b
+    display_name: medgemma1.5:4b
+    supports_vision: true
+    defaults:
+      options:
+        num_ctx: 32768
+        num_predict: 8192
+  qwen3-6-35b:
+    api_id: qwen3.6:35b
+    display_name: qwen3.6:35b
+    supports_vision: true
+    supports_tools: true
+    defaults:
+      options:
+        num_ctx: 131072
+        num_predict: 32768
+        repeat_penalty: 1.10
   # Ollama's own default is 2048 tokens — dramatically undersized once you
   # factor in a few conversation turns, tool schemas, or non-English (which
   # uses more tokens per character). Silent front-truncation manifested as
@@ -327,40 +263,17 @@ ollama:
   # `generation_settings.options`.
   #
   # Ollama models run locally → no `pricing` block (always $0).
+  # qwen3.6 ignores the SYSTEM /no_think text directive; only the API-level
+  # think: false actually disables reasoning on this model. Users can still
+  # override per-request via the Settings panel.
   qwen3-6-35b-fast:
     api_id: qwen3.6:35b-fast
     display_name: qwen3.6:35b-fast
     supports_vision: true
     supports_tools: true
-    # qwen3.6 ignores the SYSTEM /no_think text directive; only the API-level
-    # think: false actually disables reasoning on this model. Users can still
-    # override per-request via the Settings panel.
     defaults:
       think: false
       options:
         num_ctx: 131072
         num_predict: 32768
-        repeat_penalty: 1.1
-  qwen3-6-35b:
-    api_id: qwen3.6:35b
-    display_name: qwen3.6:35b
-    supports_vision: true
-    supports_tools: true
-    defaults:
-      options:
-        num_ctx: 131072
-        num_predict: 32768
-        repeat_penalty: 1.1
-  medgemma1-5-4b:
-    api_id: medgemma1.5:4b
-    display_name: medgemma1.5:4b
-    supports_vision: true
-    # Ollama does not register MedGemma as a thinking-capable model
-    # (passing `think:` either way returns "does not support thinking"),
-    # but the model still emits `<unused94>...<unused95>` blocks inline.
-    # If that becomes a problem, strip those tokens response-side rather
-    # than via the API.
-    defaults:
-      options:
-        num_ctx: 32768
-        num_predict: 8192
+        repeat_penalty: 1.10

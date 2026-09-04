@@ -15,7 +15,14 @@
 class CatalogSeeder
   CATALOG_PATH = Rails.root.join("config", "llm_models.yml")
 
-  def self.call(path: CATALOG_PATH, prune: false)
+  # The checked-in catalog, unless an environment overrides it. Only the test
+  # environment does: the suite pins a stable catalog of its own so that
+  # curating production models does not break specs that name one.
+  def self.catalog_path
+    Rails.configuration.x.catalog_path.presence || CATALOG_PATH
+  end
+
+  def self.call(path: catalog_path, prune: false)
     raw   = YAML.safe_load_file(path, permitted_classes: [ Symbol, Date ])
     notes = extract_notes(File.read(path))
     stats = { created: 0, updated: 0, pruned: 0 }
