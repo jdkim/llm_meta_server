@@ -19,6 +19,16 @@ class LlmModel < ApplicationRecord
   validate  :kind_must_be_known
   validate  :chargeable_models_must_be_priced
 
+  # Users reference models by meta_id in their favourites and default-model
+  # settings, and those are plain strings with no foreign key to enforce them.
+  # Deleting a model therefore used to leave silent danglers: the favourite
+  # stayed in the list, matched nothing, and simply stopped rendering — which
+  # looks to the user like their model vanished from the picker for no reason.
+  #
+  # Hiding a model (active: false) deliberately does NOT purge: hiding is
+  # reversible and the favourite should survive it. Only destruction does.
+  after_destroy :purge_from_user_preferences
+
   scope :active, -> { where(active: true) }
   scope :ordered, -> { order(:position, :id) }
 
@@ -30,6 +40,29 @@ class LlmModel < ApplicationRecord
   #
   # Free models (Ollama) sort to the end of their group — they have no price
   # to rank by, and they are not the headline of a provider list.
+  # Removes this model's meta_id from every user's favourites, and clears it
+  # from anyone whose default it was. Returns the number of users touched.
+  def purge_from_user_preferences
+    touched = 0
+
+    User.where(default_model_meta_id: name).find_each do |user|
+      user.update_columns(default_model_meta_id: nil)
+      touched += 1
+    end
+
+    User.find_each do |user|
+      favourites = user.favorite_model_meta_ids
+      next unless favourites.include?(name)
+
+      # update! rather than update_columns: the column is JSON-serialized, so
+      # it has to go through the attribute coder to be written correctly.
+      user.update!(favorite_model_meta_ids: favourites - [ name ])
+      touched += 1
+    end
+
+    touched
+  end
+
   def self.catalog_order(models)
     models.sort_by { |m| [ m.image? ? 1 : 0, -m.sort_price, m.display_name.to_s.downcase ] }
   end
