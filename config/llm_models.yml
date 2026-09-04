@@ -56,7 +56,7 @@ openai:
     released_on: 2026-07-09
     defaults:
       reasoning:
-        summary: auto
+        summary: detailed
     pricing:
       input: 2.00
       output: 12.00
