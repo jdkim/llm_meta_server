@@ -1,7 +1,8 @@
 namespace :models do
-  # One list, defined on the model, so a provider added for the admin UI is
-  # also swept by the rake task instead of quietly diverging.
-  PROVIDERS = ModelCatalogCheck::PROVIDERS
+  # The provider list lives on ModelCatalogCheck so the rake task and the
+  # admin UI cannot diverge. It is read inside the task bodies, not here:
+  # .rake files load before the app is initialized, so referencing an
+  # autoloaded model at this level aborts every `rails` command.
 
   desc "Rewrite config/llm_models.yml from the live catalog table. Run after curating models at /admin/models."
   task export: :environment do
@@ -30,7 +31,7 @@ namespace :models do
   task check_updates: :environment do
     include_dated = ENV["MODEL_CHECK_INCLUDE_DATED"].to_s == "1"
 
-    PROVIDERS.each do |provider|
+    ModelCatalogCheck::PROVIDERS.each do |provider|
       puts "\n=== #{provider} ==="
       resolved = ModelCheckKey.for(provider)
 
@@ -96,11 +97,11 @@ namespace :models do
     provider = ENV["PROVIDER"].to_s
 
     if api_id.empty? || provider.empty?
-      warn "usage: bin/rails models:scaffold API_ID=<provider-model-id> PROVIDER=<#{PROVIDERS.join('|')}>"
+      warn "usage: bin/rails models:scaffold API_ID=<provider-model-id> PROVIDER=<#{ModelCatalogCheck::PROVIDERS.join('|')}>"
       exit 2
     end
-    unless PROVIDERS.include?(provider)
-      warn "PROVIDER must be one of #{PROVIDERS.join(', ')}"
+    unless ModelCatalogCheck::PROVIDERS.include?(provider)
+      warn "PROVIDER must be one of #{ModelCatalogCheck::PROVIDERS.join(', ')}"
       exit 2
     end
 
