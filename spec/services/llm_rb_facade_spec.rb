@@ -244,6 +244,85 @@ RSpec.describe LlmRbFacade do
       expect(LLM::Session).not_to have_received(:new)
     end
 
+    # Regression: the chat client always prepends a system message ("respond
+    # with the body only"), so a brand-new chat arrives with messages: present
+    # but no prior turns. Keying the branch on messages.blank? made every UI
+    # request look multi-turn — reasoning summaries never streamed, and
+    # `responses_only` models (gpt-5.5-pro) 400'd on every single prompt with
+    # "This is not a chat model".
+    it "system-only messages (a first turn) still uses the Responses API" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
+
+      described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              generation_params: { reasoning: { effort: "medium" } },
+                              messages: [ { role: "system", content: "Respond with the body only." } ])
+
+      expect(responses_ns).to have_received(:create)
+      expect(LLM::Session).not_to have_received(:new)
+    end
+
+    it "forwards the system text as the Responses API's instructions: param" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
+
+      described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              messages: [ { role: "system", content: "Be terse." },
+                                          { role: "system", content: "Cite sources." } ])
+
+      expect(responses_ns).to have_received(:create)
+        .with("hi", hash_including(instructions: "Be terse.\n\nCite sources."))
+    end
+
+    it "omits instructions: entirely when there is no system message" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
+
+      described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses")
+
+      expect(responses_ns).to have_received(:create).with("hi", hash_excluding(:instructions))
+    end
+
+    it "reads string-keyed messages too, not just symbol-keyed" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
+
+      described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              messages: [ { "role" => "system", "content" => "Be terse." } ])
+
+      expect(responses_ns).to have_received(:create)
+        .with("hi", hash_including(instructions: "Be terse."))
+    end
+
+    it "a system message plus real history still falls back to chat completions" do
+      described_class.stream!("gpt-5", "next question", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              messages: [ { role: "system",    content: "Respond with the body only." },
+                                          { role: "user",      content: "prior" },
+                                          { role: "assistant", content: "prior-a" } ])
+
+      expect(LLM::Session).to have_received(:new)
+      expect(responses_ns).not_to have_received(:create) if responses_ns.respond_to?(:create)
+      # The system message is NOT dropped on the fallback path — it still
+      # reaches the session buffer along with the two historical turns.
+      expect(messages_buf).to have_received(:concat) do |msgs|
+        expect(msgs.length).to eq(3)
+      end
+    end
+
+    it "system-only messages with tools present still falls back to chat completions" do
+      allow(session).to receive(:chat).and_return(response)
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:extract_tool_calls).and_return([])
+
+      described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ],
+                              messages: [ { role: "system", content: "Respond with the body only." } ])
+
+      expect(responses_ns).not_to have_received(:create) if responses_ns.respond_to?(:create)
+    end
+
     it "multi-turn (messages: present, endpoint: 'responses'): falls back to chat completions" do
       described_class.stream!("gpt-5", "draft candidate hypothesis",
                               sink: sink, llm_api_key: openai_key,

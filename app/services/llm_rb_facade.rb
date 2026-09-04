@@ -48,13 +48,25 @@ module LlmRbFacade
         # sink.thinking. Falls back to chat completions when the request
         # carries tools or an image — Responses support for those exists
         # but uses different wire shapes than we currently handle. Also
-        # skips Responses when `messages:` is provided: llm.rb's Responses
-        # request adapter labels every string content as `input_text`,
-        # which the API rejects for assistant history (needs `output_text`).
-        # Correctness > reasoning summaries — multi-turn gpt-5 falls back
-        # to chat completions.
-        if endpoint == "responses" && tools.empty? && payloads.empty? && messages.blank?
-          stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink)
+        # falls back once there is real conversation history: llm.rb's
+        # Responses request adapter labels every string content as
+        # `input_text`, which the API rejects for assistant history (needs
+        # `output_text`). Correctness > reasoning summaries — multi-turn
+        # gpt-5 falls back to chat completions.
+        #
+        # What counts as history is `prior_turns`, NOT `messages.present?`.
+        # The chat client always sends a system message (its "respond with
+        # the body only" instruction), so keying on `messages` meant a
+        # brand-new chat looked multi-turn: the Responses branch never ran
+        # for UI traffic, reasoning summaries never appeared, and
+        # `responses_only` models 400'd on every prompt. A system-only
+        # array is a first turn; its text rides along as `instructions:`,
+        # which is where the Responses API takes a system prompt.
+        prior_turns, instructions = split_conversation(messages)
+
+        if endpoint == "responses" && tools.empty? && payloads.empty? && prior_turns.empty?
+          stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink,
+                                instructions: instructions)
         else
           # Every other branch uses chat completions. If the model catalog
           # entry declared `endpoint: responses`, its defaults (e.g. `reasoning:`)
@@ -96,16 +108,38 @@ module LlmRbFacade
     # catalog entry declares `endpoint: responses` (currently the GPT-5
     # family, to expose reasoning summaries). Restricted to the simple case
     # for now — no tools, no image.
-    def stream_via_responses!(llm, model_id, prompt, params, sink)
+    def stream_via_responses!(llm, model_id, prompt, params, sink, instructions: nil)
       # Multi-turn history is intentionally NOT forwarded here — llm.rb's
       # Responses request adapter labels every string content as `input_text`,
       # which the API rejects for assistant messages. The caller routes
       # requests with `messages:` through chat completions instead.
-      response = llm.responses.create(prompt, model: model_id, stream: sink, **params)
+      params = (params || {}).merge(instructions: instructions) if instructions.present?
+      response = llm.responses.create(prompt, model: model_id, stream: sink, **(params || {}))
       response.respond_to?(:output_text) ? response.output_text.to_s : ""
     end
 
     private
+
+    # Splits the client's role-tagged array into [prior_turns, instructions].
+    #
+    # System messages are not conversation history — they are the system
+    # prompt, which the Responses API takes as a top-level `instructions:`
+    # string rather than as an input item. Everything else (user/assistant)
+    # is real history and is what disqualifies the Responses branch.
+    def split_conversation(messages)
+      return [ [], nil ] if messages.blank?
+
+      system, turns = Array(messages).partition { |m| field(m, :role).to_s == "system" }
+      instructions  = system.map { |m| field(m, :content).to_s }.reject(&:empty?).join("\n\n").presence
+      [ turns, instructions ]
+    end
+
+    # Client messages arrive with symbol keys from the controller and string
+    # keys from some callers; read either.
+    def field(message, key)
+      return nil unless message.respond_to?(:[])
+      message[key] || message[key.to_s]
+    end
 
     # Params that only OpenAI's Responses endpoint accepts. When a model
     # declared `endpoint: responses` but the request is routed through
