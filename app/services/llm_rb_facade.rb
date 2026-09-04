@@ -48,25 +48,24 @@ module LlmRbFacade
         # sink.thinking. Falls back to chat completions when the request
         # carries tools or an image — Responses support for those exists
         # but uses different wire shapes than we currently handle. Also
-        # falls back once there is real conversation history: llm.rb's
-        # Responses request adapter labels every string content as
-        # `input_text`, which the API rejects for assistant history (needs
-        # `output_text`). Correctness > reasoning summaries — multi-turn
-        # gpt-5 falls back to chat completions.
+        # carries history too: prior user/assistant turns go in as `input:`
+        # items, and the system prompt as `instructions:`, which is where the
+        # Responses API takes each of them.
         #
-        # What counts as history is `prior_turns`, NOT `messages.present?`.
-        # The chat client always sends a system message (its "respond with
-        # the body only" instruction), so keying on `messages` meant a
-        # brand-new chat looked multi-turn: the Responses branch never ran
-        # for UI traffic, reasoning summaries never appeared, and
-        # `responses_only` models 400'd on every prompt. A system-only
-        # array is a first turn; its text rides along as `instructions:`,
-        # which is where the Responses API takes a system prompt.
+        # History used to force the chat-completions fallback, because llm.rb
+        # labels every string content `input_text` and the API rejects that
+        # for assistant turns. config/initializers/openai_responses_history.rb
+        # fixes the labelling, so multi-turn requests can stay on Responses
+        # and keep streaming reasoning summaries past the first message.
+        #
+        # Note `prior_turns` excludes system messages — the chat client always
+        # sends one ("respond with the body only"), so treating `messages` as
+        # history made even a brand-new chat look multi-turn.
         prior_turns, instructions = split_conversation(messages)
 
-        if endpoint == "responses" && tools.empty? && payloads.empty? && prior_turns.empty?
+        if endpoint == "responses" && tools.empty? && payloads.empty?
           stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink,
-                                instructions: instructions)
+                                instructions: instructions, history: prior_turns)
         else
           # Every other branch uses chat completions. If the model catalog
           # entry declared `endpoint: responses`, its defaults (e.g. `reasoning:`)
@@ -108,13 +107,16 @@ module LlmRbFacade
     # catalog entry declares `endpoint: responses` (currently the GPT-5
     # family, to expose reasoning summaries). Restricted to the simple case
     # for now — no tools, no image.
-    def stream_via_responses!(llm, model_id, prompt, params, sink, instructions: nil)
-      # Multi-turn history is intentionally NOT forwarded here — llm.rb's
-      # Responses request adapter labels every string content as `input_text`,
-      # which the API rejects for assistant messages. The caller routes
-      # requests with `messages:` through chat completions instead.
-      params = (params || {}).merge(instructions: instructions) if instructions.present?
-      response = llm.responses.create(prompt, model: model_id, stream: sink, **(params || {}))
+    def stream_via_responses!(llm, model_id, prompt, params, sink, instructions: nil, history: [])
+      # Prior turns ride along as `input:` items. llm.rb prepends them to the
+      # current prompt (responses.rb: `[*params.delete(:input), Message.new(...)]`),
+      # and openai_responses_history.rb makes sure assistant items are labelled
+      # `output_text` rather than `input_text`.
+      params = (params || {}).dup
+      params[:instructions] = instructions if instructions.present?
+      params[:input] = history.map { |turn| LLM::Message.new(field(turn, :role), field(turn, :content)) } if history.present?
+
+      response = llm.responses.create(prompt, model: model_id, stream: sink, **params)
       response.respond_to?(:output_text) ? response.output_text.to_s : ""
     end
 

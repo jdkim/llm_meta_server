@@ -294,17 +294,17 @@ RSpec.describe LlmRbFacade do
         .with("hi", hash_including(instructions: "Be terse."))
     end
 
-    it "a system message plus real history still falls back to chat completions" do
+    it "falls back to chat completions for a non-responses endpoint, keeping the system message" do
       described_class.stream!("gpt-5", "next question", sink: sink, llm_api_key: openai_key,
-                              endpoint: "responses",
+                              endpoint: "chat_completions",
                               messages: [ { role: "system",    content: "Respond with the body only." },
                                           { role: "user",      content: "prior" },
                                           { role: "assistant", content: "prior-a" } ])
 
       expect(LLM::Session).to have_received(:new)
       expect(responses_ns).not_to have_received(:create) if responses_ns.respond_to?(:create)
-      # The system message is NOT dropped on the fallback path — it still
-      # reaches the session buffer along with the two historical turns.
+      # The system message is NOT dropped on that path — it reaches the
+      # session buffer along with the two historical turns.
       expect(messages_buf).to have_received(:concat) do |msgs|
         expect(msgs.length).to eq(3)
       end
@@ -323,18 +323,68 @@ RSpec.describe LlmRbFacade do
       expect(responses_ns).not_to have_received(:create) if responses_ns.respond_to?(:create)
     end
 
-    it "multi-turn (messages: present, endpoint: 'responses'): falls back to chat completions" do
+    # History used to force the chat-completions fallback. With
+    # openai_responses_history.rb labelling assistant turns `output_text`,
+    # multi-turn requests stay on Responses — which is what keeps reasoning
+    # summaries flowing past the first message.
+    it "multi-turn (messages: present, endpoint: 'responses'): stays on the Responses API" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
+
       described_class.stream!("gpt-5", "draft candidate hypothesis",
                               sink: sink, llm_api_key: openai_key,
                               endpoint: "responses",
                               generation_params: { reasoning: { effort: "medium" }, temperature: 0.4 },
                               messages: [ { role: "user", content: "prior" }, { role: "assistant", content: "prior-a" } ])
 
-      # Chat completions path used, not Responses.
+      expect(responses_ns).to have_received(:create)
+      expect(LLM::Session).not_to have_received(:new)
+    end
+
+    it "forwards prior turns as input:, in order, with their roles intact" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
+
+      described_class.stream!("gpt-5", "and now?", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              messages: [ { role: "user", content: "prior" },
+                                          { role: "assistant", content: "prior-a" } ])
+
+      expect(responses_ns).to have_received(:create) do |prompt, params|
+        expect(prompt).to eq("and now?")
+        expect(params[:input].map(&:role)).to eq(%w[user assistant])
+        expect(params[:input].map(&:content)).to eq([ "prior", "prior-a" ])
+      end
+    end
+
+    it "keeps the system prompt out of input: and in instructions:" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
+
+      described_class.stream!("gpt-5", "and now?", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              messages: [ { role: "system",    content: "Be terse." },
+                                          { role: "user",      content: "prior" },
+                                          { role: "assistant", content: "prior-a" } ])
+
+      expect(responses_ns).to have_received(:create) do |_prompt, params|
+        expect(params[:instructions]).to eq("Be terse.")
+        expect(params[:input].map(&:role)).to eq(%w[user assistant])
+      end
+    end
+
+    it "still falls back to chat completions when tools are present, history or not" do
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:extract_tool_calls).and_return([])
+
+      described_class.stream!("gpt-5", "with tools", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses",
+                              generation_params: { reasoning: { effort: "medium" }, temperature: 0.4 },
+                              tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ],
+                              messages: [ { role: "user", content: "prior" }, { role: "assistant", content: "prior-a" } ])
+
+      # Chat completions path used, and `reasoning` stripped so it doesn't 400.
       expect(LLM::Session).to have_received(:new).with(openai_client, hash_not_including(:reasoning))
       expect(LLM::Session).to have_received(:new).with(openai_client, hash_including(temperature: 0.4))
       expect(responses_ns).not_to have_received(:create) if responses_ns.respond_to?(:create)
-      # And the historical messages actually reach the session buffer.
+      # And the historical messages still reach the session buffer.
       expect(messages_buf).to have_received(:concat) do |msgs|
         expect(msgs.length).to eq(2)
       end
