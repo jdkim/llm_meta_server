@@ -16,17 +16,26 @@
 class TurnBudgetSink
   class Exceeded < StandardError; end
 
-  attr_reader :deadline
+  attr_reader :deadline, :content_bytes, :thinking_deltas, :thinking_bytes
 
   def initialize(sink, seconds:, clock: Time)
     @sink     = sink
     @seconds  = seconds
     @clock    = clock
     @deadline = clock.now + seconds
+    # Counted here because this wrapper sees every byte of every stream,
+    # whichever provider and whichever branch produced it. Without it there is
+    # no record of whether a model emitted reasoning at all: a turn that
+    # streamed no summary and a turn whose summary was lost downstream look
+    # identical in the log, which cost a lot of guesswork on 2026-09-04.
+    @content_bytes   = 0
+    @thinking_deltas = 0
+    @thinking_bytes  = 0
   end
 
   def <<(chunk)
     check!
+    @content_bytes += chunk.to_s.bytesize
     @sink << chunk
     self
   end
@@ -35,7 +44,14 @@ class TurnBudgetSink
   # responds to it; budget applies equally, since thinking can run away too.
   def thinking(delta)
     check!
+    @thinking_deltas += 1
+    @thinking_bytes  += delta.to_s.bytesize
     @sink.thinking(delta) if @sink.respond_to?(:thinking)
+  end
+
+  # One-line summary of what this turn actually streamed.
+  def stream_stats
+    "content=#{content_bytes}B reasoning=#{thinking_deltas}deltas/#{thinking_bytes}B"
   end
 
   def respond_to_missing?(name, include_private = false)

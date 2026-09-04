@@ -232,6 +232,39 @@ RSpec.describe LlmRbFacade do
       allow(session).to receive(:chat).and_return(response)
     end
 
+    # Instrumentation: without this line the log cannot answer "did this model
+    # emit a reasoning summary?", which is exactly the question that cost a lot
+    # of guesswork when summaries turned out to be intermittent.
+    it "logs what the turn streamed, including the reasoning counts" do
+      allow(responses_ns).to receive(:create) do |_prompt, params|
+        params[:stream].thinking("thought one")
+        params[:stream] << "answer"
+        instance_double("R", output_text: "answer")
+      end
+      allow(Rails.logger).to receive(:info)
+
+      described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses")
+
+      expect(Rails.logger).to have_received(:info)
+        .with(/\[LlmStream\] model=gpt-5 endpoint=responses .*reasoning=1deltas\/11B/)
+    end
+
+    it "logs the turn even when it raises, so a failed turn still reports progress" do
+      allow(responses_ns).to receive(:create) do |_prompt, params|
+        params[:stream].thinking("partial")
+        raise "provider exploded"
+      end
+      allow(Rails.logger).to receive(:info)
+
+      expect {
+        described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                                endpoint: "responses")
+      }.to raise_error("provider exploded")
+
+      expect(Rails.logger).to have_received(:info).with(/\[LlmStream\].*reasoning=1deltas\/7B/)
+    end
+
     it "single-turn (messages: nil, endpoint: 'responses'): still uses the Responses API" do
       allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok"))
 

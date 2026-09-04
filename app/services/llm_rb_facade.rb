@@ -40,6 +40,23 @@ module LlmRbFacade
       native = native_server_tools(llm)
 
       payloads = coerce_file_payloads(image, images, document)
+      begin
+        stream_with_payloads(llm, native, payloads, model_id, prompt, sink,
+                             tools:, generation_params:, on_tool_calls:, on_phase_change:,
+                             messages:, endpoint:)
+      ensure
+        # Logged whatever happened — a turn that raised is exactly when you
+        # want to know how far it got.
+        Rails.logger.info(
+          "[LlmStream] model=#{model_id} endpoint=#{endpoint} #{sink.stream_stats}"
+        ) if sink.respond_to?(:stream_stats)
+      end
+    end
+
+    # The body of stream!, split out so the logging above wraps every path.
+    def stream_with_payloads(llm, native, payloads, model_id, prompt, sink,
+                             tools:, generation_params:, on_tool_calls:, on_phase_change:,
+                             messages:, endpoint:)
       with_file_payloads(payloads) do |contents|
         effective_prompt = contents.any? ? [ *contents, prompt ] : prompt
 
@@ -142,6 +159,8 @@ module LlmRbFacade
       return nil unless message.respond_to?(:[])
       message[key] || message[key.to_s]
     end
+
+    private :stream_with_payloads
 
     # Params that only OpenAI's Responses endpoint accepts. When a model
     # declared `endpoint: responses` but the request is routed through
