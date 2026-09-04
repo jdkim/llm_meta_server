@@ -33,7 +33,7 @@ module LlmRbFacade
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
     def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, document: nil, messages: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
-      sink = TurnBudgetSink.new(sink, seconds: TURN_BUDGET_SECONDS) unless sink.is_a?(TurnBudgetSink)
+      sink = TurnBudgetSink.new(sink, seconds: turn_budget_for(model_id)) unless sink.is_a?(TurnBudgetSink)
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
@@ -250,6 +250,23 @@ module LlmRbFacade
     # ten minutes on a 25k-token runaway and never trip a read timeout,
     # because bytes keep arriving. This is the backstop that does.
     TURN_BUDGET_SECONDS = Integer(ENV.fetch("LLM_TURN_BUDGET_SECONDS", 300))
+
+    # Local models get a longer leash. 300s was set for the hosted providers,
+    # where a slow turn also costs money; a local 36B is simply slower, and
+    # legitimate work gets killed at 300s — qwen3.6:35b spent five minutes
+    # genuinely reasoning through a constraint puzzle (11,628 reasoning
+    # deltas) and was cut off mid-answer.
+    #
+    # This widens the window in which a runaway keeps going, which is the
+    # thing the budget exists to stop: yy's incident was this same model
+    # repeating one line 420 times. Wall-clock cannot tell those apart —
+    # only repetition detection could, and that is the real fix. Until then
+    # this trades a longer worst case for not truncating honest work.
+    LOCAL_TURN_BUDGET_SECONDS = Integer(ENV.fetch("LLM_LOCAL_TURN_BUDGET_SECONDS", 900))
+
+    def turn_budget_for(model_id)
+      LlmModelMap.ollama_model?(model_id) ? LOCAL_TURN_BUDGET_SECONDS : TURN_BUDGET_SECONDS
+    end
 
     def apply_provider_defaults(generation_params, llm_api_key)
       params = (generation_params || {}).to_h.symbolize_keys

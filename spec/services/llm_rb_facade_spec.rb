@@ -199,6 +199,35 @@ RSpec.describe LlmRbFacade do
     end
   end
 
+  describe ".turn_budget_for" do
+    # 300s was tuned for hosted providers. A local 36B is slower and free per
+    # token, and 300s was truncating genuine reasoning mid-answer.
+    it "gives local models a longer budget than hosted ones" do
+      allow(LlmModelMap).to receive(:ollama_model?).with("qwen3.6:35b").and_return(true)
+      allow(LlmModelMap).to receive(:ollama_model?).with("gpt-5").and_return(false)
+
+      expect(described_class.send(:turn_budget_for, "qwen3.6:35b"))
+        .to be > described_class.send(:turn_budget_for, "gpt-5")
+    end
+
+    it "still caps local models — the budget is longer, not absent" do
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(true)
+
+      budget = described_class.send(:turn_budget_for, "qwen3.6:35b")
+
+      expect(budget).to be_a(Integer)
+      expect(budget).to be > 0
+      expect(budget).to be < 3600
+    end
+
+    it "uses the hosted budget for cloud models" do
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+
+      expect(described_class.send(:turn_budget_for, "gpt-5"))
+        .to eq(described_class.singleton_class::TURN_BUDGET_SECONDS)
+    end
+  end
+
   describe "Responses vs chat completions routing when messages: is present" do
     # gpt-5's catalog declares `endpoint: responses` and includes a `reasoning`
     # default. Multi-turn requests can't use Responses (llm.rb's adapter mislabels
