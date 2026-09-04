@@ -42,10 +42,10 @@ module LLM
       # "Tool calls" section and then poisoned the next turn's LLM context.
       # See project_ollama_traps memory for the earlier occurrence.
       args = case raw_args
-             when Hash then raw_args
-             when nil  then {}
-             else raw_args.respond_to?(:to_h) ? raw_args.to_h : {}
-             end
+      when Hash then raw_args
+      when nil  then {}
+      else raw_args.respond_to?(:to_h) ? raw_args.to_h : {}
+      end
       if tc.respond_to?(:id)
         { id: tc.id, name: tc.name, arguments: args }
       else

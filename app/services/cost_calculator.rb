@@ -6,7 +6,7 @@ class CostCalculator
   # without a `pricing` block (e.g. Ollama, image-gen) returns 0 and logs a
   # warning — fail-open so a missing table entry doesn't break chat.
   def self.compute(llm_type:, meta_id:, input_tokens:, output_tokens:)
-    rates = LlmModelMap::MODEL_MAP.dig(llm_type.to_s, meta_id.to_s, :pricing)
+    rates = LlmModelMap.catalog.dig(llm_type.to_s, meta_id.to_s, :pricing)
     if rates.nil?
       Rails.logger.warn "[CostCalculator] no pricing for #{llm_type}/#{meta_id} — billing 0"
       return 0

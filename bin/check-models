@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Weekly catalog check for hub.AIbranch. Intended for cron.
+#
+# Compares config/llm_models.yml against each provider's live model list and
+# records the result (see ModelCatalogCheck), then validates the catalog. The
+# findings surface on /admin, so nobody has to remember to run this or read
+# its output — the cron entry only needs to keep the data fresh.
+#
+# Cron runs with a near-empty environment, so rvm and .env.production are
+# sourced explicitly here the same way bin/deploy does.
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if [ -s "$HOME/.rvm/scripts/rvm" ]; then
+  set +u
+  source "$HOME/.rvm/scripts/rvm"
+  [ -f .ruby-version ] && rvm use "$(cat .ruby-version)" >/dev/null
+  set -u
+fi
+
+if [ -f .env.production ]; then
+  set -a
+  source .env.production
+  set +a
+fi
+
+export RAILS_ENV="${RAILS_ENV:-production}"
+
+echo "=== $(date '+%Y-%m-%d %H:%M:%S') models:check_updates (RAILS_ENV=$RAILS_ENV) ==="
+bin/rails models:check_updates
+
+echo "=== $(date '+%Y-%m-%d %H:%M:%S') models:check_prices ==="
+# Provider prices change without notice, so record drift against the public
+# references weekly. Findings surface on /admin/models; nothing is applied
+# automatically — adopting a price is a billing decision.
+bin/rails models:check_prices
+
+echo "=== $(date '+%Y-%m-%d %H:%M:%S') models:validate ==="
+# validate exits 1 on error; let that propagate so cron mail flags a broken catalog.
+bin/rails models:validate

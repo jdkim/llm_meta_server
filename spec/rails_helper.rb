@@ -35,6 +35,15 @@ rescue ActiveRecord::PendingMigrationError => e
   abort e.to_s.strip
 end
 RSpec.configure do |config|
+  # The model catalog now lives in the database (see CatalogSeeder), so the
+  # suite needs it loaded before anything reads LlmModelMap. Seeded once,
+  # outside the per-example transaction, so every example sees the same
+  # catalog the checked-in YAML describes.
+  config.before(:suite) do
+    CatalogSeeder.call(prune: true)
+    LlmModelMap.reload!
+  end
+
   # Remove this line if you're not using ActiveRecord or ActiveRecord fixtures
   config.fixture_paths = [
     Rails.root.join('spec/fixtures')

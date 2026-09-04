@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_08_31_000000) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_03_100000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -49,6 +49,18 @@ ActiveRecord::Schema[8.0].define(version: 2026_08_31_000000) do
     t.timestamptz "updated_at"
     t.text "display_name"
     t.text "api_id"
+    t.boolean "supports_vision", default: false, null: false
+    t.boolean "supports_tools", default: false, null: false
+    t.boolean "responses_only", default: false, null: false
+    t.boolean "active", default: true, null: false
+    t.text "kind"
+    t.text "endpoint"
+    t.jsonb "defaults", default: {}, null: false
+    t.jsonb "pricing", default: {}, null: false
+    t.text "notes"
+    t.integer "position", default: 0, null: false
+    t.date "released_on"
+    t.index ["llm_id", "name"], name: "index_llm_models_on_llm_id_and_name", unique: true
     t.index ["llm_id"], name: "idx_2679881_index_llm_models_on_llm_id"
   end
 
@@ -93,6 +105,17 @@ ActiveRecord::Schema[8.0].define(version: 2026_08_31_000000) do
     t.json "annotations", default: {}
     t.index ["mcp_server_id", "name"], name: "idx_2679897_index_mcp_tools_on_mcp_server_id_and_name", unique: true
     t.index ["mcp_server_id"], name: "idx_2679897_index_mcp_tools_on_mcp_server_id"
+  end
+
+  create_table "model_catalog_checks", force: :cascade do |t|
+    t.string "provider", null: false
+    t.timestamptz "checked_at", null: false
+    t.jsonb "new_in_provider", default: [], null: false
+    t.jsonb "missing_from_provider", default: [], null: false
+    t.string "error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider", "checked_at"], name: "index_model_catalog_checks_on_provider_and_checked_at"
   end
 
   create_table "users", force: :cascade do |t|

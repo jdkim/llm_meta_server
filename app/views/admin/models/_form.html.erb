@@ -1,0 +1,79 @@
+<%# Explicit url/scope: the route is `resources :models`, so the default
+    derived from LlmModel (admin_llm_models_path) does not exist. %>
+<%= form_with model: model, scope: :llm_model, local: true,
+      url: (model.persisted? ? admin_model_path(model) : admin_models_path),
+      method: (model.persisted? ? :patch : :post) do |f| %>
+  <% if model.errors.any? %>
+    <div class="mb-4 px-3 py-2 rounded-md bg-red-50 text-red-800 text-sm border border-red-200">
+      <%= pluralize(model.errors.count, "error") %> prevented saving:
+      <ul class="list-disc ml-5 mt-1"><% model.errors.full_messages.each do |m| %><li><%= m %></li><% end %></ul>
+    </div>
+  <% end %>
+
+  <div class="grid grid-cols-2 gap-4">
+    <label class="block"><span class="text-sm font-medium text-gray-700">Provider</span>
+      <%= f.collection_select :llm_id, Llm.order(:family), :id, :family,
+            {}, class: "mt-1 w-full border-gray-300 rounded-md text-sm" %></label>
+
+    <label class="block"><span class="text-sm font-medium text-gray-700">meta_id
+      <span class="text-xs text-gray-500 font-normal">— URL-safe; appears in routes</span></span>
+      <%= f.text_field :name, class: "mt-1 w-full border-gray-300 rounded-md text-sm font-mono" %></label>
+
+    <label class="block"><span class="text-sm font-medium text-gray-700">api_id
+      <span class="text-xs text-gray-500 font-normal">— the provider's real id</span></span>
+      <%= f.text_field :api_id, class: "mt-1 w-full border-gray-300 rounded-md text-sm font-mono" %></label>
+
+    <label class="block"><span class="text-sm font-medium text-gray-700">Display name</span>
+      <%= f.text_field :display_name, class: "mt-1 w-full border-gray-300 rounded-md text-sm" %></label>
+
+    <label class="block"><span class="text-sm font-medium text-gray-700">Endpoint</span>
+      <%= f.select :endpoint, [["chat_completions (default)", ""], ["responses", "responses"]],
+            {}, class: "mt-1 w-full border-gray-300 rounded-md text-sm" %></label>
+
+    <label class="block"><span class="text-sm font-medium text-gray-700">Released
+      <span class="text-xs text-gray-500 font-normal">— filled from the references where known</span></span>
+      <%= f.date_field :released_on, class: "mt-1 w-full border-gray-300 rounded-md text-sm" %></label>
+
+    <label class="block"><span class="text-sm font-medium text-gray-700">Kind</span>
+      <%= f.select :kind, [["chat (default)", ""], ["image", "image"]],
+            {}, class: "mt-1 w-full border-gray-300 rounded-md text-sm" %></label>
+  </div>
+
+  <div class="flex flex-wrap gap-5 mt-4">
+    <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :supports_vision %> supports vision</label>
+    <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :supports_tools %> supports tools</label>
+    <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :responses_only %>
+      responses_only <span class="text-xs text-gray-500">(Responses API only — tools cannot be routed)</span></label>
+    <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :active %> available to users</label>
+  </div>
+
+  <div class="grid grid-cols-2 gap-4 mt-4">
+    <label class="block"><span class="text-sm font-medium text-gray-700">pricing (JSON)
+      <span class="text-xs text-gray-500 font-normal">— USD per 1M tokens; required unless local</span></span>
+      <%= text_area_tag "llm_model[pricing_json]", JSON.pretty_generate(model.pricing.presence || {}),
+            rows: 6, class: "mt-1 w-full border-gray-300 rounded-md text-xs font-mono",
+            placeholder: %({\n  "input": ,\n  "output": ,\n  "reviewed_at": "#{Date.today.iso8601}"\n}) %>
+      <span class="block text-xs text-gray-500 mt-1">
+        Leave input/output unset until you have looked them up — a 0 would bill this model as free.
+        Add <code>"verified": true</code> once you have confirmed the figures against the
+        provider's own page; without it the price is shown as unverified.
+      </span>
+      <% if model.persisted? %>
+        <span class="block text-xs mt-1">Provenance: <strong><%= model.pricing_provenance %></strong></span>
+      <% end %></label>
+
+    <label class="block"><span class="text-sm font-medium text-gray-700">defaults (JSON)
+      <span class="text-xs text-gray-500 font-normal">— merged under per-request params</span></span>
+      <%= text_area_tag "llm_model[defaults_json]", JSON.pretty_generate(model.defaults.presence || {}),
+            rows: 6, class: "mt-1 w-full border-gray-300 rounded-md text-xs font-mono" %></label>
+  </div>
+
+  <label class="block mt-4"><span class="text-sm font-medium text-gray-700">Notes
+    <span class="text-xs text-gray-500 font-normal">— why this entry looks the way it does</span></span>
+    <%= f.text_area :notes, rows: 4, class: "mt-1 w-full border-gray-300 rounded-md text-xs" %></label>
+
+  <div class="flex items-center gap-3 mt-5">
+    <%= f.submit class: "bg-blue-600 text-white text-sm px-4 py-2 rounded-md hover:bg-blue-700 cursor-pointer" %>
+    <%= link_to "Cancel", admin_models_path, class: "text-sm text-gray-600 hover:underline" %>
+  </div>
+<% end %>

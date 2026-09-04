@@ -10,6 +10,11 @@ RSpec.describe Api::LlmsController, type: :controller do
 
   describe 'GET #index' do
     context 'when there are no registered LLM services' do
+      # The catalog is seeded suite-wide now (it lives in the DB), so this
+      # case has to be created deliberately. Ollama stays: it is the built-in
+      # keyless service the endpoint always advertises.
+      before { Llm.where.not(family: "ollama").destroy_all }
+
       it 'returns only Ollama service' do
         get :index
 
@@ -28,13 +33,17 @@ RSpec.describe Api::LlmsController, type: :controller do
 
     context 'when there are registered LLM services' do
       before do
-        # Create LLM services with models
+        # Start from a known slate: the catalog is seeded suite-wide, so build
+        # this context's own services rather than adding to the real ones.
+        Llm.where.not(family: "ollama").destroy_all
+
         openai = Llm.create!(name: 'OpenAI', family: 'openai')
-        openai.llm_models.create!(name: 'gpt-4', display_name: 'GPT-4', api_id: 'gpt-4')
-        openai.llm_models.create!(name: 'gpt-3.5-turbo', display_name: 'GPT-3.5 Turbo', api_id: 'gpt-3.5-turbo')
+        openai.llm_models.create!(name: 'gpt-4', display_name: 'GPT-4', api_id: 'gpt-4', pricing: { 'input' => 1.0, 'output' => 2.0 })
+        # meta_id must be URL-safe — dots are flattened (gpt-3.5-turbo -> gpt-3-5-turbo).
+        openai.llm_models.create!(name: 'gpt-3-5-turbo', display_name: 'GPT-3.5 Turbo', api_id: 'gpt-3.5-turbo', pricing: { 'input' => 0.5, 'output' => 1.5 })
 
         anthropic = Llm.create!(name: 'Anthropic', family: 'anthropic')
-        anthropic.llm_models.create!(name: 'claude-3', display_name: 'Claude 3 Opus', api_id: 'claude-3-opus-20240229')
+        anthropic.llm_models.create!(name: 'claude-3', display_name: 'Claude 3 Opus', api_id: 'claude-3-opus-20240229', pricing: { 'input' => 15.0, 'output' => 75.0 })
       end
 
       it 'returns all LLM services including Ollama' do
@@ -57,7 +66,7 @@ RSpec.describe Api::LlmsController, type: :controller do
 
         openai = json_response['llms'].find { |llm| llm['name'] == 'OpenAI' }
         expect(openai['models'].length).to eq(2)
-        expect(openai['models'].map { |m| m['name'] }).to include('gpt-4', 'gpt-3.5-turbo')
+        expect(openai['models'].map { |m| m['name'] }).to include('gpt-4', 'gpt-3-5-turbo')
       end
 
       it 'includes Ollama with available models' do

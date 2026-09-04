@@ -1,0 +1,7 @@
+<% content_for :title, "Edit model · Admin" %>
+<div class="max-w-4xl mx-auto px-4 py-6">
+  <%= render "admin/nav" %>
+  <h2 class="text-2xl font-bold text-gray-900 mb-1">Edit <%= @model.display_name %></h2>
+  <p class="text-sm text-gray-600 mb-5"><%= @model.llm.family %> · <%= @model.name %></p>
+  <%= render "form", model: @model %>
+</div>

@@ -20,7 +20,7 @@ class ProviderModelIndex
 
       models = JSON.parse(resp.body).fetch("data", [])
       filtered = models
-        .map { |m| { id: m["id"].to_s, created_at: unix_to_date(m["created"]) } }
+        .map { |m| { id: m["id"].to_s, created_at: unix_to_date(m["created"]) } } # OpenAI publishes no display name
         .select { |m| openai_frontier?(m[:id]) }
         .select { |m| include_dated || !dated_snapshot?(m[:id]) }
         .select { |m| fresh?(m[:created_at], min_created) }
@@ -38,7 +38,7 @@ class ProviderModelIndex
 
       models = JSON.parse(resp.body).fetch("data", [])
       filtered = models
-        .map { |m| { id: m["id"].to_s, created_at: parse_iso8601(m["created_at"]) } }
+        .map { |m| { id: m["id"].to_s, created_at: parse_iso8601(m["created_at"]), display_name: m["display_name"].presence } }
         .select { |m| anthropic_frontier?(m[:id]) }
         .select { |m| include_dated || !dated_snapshot?(m[:id]) }
         .select { |m| fresh?(m[:created_at], min_created) }
@@ -56,12 +56,62 @@ class ProviderModelIndex
       # Google's response doesn't include a created_at field, so freshness
       # filtering is a no-op (all entries have nil created_at and pass).
       filtered = models
-        .map { |m| { id: m["name"].to_s.sub(%r{\Amodels/}, ""), created_at: nil } }
+        # Google's displayName is the marketing name ("Nano Banana 2 Lite"),
+        # which is exactly what the hand-written catalog entries carried.
+        .map { |m| { id: m["name"].to_s.sub(%r{\Amodels/}, ""), created_at: nil, display_name: m["displayName"].presence } }
         .select { |m| google_frontier?(m[:id]) }
         .select { |m| include_dated || !dated_snapshot?(m[:id]) }
         .select { |m| fresh?(m[:created_at], min_created) }
       filtered = drop_redundant_previews(filtered) unless include_dated
       filtered.sort_by { |m| m[:id] }
+    end
+
+    # Every model id the provider currently returns, with no frontier /
+    # freshness / preview filtering.
+    #
+    # Those filters exist to keep the "new candidates" list readable, but they
+    # must not govern the retirement check: a catalog model older than the
+    # 12-month lookback, or one the frontier heuristic does not recognise, is
+    # not retired — it is simply filtered out. Diffing the catalog against the
+    # filtered list reported gpt-5, gpt-5-mini, gpt-image-1 and
+    # claude-haiku-4-5 as "missing from API" while all four were live and in
+    # daily use. A weekly job that cries wolf gets ignored, so `missing` is
+    # computed against this unfiltered set instead.
+    def all_ids(provider, api_key)
+      case provider.to_s
+      when "openai"
+        resp = HTTParty.get("https://api.openai.com/v1/models",
+          headers: { "Authorization" => "Bearer #{api_key}" }, timeout: HTTP_TIMEOUT_SECONDS)
+        raise FetchError, "openai list-models HTTP #{resp.code}" unless resp.success?
+        JSON.parse(resp.body).fetch("data", []).map { |m| m["id"].to_s }
+      when "anthropic"
+        resp = HTTParty.get("https://api.anthropic.com/v1/models",
+          headers: { "x-api-key" => api_key, "anthropic-version" => "2023-06-01" },
+          timeout: HTTP_TIMEOUT_SECONDS)
+        raise FetchError, "anthropic list-models HTTP #{resp.code}" unless resp.success?
+        JSON.parse(resp.body).fetch("data", []).map { |m| m["id"].to_s }
+      when "google"
+        resp = HTTParty.get("https://generativelanguage.googleapis.com/v1beta/models",
+          query: { key: api_key }, timeout: HTTP_TIMEOUT_SECONDS)
+        raise FetchError, "google list-models HTTP #{resp.code}" unless resp.success?
+        JSON.parse(resp.body).fetch("models", []).map { |m| m["name"].to_s.sub(%r{\Amodels/}, "") }
+      else
+        raise ArgumentError, "unknown provider #{provider.inspect}"
+      end
+    end
+
+    # Catalog api_ids that the provider no longer serves.
+    #
+    # Catalogs commonly use a provider ALIAS (claude-haiku-4-5) while
+    # list-models returns the dated snapshot it resolves to
+    # (claude-haiku-4-5-20251001). The alias is valid at inference time, so an
+    # id is "present" when it matches exactly OR a live id extends it with a
+    # date suffix. Without this, every aliased entry looks retired.
+    def missing_from(catalog_api_ids, live_ids)
+      catalog_api_ids.reject do |id|
+        live_ids.include?(id) ||
+          live_ids.any? { |live| live.start_with?("#{id}-") && live.delete_prefix("#{id}-").match?(/\A\d{6,8}\z/) }
+      end
     end
 
     private

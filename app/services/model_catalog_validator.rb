@@ -15,13 +15,13 @@ class ModelCatalogValidator
     model[:kind].to_s == "image"
   end
 
-  # Runs all checks against LlmModelMap::MODEL_MAP.
+  # Runs all checks against LlmModelMap.catalog.
   # Returns { errors: [strings], warnings: [strings] }.
   def self.validate(today: Date.today)
     errors   = []
     warnings = []
 
-    LlmModelMap::MODEL_MAP.each do |llm_type, models|
+    LlmModelMap.catalog.each do |llm_type, models|
       models.each do |meta_id, model|
         prefix = "#{llm_type}/#{meta_id}"
 
@@ -42,10 +42,14 @@ class ModelCatalogValidator
             errors << "#{prefix}: missing pricing block (chargeable model — required)"
           elsif per_image?(model)
             errors << "#{prefix}: pricing.per_image missing (image model — required)" unless pricing[:per_image].is_a?(Numeric)
+            errors << "#{prefix}: pricing.per_image is 0 — the model would be billed as free" if pricing[:per_image] == 0
             warnings.concat(reviewed_at_warnings(prefix, pricing[:reviewed_at], today))
           else
             errors << "#{prefix}: pricing.input missing"  unless pricing[:input].is_a?(Numeric)
             errors << "#{prefix}: pricing.output missing" unless pricing[:output].is_a?(Numeric)
+            # 0 passes an "is it a number?" check but bills the caller nothing.
+            errors << "#{prefix}: pricing.input is 0 — the model would be billed as free"  if pricing[:input] == 0
+            errors << "#{prefix}: pricing.output is 0 — the model would be billed as free" if pricing[:output] == 0
             warnings.concat(reviewed_at_warnings(prefix, pricing[:reviewed_at], today))
           end
         elsif model[:pricing]

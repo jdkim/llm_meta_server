@@ -137,4 +137,27 @@ RSpec.describe ProviderModelIndex do
       expect(results.map { |m| m[:created_at] }.uniq).to eq([ nil ])
     end
   end
+
+  # Regression guard: the retirement check must not fire on live models.
+  # Diffing the catalog against the FILTERED list reported gpt-5, gpt-5-mini,
+  # gpt-image-1 and claude-haiku-4-5 as retired while all four were in daily
+  # use — three because they fell outside the 12-month lookback, one because
+  # the catalog uses an alias and the API returns the dated snapshot.
+  describe ".missing_from" do
+    it "treats an exact match as present" do
+      expect(described_class.missing_from(%w[gpt-5], %w[gpt-5 gpt-6])).to eq([])
+    end
+
+    it "treats a catalog alias as present when the API returns its dated snapshot" do
+      expect(described_class.missing_from(%w[claude-haiku-4-5], %w[claude-haiku-4-5-20251001])).to eq([])
+    end
+
+    it "does not treat a different model sharing a prefix as the same model" do
+      expect(described_class.missing_from(%w[claude-haiku-4], %w[claude-haiku-4-5-turbo])).to eq(%w[claude-haiku-4])
+    end
+
+    it "reports a genuinely absent model" do
+      expect(described_class.missing_from(%w[gpt-4-legacy], %w[gpt-5])).to eq(%w[gpt-4-legacy])
+    end
+  end
 end

@@ -1,0 +1,20 @@
+<% content_for :title, "Add model · Admin" %>
+<div class="max-w-4xl mx-auto px-4 py-6">
+  <%= render "admin/nav" %>
+  <h2 class="text-2xl font-bold text-gray-900 mb-1">Add model</h2>
+  <% if @price_quote %>
+    <p class="text-sm text-gray-700 mb-5 bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+      Price pre-filled as <strong><%= @price_quote.input %> / <%= @price_quote.output %></strong>
+      from <%= @price_quote.sources.join(" + ") %><%= @price_quote.agree ? " (both agree)" : "" %>.
+      It is saved as <strong>reference</strong>, not verified — confirm against
+      <%= link_to "the provider's pricing page", ModelCatalogScaffold::PRICING_URLS[@model.llm&.family], target: "_blank", rel: "noopener", class: "text-blue-700 hover:underline" %>
+      and add <code>"verified": true</code> when you have.
+    </p>
+  <% else %>
+    <p class="text-sm text-gray-600 mb-5">
+      No public reference price for this model, so the two prices need a human.
+      Check <%= link_to "the provider's pricing page", ModelCatalogScaffold::PRICING_URLS[@model.llm&.family], target: "_blank", rel: "noopener", class: "text-blue-700 hover:underline" %>.
+    </p>
+  <% end %>
+  <%= render "form", model: @model %>
+</div>

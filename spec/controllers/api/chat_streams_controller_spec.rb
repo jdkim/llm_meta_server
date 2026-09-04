@@ -127,7 +127,7 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       # Chat controller's model_name defaults to "llama3.2" up top; that
       # isn't in the catalog, so pin a real Ollama meta_id here to hit the
       # catalog-defaults path.
-      ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+      ollama_meta = "qwen3-6-35b-fast" # named, not ".first": this asserts qwen's defaults and catalog order is not this spec's concern
       allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
 
       post :create, params: { llm_api_key_uuid: uuid, model_name: ollama_meta, prompt: "Hi" }
@@ -139,7 +139,7 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
 
     it "deep-merges: user overrides options.temperature but the catalog's options.num_ctx survives" do
       allow(LlmRbFacade).to receive(:stream!).and_return("ok")
-      ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+      ollama_meta = "qwen3-6-35b-fast" # named, not ".first": this asserts qwen's defaults and catalog order is not this spec's concern
       allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
 
       post :create, params: {
@@ -157,7 +157,7 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
 
     it "user override at the deepest key wins: options.num_ctx sent explicitly replaces the catalog default" do
       allow(LlmRbFacade).to receive(:stream!).and_return("ok")
-      ollama_meta = LlmModelMap.available_models_for("ollama").first["value"]
+      ollama_meta = "qwen3-6-35b-fast" # named, not ".first": this asserts qwen's defaults and catalog order is not this spec's concern
       allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
 
       post :create, params: {

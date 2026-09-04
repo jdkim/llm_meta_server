@@ -89,7 +89,7 @@ RSpec.describe LlmModelMap do
   describe ".ollama_model?" do
     it "is true for any ollama api_id in the catalog" do
       # Pick the api_ids dynamically so this stays green across catalog edits.
-      api_ids = LlmModelMap::MODEL_MAP.fetch("ollama").values.map { |m| m[:api_id] }
+      api_ids = LlmModelMap.catalog.fetch("ollama").values.map { |m| m[:api_id] }
       api_ids.each do |id|
         expect(described_class.ollama_model?(id)).to be(true), "#{id} should be recognized"
       end
@@ -118,7 +118,7 @@ RSpec.describe LlmModelMap do
     it "is false for non-image models in the same family" do
       # Pick a non-image google model dynamically so this stays green
       # across catalog edits.
-      non_image_google = LlmModelMap::MODEL_MAP.fetch("google")
+      non_image_google = LlmModelMap.catalog.fetch("google")
                                                 .reject { |_, info| info[:kind].to_s == "image" }
                                                 .keys.first
       expect(described_class.image_model?(non_image_google, llm_type: "google")).to be(false)
@@ -190,7 +190,7 @@ RSpec.describe LlmModelMap do
     it "still records the model's own capability in the catalog" do
       # The flag must not be implemented by lying in `supports_tools`; the
       # distinction is "the model can" vs "this server can route it".
-      raw = described_class::MODEL_MAP.dig("openai", "gpt-5-5-pro")
+      raw = described_class.catalog.dig("openai", "gpt-5-5-pro")
       expect(raw[:supports_tools]).to be(true)
       expect(raw[:responses_only]).to be(true)
     end
@@ -260,7 +260,7 @@ RSpec.describe LlmModelMap do
 
   describe "catalog integrity" do
     it "every entry has at least the keys :api_id and :display_name" do
-      LlmModelMap::MODEL_MAP.each do |family, entries|
+      LlmModelMap.catalog.each do |family, entries|
         entries.each do |meta_id, info|
           expect(info).to include(:api_id, :display_name),
             "#{family}/#{meta_id} is missing :api_id or :display_name"
@@ -271,7 +271,7 @@ RSpec.describe LlmModelMap do
     end
 
     it "every image-gen entry also has supports_vision: true (image models accept image input)" do
-      LlmModelMap::MODEL_MAP.each_value do |entries|
+      LlmModelMap.catalog.each_value do |entries|
         entries.each do |meta_id, info|
           next unless info[:kind] == :image
           expect(info[:supports_vision]).to be(true),

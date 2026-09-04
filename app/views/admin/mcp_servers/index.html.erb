@@ -1,0 +1,58 @@
+<% content_for :title, "MCP servers · Admin" %>
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <%= render "admin/nav" %>
+  <h2 class="text-2xl font-bold text-gray-900 mb-1">MCP servers</h2>
+  <p class="text-sm text-gray-600 mb-5">
+    Every registration, across all users. Duplicate URLs put the same tool name in the
+    picker twice; a stale fetch advertises tools the upstream server no longer has.
+  </p>
+
+  <% if @duplicate_urls.any? %>
+    <div class="mb-4 px-3 py-2 rounded-md bg-amber-50 text-amber-900 text-sm border border-amber-200">
+      <%= pluralize(@duplicate_urls.size, "URL") %> registered more than once — every shared tool name
+      is duplicated for anyone who can see both.
+    </div>
+  <% end %>
+
+  <div class="bg-white shadow-sm border border-gray-200 rounded-md p-4">
+    <table class="min-w-full text-sm">
+      <thead class="text-left text-gray-500">
+        <tr>
+          <th class="py-1 pr-3">Server</th><th class="py-1 pr-3">Owner</th>
+          <th class="py-1 pr-3">Visibility</th><th class="py-1 pr-3">Tools</th>
+          <th class="py-1 pr-3">Fetched</th><th class="py-1"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @servers.each do |s| %>
+          <% stale = s.last_fetched_at.nil? || s.last_fetched_at < @stale_after.ago %>
+          <tr class="border-t border-gray-100 <%= "opacity-50" unless s.active? %>">
+            <td class="py-1.5 pr-3">
+              <span class="font-medium text-gray-900"><%= s.name %></span>
+              <% if @duplicate_urls.include?(s.url) %>
+                <span class="ml-1 text-xs bg-amber-100 text-amber-800 px-1.5 rounded" title="This URL is registered by more than one user">duplicate</span>
+              <% end %>
+              <span class="block text-xs text-gray-500 font-mono"><%= s.url %></span>
+            </td>
+            <td class="py-1.5 pr-3 text-xs text-gray-600"><%= s.user&.email %></td>
+            <td class="py-1.5 pr-3">
+              <% if s.public_to_anonymous? %><span class="text-xs bg-fuchsia-100 text-fuchsia-800 px-1.5 rounded">unsigned</span>
+              <% elsif s.public? %><span class="text-xs bg-purple-100 text-purple-800 px-1.5 rounded">public</span>
+              <% else %><span class="text-xs bg-gray-100 text-gray-700 px-1.5 rounded">private</span><% end %>
+            </td>
+            <td class="py-1.5 pr-3 text-xs text-gray-600"><%= s.mcp_tools.size %></td>
+            <td class="py-1.5 pr-3 text-xs <%= stale ? 'text-amber-700 font-medium' : 'text-gray-500' %>">
+              <%= s.last_fetched_at ? "#{time_ago_in_words(s.last_fetched_at)} ago" : "never" %>
+            </td>
+            <td class="py-1.5 text-right whitespace-nowrap">
+              <%= button_to "Refetch", refetch_admin_mcp_server_path(s), method: :patch,
+                    class: "text-xs text-blue-700 hover:underline inline mr-2" %>
+              <%= button_to (s.active? ? "Deactivate" : "Activate"), toggle_active_admin_mcp_server_path(s),
+                    method: :patch, class: "text-xs text-gray-600 hover:underline inline" %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,15 @@
+<div class="flex items-center gap-1 mb-6 border-b border-gray-200" data-admin-nav>
+  <% [["Dashboard", admin_path], ["Models", admin_models_path],
+      ["MCP servers", admin_mcp_servers_path], ["Users", admin_users_path]].each do |label, path| %>
+    <% active = request.path == path %>
+    <%= link_to label, path,
+        class: "px-3 py-2 text-sm font-medium -mb-px border-b-2 #{active ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-600 hover:text-gray-900'}" %>
+  <% end %>
+</div>
+
+<% if flash[:notice] %>
+  <div class="mb-4 px-3 py-2 rounded-md bg-green-50 text-green-800 text-sm border border-green-200"><%= flash[:notice] %></div>
+<% end %>
+<% if flash[:alert] %>
+  <div class="mb-4 px-3 py-2 rounded-md bg-red-50 text-red-800 text-sm border border-red-200"><%= flash[:alert] %></div>
+<% end %>

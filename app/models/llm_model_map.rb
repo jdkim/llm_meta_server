@@ -1,25 +1,46 @@
 class LlmModelMap
-  # Catalog source of truth. To add / remove / rename a model, edit
-  # config/llm_models.yml — no code change.
+  # Catalog source of truth: the llm_models table (see CatalogSeeder and
+  # AddCatalogFieldsToLlmModels). It used to be config/llm_models.yml loaded
+  # into a frozen constant at boot, which meant every change needed a deploy
+  # and a restart — and made the catalog unmanageable from the admin UI. The
+  # YAML remains as the checked-in seed / reset point, not as runtime state.
+  #
+  # `catalog` is memoized against the table's max(updated_at) so a normal
+  # request does one cheap query instead of rebuilding, while an edit made in
+  # another puma worker is still picked up without a restart.
   CATALOG_PATH = Rails.root.join("config", "llm_models.yml")
 
-  # Loaded once at class definition. The shape mirrors what the old
-  # MODEL_MAP_<FAMILY> constants used to produce:
-  #
-  #   { "openai" => { "gpt-5" => { api_id:, display_name:, supports_vision:, kind: }, ... },
-  #     "ollama" => { ... },
-  #     ... }
-  # deep_symbolize_keys (not transform_keys) so nested `defaults:` blocks come
-  # through with symbol keys — they're splatted as keyword args into
-  # LLM::Session.new further down the stack.
-  MODEL_MAP = YAML.safe_load_file(CATALOG_PATH, permitted_classes: [ Symbol, Date ])
-                  .transform_values { |models|
-                    models.transform_values(&:deep_symbolize_keys)
-                  }
-                  .freeze
+  class << self
+    def catalog
+      stamp = catalog_stamp
+      if @catalog.nil? || @catalog_stamp != stamp
+        @catalog       = build_catalog
+        @catalog_stamp = stamp
+      end
+      @catalog
+    end
+
+    # Forces the next read to rebuild. Called after a catalog edit.
+    def reload!
+      @catalog = nil
+      @catalog_stamp = nil
+    end
+
+    private
+
+    def catalog_stamp
+      [ LlmModel.maximum(:updated_at), LlmModel.count ]
+    end
+
+    def build_catalog
+      LlmModel.active.includes(:llm).group_by { |m| m.llm.family }
+              .transform_values { |models| LlmModel.catalog_order(models).to_h { |m| [ m.name, m.to_catalog_entry ] } }
+              .freeze
+    end
+  end
 
   def self.fetch!(meta_id, llm_type: nil)
-    model_data = MODEL_MAP.dig(llm_type || "ollama", meta_id)
+    model_data = catalog.dig(llm_type || "ollama", meta_id)
     raise ModelNotFoundError, meta_id if model_data.nil?
     model_data[:api_id]
   end
@@ -28,7 +49,7 @@ class LlmModelMap
   # empty hash when none are declared. Callers merge these UNDER user-
   # supplied params (so a per-request value wins).
   def self.defaults_for(meta_id, llm_type: nil)
-    MODEL_MAP.dig(llm_type || "ollama", meta_id, :defaults) || {}
+    catalog.dig(llm_type || "ollama", meta_id, :defaults) || {}
   end
 
   # Which HTTP endpoint the provider should use for this model.
@@ -36,11 +57,11 @@ class LlmModelMap
   # streaming path through llm.responses.create (so reasoning summaries
   # can stream — they're hidden behind the chat completions endpoint).
   def self.endpoint_for(meta_id, llm_type: nil)
-    MODEL_MAP.dig(llm_type || "ollama", meta_id, :endpoint).to_s.presence || "chat_completions"
+    catalog.dig(llm_type || "ollama", meta_id, :endpoint).to_s.presence || "chat_completions"
   end
 
   def self.available_models_for(llm_type)
-    MODEL_MAP.fetch(llm_type).map do |key, value|
+    catalog.fetch(llm_type).map do |key, value|
       tier, label = pricing_tier_and_label(value[:pricing])
       {
         "label" => value[:display_name], # Display name: official model name
@@ -94,19 +115,19 @@ class LlmModelMap
   end
 
   def self.ollama_model?(model_id)
-    MODEL_MAP.fetch("ollama", {}).each_value.any? { |m| m[:api_id] == model_id }
+    catalog.fetch("ollama", {}).each_value.any? { |m| m[:api_id] == model_id }
   end
 
   def self.image_model?(meta_id, llm_type: nil)
-    MODEL_MAP.dig(llm_type || "ollama", meta_id, :kind).to_s == "image"
+    catalog.dig(llm_type || "ollama", meta_id, :kind).to_s == "image"
   end
 
   def self.supports_vision?(meta_id, llm_type: nil)
-    MODEL_MAP.dig(llm_type || "ollama", meta_id, :supports_vision) == true
+    catalog.dig(llm_type || "ollama", meta_id, :supports_vision) == true
   end
 
   def self.supports_tools?(meta_id, llm_type: nil)
-    tool_capable?(MODEL_MAP.dig(llm_type || "ollama", meta_id))
+    tool_capable?(catalog.dig(llm_type || "ollama", meta_id))
   end
 
   # Whether tools can actually be used with this model *through this server*,

@@ -1,5 +1,7 @@
 class Llm < ApplicationRecord
-  has_many :llm_api_keys, dependent: :destroy
+  # NOTE: no has_many :llm_api_keys — llm_api_keys is keyed by the `llm_type`
+  # string, not an llm_id foreign key, so the association could never load.
+  # It raised PG::UndefinedColumn the first time anything destroyed an Llm.
   has_many :llm_models, dependent: :destroy
 
   validates :name, presence: true, uniqueness: true
@@ -12,7 +14,11 @@ class Llm < ApplicationRecord
       family: family,
       created_at: created_at,
       updated_at: updated_at,
-      models: llm_models.map(&:as_json)
+      # Same order the catalog and picker use — chat models before image
+      # generators, most expensive first. Consumers of /api/llms (the chat
+      # app renders these as the "locked" provider cards for visitors with no
+      # API key) would otherwise show them in raw row order.
+      models: LlmModel.catalog_order(llm_models.select(&:active?)).map(&:as_json)
     }
   end
 

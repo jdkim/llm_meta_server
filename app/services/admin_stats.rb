@@ -13,7 +13,36 @@ module AdminStats
       users: user_stats,
       llm_api_keys: api_key_stats,
       mcp: mcp_stats,
-      favorites: favorites_stats
+      favorites: favorites_stats,
+      catalog: catalog_stats
+    }
+  end
+
+  # Catalog health. Surfaces the two things that otherwise only appear when
+  # someone remembers to run a rake task: pricing that has gone stale, and how
+  # long it has been since the catalog was compared against each provider's
+  # live model list.
+  def catalog_stats
+    validation = ModelCatalogValidator.validate
+    due        = ModelPricingReview.due
+
+    {
+      models_by_provider: LlmModelMap.catalog.transform_values(&:size),
+      models_total: LlmModelMap.catalog.values.sum(&:size),
+      pricing_review_due: due.size,
+      pricing_review_models: due.map { |r| "#{r[:llm_type]}/#{r[:meta_id]}" },
+      validation_errors: validation[:errors].size,
+      validation_warnings: validation[:warnings].size,
+      provider_checks: ModelCatalogCheck.latest_per_provider.map { |c|
+        {
+          provider: c.provider,
+          checked_at: c.checked_at.iso8601,
+          days_ago: ((Time.current - c.checked_at) / 1.day).floor,
+          new_in_provider: c.candidate_ids,
+          missing_from_provider: c.missing_from_provider,
+          error: c.error
+        }
+      }
     }
   end
 

@@ -1,0 +1,228 @@
+<% content_for :title, "Models · Admin" %>
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <%= render "admin/nav" %>
+
+  <div class="flex items-start justify-between mb-4">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-900">Model catalog</h2>
+      <p class="text-sm text-gray-600 mt-1">
+        Stored in the database — changes take effect immediately, no restart.
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <%= button_to "Check providers", check_updates_admin_models_path,
+            class: "text-sm bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md hover:bg-blue-200" %>
+      <%= button_to "Check prices", check_prices_admin_models_path,
+            class: "text-sm bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md hover:bg-blue-200" %>
+      <%= button_to "Reset from YAML", reseed_admin_models_path,
+            form: { data: { turbo_confirm: "Reset every model to the checked-in config/llm_models.yml? Edits made here will be overwritten." } },
+            class: "text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded-md hover:bg-gray-200" %>
+    </div>
+  </div>
+
+  <!-- health strip -->
+  <div class="flex flex-wrap gap-2 mb-5">
+    <% errs = @validation[:errors].size %>
+    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <%= errs.zero? ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' %>">
+      <%= errs.zero? ? "catalog valid" : "#{errs} error(s)" %>
+    </span>
+    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <%= @pricing_due.empty? ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800' %>">
+      <%= @pricing_due.empty? ? "pricing current" : "#{@pricing_due.size} pricing review(s) due" %>
+    </span>
+    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <%= @price_check.nil? ? 'bg-gray-100 text-gray-700' : (@price_drift.empty? ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800') %>"
+          title="<%= @price_check ? "checked #{time_ago_in_words(@price_check.checked_at)} ago" : "click Check prices" %>">
+      <%= @price_check.nil? ? "prices never checked" : (@price_drift.empty? ? "prices match references" : "#{@price_drift.size} price(s) differ from references") %>
+    </span>
+    <% if @retired.any? %>
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+        <%= @retired.size %> retired upstream
+      </span>
+    <% end %>
+    <% @checks.each do |c| %>
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700"
+            title="<%= c.error.presence || 'new: ' + c.new_in_provider.join(', ').presence.to_s %>">
+        <% pending_count = c.pending_candidates(@known_api_ids).size %>
+        <%= c.provider %> checked <%= time_ago_in_words(c.checked_at) %> ago<%= " · #{pending_count} new" if pending_count.positive? %>
+      </span>
+    <% end %>
+  </div>
+
+  <% @validation[:errors].each do |e| %>
+    <div class="mb-2 px-3 py-2 rounded-md bg-red-50 text-red-800 text-xs border border-red-200"><%= e %></div>
+  <% end %>
+
+  <!-- discovered models not yet in the catalog -->
+  <% if @retired.any? %>
+    <div class="mb-4 bg-orange-50 border border-orange-300 rounded-md p-3">
+      <h4 class="text-sm font-semibold text-orange-900 mb-1">
+        <%= pluralize(@retired.size, "model") %> in the catalog the provider no longer serves
+      </h4>
+      <p class="text-xs text-orange-800 mb-2">
+        Checked against each provider's full model list, so an alias
+        (claude-haiku-4-5 → claude-haiku-4-5-20251001) is not mistaken for a retirement.
+        Hiding keeps the entry and its pricing; a request for one of these would fail upstream.
+      </p>
+      <table class="min-w-full text-sm">
+        <thead class="text-left text-orange-900">
+          <tr><th class="py-1 pr-3">Model</th><th class="py-1 pr-3">api_id</th><th class="py-1"></th></tr>
+        </thead>
+        <tbody>
+          <% @retired.each do |m| %>
+            <tr class="border-t border-orange-200">
+              <td class="py-1.5 pr-3 font-medium text-gray-900"><%= m.display_name %>
+                <span class="block text-xs text-gray-500"><%= m.llm.family %> / <%= m.name %></span></td>
+              <td class="py-1.5 pr-3 text-xs text-gray-600 font-mono"><%= m.api_id %></td>
+              <td class="py-1.5 text-right">
+                <%= button_to "Hide", toggle_active_admin_model_path(m), method: :patch,
+                      class: "text-xs bg-white border border-orange-300 text-orange-900 px-2 py-1 rounded hover:bg-orange-100" %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+
+  <% @checks.each do |c| %>
+    <% pending = c.pending_candidates(@known_api_ids) %>
+    <% next if pending.empty? %>
+    <div class="mb-4 bg-amber-50 border border-amber-200 rounded-md p-3">
+      <h4 class="text-sm font-semibold text-amber-900 mb-1"><%= c.provider %>: <%= pending.size %> model(s) available but not in the catalog</h4>
+      <p class="text-xs text-amber-800 mb-2">
+        Prices shown come from the public references and are pre-filled when you click through —
+        add them as <strong>reference</strong>, then verify against the provider's page when you can.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <% pending.each do |cand| %>
+          <%= link_to new_admin_model_path(provider: c.provider, api_id: cand["api_id"], display_name: cand["display_name"]),
+                class: "text-xs bg-white border border-amber-300 text-amber-900 px-2 py-1 rounded hover:bg-amber-100" do %>
+            <%= cand["api_id"] %>
+            <% if cand["input"] %>
+              <span class="ml-1 text-amber-700"><%= cand["input"] %>/<%= cand["output"] %></span>
+            <% else %>
+              <span class="ml-1 text-gray-500" title="No public reference — you will need to enter the price">no price</span>
+            <% end %>
+          <% end %>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+
+  <% if @price_drift.any? %>
+    <div class="mb-4 bg-red-50 border border-red-200 rounded-md p-3">
+      <h4 class="text-sm font-semibold text-red-900 mb-1">Prices that differ from the public references</h4>
+      <p class="text-xs text-red-800 mb-3">
+        Providers do not publish pricing over an API, so these come from LiteLLM and OpenRouter.
+        A difference means either the provider changed its price or ours was never verified —
+        both worth acting on, since billing uses ours.
+      </p>
+      <%= button_to "Update all prices", apply_all_reference_prices_admin_models_path,
+            form: { data: { turbo_confirm: "Adopt the reference price for every model that differs? This changes what users are billed. Prices you marked verified are left untouched." } },
+            class: "mb-3 text-sm bg-red-600 text-white px-3 py-1.5 rounded-md hover:bg-red-700" %>
+      <table class="min-w-full text-sm">
+        <thead class="text-left text-red-900">
+          <tr><th class="py-1 pr-3">Model</th><th class="py-1 pr-3">Ours (in/out)</th>
+              <th class="py-1 pr-3">Reference</th><th class="py-1 pr-3">Source</th><th class="py-1"></th></tr>
+        </thead>
+        <tbody>
+          <% @price_drift.each do |d| %>
+            <tr class="border-t border-red-200">
+              <td class="py-1.5 pr-3 font-medium text-gray-900"><%= d["meta_id"] %></td>
+              <td class="py-1.5 pr-3 text-gray-700">
+                <%= d["per_image"] ? "#{d['ours_input'] || '—'} /image" : "#{d['ours_input'] || '—'} / #{d['ours_output'] || '—'}" %>
+              </td>
+              <td class="py-1.5 pr-3 font-medium text-red-900">
+                <%= d["per_image"] ? "#{d['ref_input']} /image" : "#{d['ref_input']} / #{d['ref_output']}" %>
+              </td>
+              <td class="py-1.5 pr-3 text-xs text-gray-600">
+                <%= d["sources"].join(" + ") %><%= " (agree)" if d["agree"] %>
+              </td>
+              <td class="py-1.5 text-right">
+                <%= button_to "Use reference", apply_reference_price_admin_model_path(d["id"]), method: :patch,
+                      class: "text-xs bg-white border border-red-300 text-red-800 px-2 py-1 rounded hover:bg-red-100" %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+
+  <% @families.each do |llm| %>
+    <div class="bg-white shadow-sm border border-gray-200 rounded-md p-4 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-700"><%= llm.family %>
+          <span class="text-xs text-gray-500 font-normal">— <%= pluralize(llm.llm_models.size, "model") %></span>
+        </h3>
+        <%= link_to "+ Add model", new_admin_model_path(provider: llm.family),
+              class: "text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200" %>
+      </div>
+      <table class="min-w-full text-sm">
+        <thead class="text-left text-gray-500">
+          <tr>
+            <th class="py-1 pr-3">Model</th><th class="py-1 pr-3">api_id</th>
+            <th class="py-1 pr-3">Released</th>
+            <th class="py-1 pr-3">Caps</th><th class="py-1 pr-3">Pricing (in/out)</th>
+            <th class="py-1 pr-3">Reviewed</th><th class="py-1"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% LlmModel.catalog_order(llm.llm_models).each do |m| %>
+            <tr class="border-t border-gray-100 <%= "opacity-50" unless m.active? %>">
+              <td class="py-1.5 pr-3">
+                <span class="font-medium text-gray-900"><%= m.display_name %></span>
+                <span class="block text-xs text-gray-500"><%= m.name %></span>
+              </td>
+              <td class="py-1.5 pr-3 text-gray-600 text-xs"><%= m.api_id %></td>
+              <td class="py-1.5 pr-3 text-gray-600 text-xs"><%= m.released_on&.iso8601 || "—" %></td>
+              <td class="py-1.5 pr-3 whitespace-nowrap">
+                <%# Same capability set, order and tooltips as the chat service's
+                    model grid (bi-image / bi-eye / bi-tools). Rendered with the
+                    Font Awesome equivalents already loaded here, rather than
+                    pulling in a second icon font for three glyphs. %>
+                <% if m.image? %>
+                  <i class="fa-solid fa-image text-pink-600 mr-1.5" title="Image generation"></i>
+                <% end %>
+                <% if m.supports_vision? %>
+                  <i class="fa-solid fa-eye text-purple-600 mr-1.5" title="Vision input"></i>
+                <% end %>
+                <% if m.tool_capable? %>
+                  <i class="fa-solid fa-screwdriver-wrench text-blue-600" title="Tool / function calling"></i>
+                <% elsif m.supports_tools? %>
+                  <i class="fa-solid fa-screwdriver-wrench text-gray-300"
+                     title="Supports tool calling, but this server cannot route tools to it (Responses-only model)"></i>
+                <% end %>
+              </td>
+              <td class="py-1.5 pr-3 text-gray-600 text-xs">
+                <% if m.image? %>
+                  <%= m.pricing["per_image"] ? "#{m.pricing['per_image']} /image" : "—" %>
+                <% else %>
+                  <%= m.pricing["input"] || "—" %> / <%= m.pricing["output"] || "—" %>
+                <% end %>
+                <% case m.pricing_provenance
+                   when :estimated %>
+                  <span class="ml-1 bg-red-100 text-red-800 px-1.5 rounded" title="Estimated, never verified against the provider">estimated</span>
+                <% when :reference %>
+                  <span class="ml-1 bg-blue-100 text-blue-800 px-1.5 rounded" title="From a public aggregator, not the provider itself">reference</span>
+                <% when :verified %>
+                  <span class="ml-1 bg-green-100 text-green-800 px-1.5 rounded" title="Confirmed against the provider's own pricing page">verified</span>
+                <% end %>
+              </td>
+              <td class="py-1.5 pr-3 text-xs <%= @pricing_due.any? { |r| r[:id] == m.id } ? 'text-amber-700 font-medium' : 'text-gray-500' %>">
+                <%= m.pricing["reviewed_at"] || "never" %>
+              </td>
+              <td class="py-1.5 text-right whitespace-nowrap">
+                <%= link_to "Edit", edit_admin_model_path(m), class: "text-xs text-blue-700 hover:underline mr-2" %>
+                <%= button_to (m.active? ? "Hide" : "Show"), toggle_active_admin_model_path(m),
+                      method: :patch, class: "text-xs text-gray-600 hover:underline inline mr-2" %>
+                <%= button_to "Delete", admin_model_path(m), method: :delete,
+                      form: { data: { turbo_confirm: "Delete #{m.display_name} permanently? Hiding it keeps the entry and its pricing, and can be undone. Note that \"Reset from YAML\" would restore this model unless it is removed from config/llm_models.yml too." } },
+                      class: "text-xs text-red-700 hover:underline inline" %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+</div>

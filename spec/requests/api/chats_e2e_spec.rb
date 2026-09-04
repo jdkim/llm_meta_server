@@ -253,7 +253,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
       # Pick any non-image google text model from the catalog so this spec
       # stays green across catalog edits. The api_id is the literal path
       # segment Gemini uses on the wire.
-      google_meta = LlmModelMap::MODEL_MAP.fetch("google")
+      google_meta = LlmModelMap.catalog.fetch("google")
                                            .reject { |_, info| info[:kind].to_s == "image" }
                                            .keys.first
       google_api_id = LlmModelMap.fetch!(google_meta, llm_type: "google")

@@ -21,6 +21,32 @@ Rails.application.routes.draw do
   # Super-user dashboard (gated by User#super_user?).
   get "/admin", to: "admin#index"
 
+  # Service management for super_users. See Admin::BaseController.
+  namespace :admin do
+    resources :models, only: [ :index, :new, :create, :edit, :update, :destroy ] do
+      member do
+        patch :toggle_active
+        patch :mark_reviewed
+      end
+      member do
+        patch :apply_reference_price
+      end
+      collection do
+        post :check_updates
+        post :check_prices
+        post :apply_all_reference_prices
+        post :reseed
+      end
+    end
+    resources :mcp_servers, only: [ :index ] do
+      member do
+        patch :refetch
+        patch :toggle_active
+      end
+    end
+    resources :users, only: [ :index ]
+  end
+
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.

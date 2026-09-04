@@ -1,10 +1,10 @@
 require "rails_helper"
 
 RSpec.describe ModelCatalogValidator do
-  # Build a fake catalog and stub LlmModelMap::MODEL_MAP for each example.
+  # Build a fake catalog and stub LlmModelMap.catalog for each example.
   # This keeps the tests independent of whatever's shipped in llm_models.yml.
   def stub_catalog(map)
-    stub_const("LlmModelMap::MODEL_MAP", map)
+    allow(LlmModelMap).to receive(:catalog).and_return(map)
   end
 
   let(:today) { Date.new(2026, 7, 20) }

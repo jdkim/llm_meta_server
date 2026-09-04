@@ -6,7 +6,7 @@ class ModelsController < ApplicationController
     # API keys + Ollama, which never requires a key).
     available = current_user.llm_api_keys.pluck(:llm_type).uniq + [ "ollama" ]
     @default_model_meta_id = current_user.default_model_meta_id
-    @groups = LlmModelMap::MODEL_MAP
+    @groups = LlmModelMap.catalog
                 .select { |llm_type, _| available.include?(llm_type) }
                 .map do |llm_type, models|
       [
@@ -57,6 +57,6 @@ class ModelsController < ApplicationController
   private
 
   def valid_meta_id?(meta_id)
-    LlmModelMap::MODEL_MAP.any? { |_, models| models.key?(meta_id) }
+    LlmModelMap.catalog.any? { |_, models| models.key?(meta_id) }
   end
 end
