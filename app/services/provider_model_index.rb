@@ -4,8 +4,9 @@ class ProviderModelIndex
   # fine-tuned variants, etc.), and optionally drops anything older than
   # `min_created`. Returns [{id: <string>, created_at: <Date or nil>}, ...].
   #
-  # Used by the `models:check_updates` rake task to help operators decide
-  # which new models to add to config/llm_models.yml.
+  # Used by the `models:check_updates` rake task and the admin UI's
+  # "Check providers" panel to help operators decide which new models to
+  # add to the catalog.
 
   DEFAULT_LOOKBACK_MONTHS = 12
   HTTP_TIMEOUT_SECONDS    = 20

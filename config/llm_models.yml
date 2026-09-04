@@ -1,56 +1,42 @@
-# LLM catalog — single source of truth for which models the server exposes.
+# LLM catalog snapshot — GENERATED FILE, do not hand-edit.
+#
+# The live catalog is the `llm_models` table, curated at /admin/models.
+# This file is a checked-in snapshot of it, used to
+#   * bootstrap a deployment whose catalog table is still empty, and
+#   * roll back, via "Reset from YAML" in the admin UI.
+#
+# Regenerate it after curating models, so the snapshot stays honest:
+#   bin/rails models:export
+#
+# Comments above a model are its `notes` column; edit them in the admin UI
+# rather than here, or the next export will overwrite them.
 #
 # Schema per entry:
 #   meta_id:                     # URL-safe ID (no dots/colons). Used in URLs + favorites.
 #     api_id:         <string>   # Real provider model ID (with dots/colons).
 #     display_name:   <string>   # UI label.
-#     supports_vision: <bool>    # Optional. Defaults to false. Set true for vision-capable models.
-#     supports_tools:  <bool>    # Optional. Defaults to false. Set true for tool/function-calling models.
-#     kind:           <symbol>   # Optional. `image` for image-generation models.
-#     endpoint:       <string>   # Optional. `responses` routes OpenAI through llm.responses.create.
-#     defaults:       <hash>     # Optional. Per-request kwargs merged UNDER user params.
-#     pricing:                   # REQUIRED for chargeable models (skip for ollama and kind: image).
+#     supports_vision: <bool>    # Omitted when false.
+#     supports_tools:  <bool>    # Omitted when false.
+#     responses_only:  <bool>    # Omitted when false. Model exists only on OpenAI's Responses API.
+#     kind:           <string>   # `image` for image-generation models.
+#     endpoint:       <string>   # `responses` routes OpenAI through llm.responses.create.
+#     released_on:    <date>     # Provider's release date, when known.
+#     defaults:       <hash>     # Per-request kwargs merged UNDER user params.
+#     pricing:                   # REQUIRED for chargeable models (not ollama, not kind: image).
 #       input:      <float>      # USD per 1M input tokens.
 #       output:     <float>      # USD per 1M output tokens.
-#       reviewed_at: <YYYY-MM-DD> # When these values were last verified against the provider's pricing page.
+#       per_image:  <float>      # USD per image, for kind: image.
+#       reviewed_at: <YYYY-MM-DD> # When these values were last checked.
 #
-# To add/remove a model: edit this file and restart the server. No Ruby change.
-# To validate the catalog: bin/rails models:validate
+# Validate with: bin/rails models:validate
 
 openai:
-  # The model itself does tool calling, but it exists ONLY on the Responses
-  # API — chat completions answers "This is not a chat model". Attaching
-  # tools forces the chat-completions path (LlmRbFacade#stream! takes the
-  # Responses branch only when no tools/images/history are present), so
-  # tools + this model is a guaranteed 400. `responses_only` makes
-  # LlmModelMap report it as tool-less, which keeps the combination out of
-  # the picker instead of failing at request time. Drop the flag once the
-  # facade grows a Responses-with-tools branch.
-  # Pricing was extrapolated on 2026-07-21 (pricing page unreachable) and
-  # was wrong by ~6x: 5/40 against an actual 30/180. Corrected 2026-09-03
-  # from LiteLLM + OpenRouter, which agreed. Still `verified: false` — an
-  # aggregator is good evidence, not OpenAI's own page.
-  gpt-5-5-pro:
-    api_id: gpt-5.5-pro
-    display_name: GPT-5.5 Pro
-    supports_vision: true
-    supports_tools: true
-    responses_only: true
-    endpoint: responses
-    defaults:
-      reasoning:
-        summary: auto
-    pricing:
-      input: 30.00
-      output: 180.00
-      reviewed_at: 2026-09-03
-      source: litellm+openrouter
-      verified: false
   gpt-5-6-sol:
     api_id: gpt-5.6-sol
     display_name: GPT 5.6 Sol
     supports_vision: true
     supports_tools: true
+    released_on: 2026-07-09
     pricing:
       input: 4.00
       output: 20.00
@@ -62,6 +48,7 @@ openai:
     display_name: GPT 5.6 Terra
     supports_vision: true
     supports_tools: true
+    released_on: 2026-07-09
     pricing:
       input: 2.00
       output: 12.00
@@ -73,6 +60,11 @@ openai:
     display_name: GPT 5.6 Luna
     supports_vision: true
     supports_tools: true
+    endpoint: responses
+    released_on: 2026-07-09
+    defaults:
+      reasoning:
+        summary: auto
     pricing:
       input: 0.20
       output: 1.20
@@ -107,6 +99,7 @@ anthropic:
     display_name: Claude Opus 5
     supports_vision: true
     supports_tools: true
+    released_on: 2026-07-24
     pricing:
       input: 5.00
       output: 25.00
@@ -197,6 +190,7 @@ google:
     display_name: Gemini 3.1 Flash Lite Image (Nano Banana 2 Lite)
     supports_vision: true
     kind: image
+    released_on: 2026-06-30
     pricing:
       per_image: 0.0336
       reviewed_at: 2026-09-04

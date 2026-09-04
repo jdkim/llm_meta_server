@@ -8,7 +8,6 @@ class LlmModelMap
   # `catalog` is memoized against the table's max(updated_at) so a normal
   # request does one cheap query instead of rebuilding, while an edit made in
   # another puma worker is still picked up without a restart.
-  CATALOG_PATH = Rails.root.join("config", "llm_models.yml")
 
   class << self
     def catalog

@@ -1,9 +1,9 @@
 class CostCalculator
   # Returns cost in integer cents for a single completion.
   #
-  # Pricing lives per-model in config/llm_models.yml under a `pricing:` block
+  # Pricing lives per-model on the `llm_models` row, in its `pricing` JSON
   # (input/output USD per 1M tokens). Unknown (llm_type, meta_id) or a model
-  # without a `pricing` block (e.g. Ollama, image-gen) returns 0 and logs a
+  # without pricing (e.g. Ollama, image-gen) returns 0 and logs a
   # warning — fail-open so a missing table entry doesn't break chat.
   def self.compute(llm_type:, meta_id:, input_tokens:, output_tokens:)
     rates = LlmModelMap.catalog.dig(llm_type.to_s, meta_id.to_s, :pricing)

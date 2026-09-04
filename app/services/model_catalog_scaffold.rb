@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
-# Generates a paste-ready config/llm_models.yml entry for a model the provider
-# reports but the catalog does not yet carry.
+# Generates a paste-ready YAML entry for a model the provider reports but the
+# catalog does not yet carry.
+#
+# Adding models is normally done at /admin/models, which pre-fills a form from
+# the same provider data. This backs the `models:scaffold` rake task, for
+# working from a shell or drafting an entry without a browser.
 #
 # Adding a model by hand means getting meta_id, display_name, the supports_*
 # flags and the pricing block all right at once; a wrong guess is not caught

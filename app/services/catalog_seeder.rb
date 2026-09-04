@@ -46,6 +46,7 @@ class CatalogSeeder
           endpoint: attrs["endpoint"].presence,
           defaults: attrs["defaults"] || {},
           pricing: stringify_dates(attrs["pricing"] || {}),
+          released_on: attrs["released_on"],
           notes: notes[[ family, meta_id ]],
           position: index,
           active: true

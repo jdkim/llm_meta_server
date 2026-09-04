@@ -1,6 +1,14 @@
 namespace :models do
   PROVIDERS = %w[openai anthropic google].freeze
 
+  desc "Rewrite config/llm_models.yml from the live catalog table. Run after curating models at /admin/models."
+  task export: :environment do
+    path = CatalogExporter.call
+    count = LlmModel.active.count
+    puts "Wrote #{count} model(s) to #{path}"
+    puts "Review the diff and commit it — this file is the snapshot a fresh deploy bootstraps from."
+  end
+
   desc "Validate config/llm_models.yml (required fields, pricing, staleness). Exits 1 on error."
   task validate: :environment do
     result = ModelCatalogValidator.validate

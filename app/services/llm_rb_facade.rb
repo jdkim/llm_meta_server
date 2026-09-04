@@ -236,9 +236,9 @@ module LlmRbFacade
         params[:max_tokens] = ANTHROPIC_DEFAULT_MAX_TOKENS if params[:max_tokens].blank?
         # Thinking config is per-model — Anthropic accepts different
         # `thinking.type` values across the catalog (adaptive on Sonnet
-        # 4.6 / Opus 4.7 but not on Haiku 4.5). Declared in
-        # config/llm_models.yml under each model's `defaults:` block;
-        # merged in by the controller via LlmModelMap.defaults_for.
+        # 4.6 / Opus 4.7 but not on Haiku 4.5). Declared per model in the
+        # catalog's `defaults` column; merged in by the controller via
+        # LlmModelMap.defaults_for.
       end
       if llm_api_key&.llm_type == "google"
         # Gemini's thinking-capable models think internally by default but
