@@ -15,7 +15,12 @@ class ModelCatalogCheck < ApplicationRecord
   # comparison. Recording the price check here too keeps it durable and shared
   # between puma workers — the cache store is :memory_store, so a cached
   # comparison would differ per worker and be refetched by each.
-  PROVIDERS   = %w[openai anthropic google].freeze
+  # Every provider the catalog can be checked against. Ollama is included:
+  # it is queried without a key (the local server just reports what has been
+  # pulled onto the box), and leaving it out here silently discarded its
+  # results — the check ran and recorded candidates that the page then
+  # filtered away.
+  PROVIDERS   = %w[openai anthropic google ollama].freeze
   PRICING_KEY = "pricing"
 
   scope :recent_first, -> { order(checked_at: :desc) }

@@ -12,11 +12,19 @@
 # Prefers a super_user's key — they are the operator maintaining the catalog,
 # and it avoids spending an ordinary user's quota on an admin task.
 class ModelCheckKey
+  # Providers reached without credentials. Ollama is the local server: the
+  # check just asks it what has been pulled onto the box.
+  KEYLESS_PROVIDERS = %w[ollama].freeze
+
   Result = Struct.new(:key, :source, :detail, keyword_init: true) do
-    def present? = key.present?
+    def present? = key.present? || source == :not_required
   end
 
   def self.for(provider)
+    if KEYLESS_PROVIDERS.include?(provider.to_s)
+      return Result.new(key: nil, source: :not_required, detail: "no key required")
+    end
+
     env = ENV["MODEL_CHECK_#{provider.to_s.upcase}_KEY"].to_s
     return Result.new(key: env, source: :env, detail: "MODEL_CHECK_#{provider.to_s.upcase}_KEY") if env.present?
 

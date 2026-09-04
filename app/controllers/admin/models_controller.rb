@@ -37,6 +37,16 @@ module Admin
       # one lacks — Google's "Nano Banana 2 Lite", for instance.
       @model.display_name ||= ModelCatalogScaffold.display_name_with_provider(params[:api_id], params[:display_name])
 
+      # Local models are free and carry no pricing. They do need `num_ctx`
+      # spelled out: Ollama's own default is 2048, so a model added with empty
+      # defaults silently truncates long conversations — a trap this catalog
+      # has already been caught by once.
+      if @model.llm&.family == "ollama"
+        @model.pricing = {}
+        @model.defaults = { "options" => { "num_ctx" => 32768 } } if @model.defaults.blank?
+        return
+      end
+
       # And the price, if a public reference has one — recorded as
       # `reference`, so it is visibly not the provider's own word.
       quote = begin
@@ -116,7 +126,7 @@ module Admin
     # Runs the provider diff inline. A handful of HTTP calls, so it is a POST
     # the operator triggers rather than something the page does on render.
     def check_updates
-      %w[openai anthropic google].each do |provider|
+      ModelCatalogCheck::PROVIDERS.each do |provider|
         resolved = ModelCheckKey.for(provider)
         unless resolved.present?
           ModelCatalogCheck.record!(provider: provider, error: "skipped: #{resolved.detail}")
@@ -130,10 +140,16 @@ module Admin
           # Attach a reference price to each candidate so adding one is a
           # single click rather than a trip to the provider's pricing page.
           candidates = diff[:new_in_provider].map do |m|
-            q = begin
-              PricingReference.for(m[:id])
-            rescue PricingReference::FetchError
+            # Local models are free, and no public reference lists them —
+            # looking one up would just be a wasted HTTP call per candidate.
+            q = if provider == "ollama"
               nil
+            else
+              begin
+                PricingReference.for(m[:id])
+              rescue PricingReference::FetchError
+                nil
+              end
             end
             { "api_id" => m[:id], "display_name" => m[:display_name] }.compact.merge(
               q ? { "input" => q.input, "output" => q.output, "sources" => q.sources } : {}

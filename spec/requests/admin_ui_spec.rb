@@ -543,6 +543,118 @@ RSpec.describe "Admin service-management UI", type: :request do
     end
   end
 
+  # Ollama is the local provider: no API key, no pricing, and a `num_ctx` that
+  # defaults to 2048 on the server itself — so a model added with empty
+  # defaults silently truncates long conversations. These cover the two places
+  # the feature meets the admin UI, which is where the allowlist bug hid: the
+  # fetch worked and the page discarded its result.
+  describe "adding a local (ollama) model" do
+    let(:tags_body) do
+      { "models" => [
+        { "name" => "qwen3.8:27b", "modified_at" => "2026-09-04T10:00:00Z" },
+        { "name" => "qwen3.6:35b", "modified_at" => "2026-07-01T10:00:00Z" }
+      ] }.to_json
+    end
+
+    before do
+      stub_request(:get, %r{/api/tags})
+        .to_return(status: 200, body: tags_body, headers: { "Content-Type" => "application/json" })
+
+      # The sweep covers every provider; these tests are about ollama, so the
+      # cloud ones are made to look unconfigured and skip themselves rather
+      # than reaching for the network.
+      allow(ModelCheckKey).to receive(:for).and_call_original
+      %w[openai anthropic google].each do |cloud|
+        allow(ModelCheckKey).to receive(:for).with(cloud)
+          .and_return(ModelCheckKey::Result.new(key: nil, source: :missing,
+                                                detail: "no stored #{cloud} key"))
+      end
+    end
+
+    describe "the prefilled form" do
+      it "spells out num_ctx instead of leaving the server's 2048 default" do
+        as_super_user
+
+        get new_admin_model_path(provider: "ollama", api_id: "qwen3.8:27b")
+
+        expect(response.body).to include("32768")
+      end
+
+      it "offers no pricing — local models are free" do
+        as_super_user
+
+        get new_admin_model_path(provider: "ollama", api_id: "qwen3.8:27b")
+
+        expect(response).to have_http_status(:ok)
+        expect(response.body).not_to match(/name="llm_model\[pricing_json\]"[^>]*>[^<]*"input"/)
+      end
+
+      it "does not consult the pricing references for a local model" do
+        as_super_user
+        allow(PricingReference).to receive(:for)
+
+        get new_admin_model_path(provider: "ollama", api_id: "qwen3.8:27b")
+
+        expect(PricingReference).not_to have_received(:for)
+      end
+    end
+
+    describe "checking the provider" do
+      it "records ollama candidates without a stored API key" do
+        as_super_user
+
+        post check_updates_admin_models_path
+
+        check = ModelCatalogCheck.where(provider: "ollama").order(:id).last
+        expect(check).to be_present
+        expect(check.error).to be_blank
+        expect(check.new_in_provider.map { |c| c["api_id"] }).to include("qwen3.8:27b")
+      end
+
+      it "looks up no prices for local models — no aggregator lists them" do
+        as_super_user
+        allow(PricingReference).to receive(:for).and_return(nil)
+
+        post check_updates_admin_models_path
+
+        expect(PricingReference).not_to have_received(:for).with(/qwen/)
+      end
+
+      it "surfaces the ollama check on the page rather than filtering it out" do
+        as_super_user
+        post check_updates_admin_models_path
+
+        get admin_models_path
+
+        expect(response.body).to include("ollama")
+      end
+    end
+
+    it "click-path: candidate -> prefilled form -> created model in the catalog" do
+      as_super_user
+      post check_updates_admin_models_path
+
+      # The link the page offers for the discovered model.
+      get new_admin_model_path(provider: "ollama", api_id: "qwen3.8:27b")
+      expect(response).to have_http_status(:ok)
+
+      ollama = Llm.find_by(family: "ollama")
+      expect {
+        post admin_models_path, params: { llm_model: {
+          llm_id: ollama.id, name: "qwen3-8-27b", api_id: "qwen3.8:27b",
+          display_name: "Qwen3.8 27B", supports_tools: "1", active: "1",
+          pricing_json: "{}", defaults_json: '{"options":{"num_ctx":32768}}'
+        } }
+      }.to change { ollama.llm_models.count }.by(1)
+
+      created = ollama.llm_models.find_by(name: "qwen3-8-27b")
+      expect(created.pricing).to eq({})
+      expect(created.defaults.dig("options", "num_ctx")).to eq(32768)
+      # And it is live in the catalog without a restart.
+      expect(LlmModelMap.catalog.dig("ollama", "qwen3-8-27b", :api_id)).to eq("qwen3.8:27b")
+    end
+  end
+
   describe "MCP administration" do
     it "flags a URL registered by more than one user" do
       as_super_user

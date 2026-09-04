@@ -1,5 +1,7 @@
 namespace :models do
-  PROVIDERS = %w[openai anthropic google].freeze
+  # One list, defined on the model, so a provider added for the admin UI is
+  # also swept by the rake task instead of quietly diverging.
+  PROVIDERS = ModelCatalogCheck::PROVIDERS
 
   desc "Rewrite config/llm_models.yml from the live catalog table. Run after curating models at /admin/models."
   task export: :environment do
@@ -94,7 +96,7 @@ namespace :models do
     provider = ENV["PROVIDER"].to_s
 
     if api_id.empty? || provider.empty?
-      warn "usage: bin/rails models:scaffold API_ID=<provider-model-id> PROVIDER=<openai|anthropic|google>"
+      warn "usage: bin/rails models:scaffold API_ID=<provider-model-id> PROVIDER=<#{PROVIDERS.join('|')}>"
       exit 2
     end
     unless PROVIDERS.include?(provider)

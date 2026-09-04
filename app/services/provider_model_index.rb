@@ -29,6 +29,38 @@ class ProviderModelIndex
       filtered.sort_by { |m| m[:created_at] || Date.new(1970) }.reverse
     end
 
+    # Ollama is the local server, so there is no API key and no freshness
+    # filter: /api/tags lists exactly what an operator has pulled onto the
+    # box, and a 12-month lookback would hide a model they installed
+    # deliberately. Embedding and reranking models are dropped — they are
+    # not chat models and cannot be added to the catalog usefully.
+    OLLAMA_NON_CHAT = /embed|rerank/i
+
+    def ollama(_api_key = nil, min_created: nil, include_dated: false)
+      resp = HTTParty.get("#{ollama_base_url}/api/tags", timeout: HTTP_TIMEOUT_SECONDS)
+      raise FetchError, "ollama list-models HTTP #{resp.code}" unless resp.success?
+
+      JSON.parse(resp.body).fetch("models", [])
+        .map { |m| { id: m["name"].to_s, created_at: parse_iso8601(m["modified_at"]) } }
+        .reject { |m| m[:id].blank? || m[:id].match?(OLLAMA_NON_CHAT) }
+        .sort_by { |m| m[:created_at] || Date.new(1970) }
+        .reverse
+    end
+
+    # Talks to the same server the chat traffic does. OLLAMA_HOST is written
+    # three different ways across this project's environments — a bare host,
+    # a host:port, and a full URL — so all three have to resolve to the same
+    # place. Appending OLLAMA_PORT blindly produced "…:61434:61434".
+    def ollama_base_url
+      raw  = ENV["OLLAMA_HOST"].presence || "127.0.0.1"
+      raw  = "http://#{raw}" unless raw.start_with?("http")
+      raw  = raw.chomp("/")
+      port = ENV["OLLAMA_PORT"].presence
+
+      # Only supply the port when the host does not already carry one.
+      raw.match?(/:\d+\z/) || port.blank? ? raw : "#{raw}:#{port}"
+    end
+
     def anthropic(api_key, min_created: default_min_created, include_dated: false)
       resp = HTTParty.get("https://api.anthropic.com/v1/models",
         headers: {
@@ -96,6 +128,10 @@ class ProviderModelIndex
           query: { key: api_key }, timeout: HTTP_TIMEOUT_SECONDS)
         raise FetchError, "google list-models HTTP #{resp.code}" unless resp.success?
         JSON.parse(resp.body).fetch("models", []).map { |m| m["name"].to_s.sub(%r{\Amodels/}, "") }
+      when "ollama"
+        resp = HTTParty.get("#{ollama_base_url}/api/tags", timeout: HTTP_TIMEOUT_SECONDS)
+        raise FetchError, "ollama list-models HTTP #{resp.code}" unless resp.success?
+        JSON.parse(resp.body).fetch("models", []).map { |m| m["name"].to_s }
       else
         raise ArgumentError, "unknown provider #{provider.inspect}"
       end
