@@ -91,6 +91,16 @@ class Api::ChatStreamsController < ApiController
     safe_emit_error(sink, "argument_error", e.message)
   rescue ModelNotFoundError => e
     safe_emit_error(sink, "model_not_found", e.message)
+  rescue TurnBudgetSink::Exceeded => e
+    # A runaway generation, not a stalled one — bytes were arriving the whole
+    # time, so no read timeout would ever have fired. Distinct code so the
+    # client can say "the model went on too long", not "the network stalled".
+    Rails.logger.warn "[ChatStreams] turn budget exceeded: #{e.message}"
+    safe_emit_error(sink, "turn_budget_exceeded",
+                    "#{model_name.presence || 'The model'} was still generating after " \
+                    "#{LlmRbFacade.singleton_class::TURN_BUDGET_SECONDS} seconds and was stopped. " \
+                    "Small local models sometimes repeat themselves without ending; " \
+                    "try a shorter prompt, fewer tools, or a different model.")
   rescue Net::ReadTimeout, Net::OpenTimeout, Timeout::Error => e
     # Dedicated bucket so clients can distinguish an upstream stall (retry
     # with backoff) from a server crash (internal_error). Provider read

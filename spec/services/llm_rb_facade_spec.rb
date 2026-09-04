@@ -309,7 +309,11 @@ RSpec.describe LlmRbFacade do
         expect(msgs[1].content).to eq("{\"appraised_evidence\": []}")
       end
       # And the current user turn is passed to .chat as the CURRENT prompt.
-      expect(session).to have_received(:chat).with("draft candidate hypothesis", stream: sink)
+      # The sink is wrapped in a TurnBudgetSink so a runaway generation can be
+      # aborted mid-stream (see the 2026-09-03 incident); it still delegates
+      # to the caller's sink.
+      expect(session).to have_received(:chat)
+        .with("draft candidate hypothesis", stream: an_instance_of(TurnBudgetSink))
     end
 
     it "stream!: skips the seed step when messages is nil (backward compat)" do

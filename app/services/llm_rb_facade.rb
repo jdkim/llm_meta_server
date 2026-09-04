@@ -33,6 +33,7 @@ module LlmRbFacade
     # { message:, tool_calls: } when tools were called — same shape as `call!`.
     def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, document: nil, messages: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
+      sink = TurnBudgetSink.new(sink, seconds: TURN_BUDGET_SECONDS) unless sink.is_a?(TurnBudgetSink)
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
@@ -188,6 +189,12 @@ module LlmRbFacade
     # don't cap this low and use a different param shape, so scope the
     # override to Anthropic and only when the user hasn't set their own.
     ANTHROPIC_DEFAULT_MAX_TOKENS = 8192
+
+    # Wall-clock ceiling for one assistant turn, tool rounds included.
+    # num_predict bounds tokens, not time: a local 36B at ~67 tok/s can spend
+    # ten minutes on a 25k-token runaway and never trip a read timeout,
+    # because bytes keep arriving. This is the backstop that does.
+    TURN_BUDGET_SECONDS = Integer(ENV.fetch("LLM_TURN_BUDGET_SECONDS", 300))
 
     def apply_provider_defaults(generation_params, llm_api_key)
       params = (generation_params || {}).to_h.symbolize_keys
