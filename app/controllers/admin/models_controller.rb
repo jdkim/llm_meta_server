@@ -37,13 +37,18 @@ module Admin
       # one lacks — Google's "Nano Banana 2 Lite", for instance.
       @model.display_name ||= ModelCatalogScaffold.display_name_with_provider(params[:api_id], params[:display_name])
 
-      # Local models are free and carry no pricing. They do need `num_ctx`
-      # spelled out: Ollama's own default is 2048, so a model added with empty
-      # defaults silently truncates long conversations — a trap this catalog
-      # has already been caught by once.
+      # Local models are free and carry no pricing. Their defaults are
+      # inherited from the local models already in the catalog rather than
+      # guessed: Ollama's own num_ctx default is 2048, and a fixed 32768 here
+      # was no better — it is fine for chat and far too small for tool work,
+      # where a single TogoMCP result ran to 96k characters. Ollama then trims
+      # the oldest messages to fit and rejects its own trimmed array with
+      # "no user query found in messages", which reads as a broken request
+      # rather than a sizing one. Inheriting means a new model starts out
+      # configured like the ones already working.
       if @model.llm&.family == "ollama"
         @model.pricing = {}
-        @model.defaults = { "options" => { "num_ctx" => 32768 } } if @model.defaults.blank?
+        @model.defaults = inherited_local_defaults if @model.defaults.blank?
         return
       end
 
@@ -246,6 +251,20 @@ module Admin
 
     def set_model
       @model = LlmModel.find(params[:id])
+    end
+
+    # The defaults of the most generously configured local model already in
+    # the catalog — the operator has tuned those, and a new model on the same
+    # box wants the same window. Falls back to a conservative floor when there
+    # is nothing to learn from yet.
+    FALLBACK_LOCAL_DEFAULTS = { "options" => { "num_ctx" => 32768 } }.freeze
+
+    def inherited_local_defaults
+      sibling = LlmModel.active.joins(:llm).where(llms: { family: "ollama" })
+                        .reject { |m| m.defaults.blank? }
+                        .max_by { |m| m.defaults.dig("options", "num_ctx").to_i }
+
+      sibling ? sibling.defaults.deep_dup.except("think") : FALLBACK_LOCAL_DEFAULTS.deep_dup
     end
 
     def next_position_for(llm)

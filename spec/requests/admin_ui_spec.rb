@@ -572,11 +572,40 @@ RSpec.describe "Admin service-management UI", type: :request do
     end
 
     describe "the prefilled form" do
-      it "spells out num_ctx instead of leaving the server's 2048 default" do
+      it "inherits the window of the local models already in the catalog" do
         as_super_user
 
         get new_admin_model_path(provider: "ollama", api_id: "qwen3.8:27b")
 
+        # The seeded catalog's qwen entries run at 131072; a new model on the
+        # same box wants the same. A fixed 32768 here silently under-configured
+        # qwen3.8 and made TogoMCP tool runs fail on turn 2.
+        expect(response.body).to include("131072")
+        expect(response.body).to include("repeat_penalty")
+      end
+
+      it "does not inherit `think: false` — that is a per-model choice" do
+        as_super_user
+        # Make the model it will copy from be one that disables thinking, so
+        # the exclusion is actually exercised rather than passing by luck.
+        LlmModel.joins(:llm).where(llms: { family: "ollama" }).find_each { |m| m.update!(defaults: {}) }
+        Llm.find_by(family: "ollama").llm_models.first.update!(
+          defaults: { "think" => false, "options" => { "num_ctx" => 131072 } }
+        )
+
+        get new_admin_model_path(provider: "ollama", api_id: "qwen3.8:27b")
+
+        expect(response.body).to include("131072")
+        expect(response.body).not_to include("think")
+      end
+
+      it "falls back to a floor when no local model has defaults to copy" do
+        as_super_user
+        LlmModel.joins(:llm).where(llms: { family: "ollama" }).find_each { |m| m.update!(defaults: {}) }
+
+        get new_admin_model_path(provider: "ollama", api_id: "qwen3.8:27b")
+
+        # Never Ollama's own 2048 default, which truncates conversations.
         expect(response.body).to include("32768")
       end
 
