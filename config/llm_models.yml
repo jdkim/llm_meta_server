@@ -175,12 +175,16 @@ anthropic:
     defaults:
       thinking:
         type: adaptive
-    # Introductory pricing through Aug 31, 2026 ($2/$10); standard $3/$15
-    # begins Sep 1, 2026 — bump reviewed_at + pricing then.
+    # Introductory pricing ($2/$10) ran through Aug 31, 2026; standard $3/$15
+    # took effect Sep 1, 2026 and is applied here. Nothing caught the lapse
+    # automatically — the aggregators still quote the introductory figure, and
+    # reviewed_at was only 44 days old — so `verified: true` also stops a bulk
+    # "use reference price" from reverting it.
     pricing:
-      input: 2.00
-      output: 10.00
-      reviewed_at: 2026-07-21
+      input: 3.00
+      output: 15.00
+      reviewed_at: 2026-09-04
+      verified: true
   claude-sonnet-4-6:
     api_id: claude-sonnet-4-6
     display_name: Claude Sonnet 4.6
