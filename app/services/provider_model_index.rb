@@ -47,18 +47,10 @@ class ProviderModelIndex
         .reverse
     end
 
-    # Talks to the same server the chat traffic does. OLLAMA_HOST is written
-    # three different ways across this project's environments — a bare host,
-    # a host:port, and a full URL — so all three have to resolve to the same
-    # place. Appending OLLAMA_PORT blindly produced "…:61434:61434".
+    # Talks to the same server the chat traffic does; see OllamaEndpoint for
+    # why the app does not read OLLAMA_HOST directly.
     def ollama_base_url
-      raw  = ENV["OLLAMA_HOST"].presence || "127.0.0.1"
-      raw  = "http://#{raw}" unless raw.start_with?("http")
-      raw  = raw.chomp("/")
-      port = ENV["OLLAMA_PORT"].presence
-
-      # Only supply the port when the host does not already carry one.
-      raw.match?(/:\d+\z/) || port.blank? ? raw : "#{raw}:#{port}"
+      OllamaEndpoint.base_url
     end
 
     def anthropic(api_key, min_created: default_min_created, include_dated: false)

@@ -175,15 +175,19 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
     # else-branch that proxies anonymous requests directly to the local
     # Ollama daemon. Symmetric with the chat_streams anonymous path.
     #
-    # OLLAMA_HOST in the dev env points at a real LAN host; pin it to a
-    # known mocked URL for the duration of the spec so WebMock can stub
-    # it and we don't accidentally hit the real network.
+    # The configured Ollama is a real LAN host; pin it to a mocked URL for the
+    # duration of the spec so WebMock can stub it and we never touch the real
+    # network. Both name pairs have to be pinned: the app prefers
+    # AIBRANCH_OLLAMA_* (see OllamaEndpoint) and falls back to OLLAMA_*, so
+    # pinning only the latter silently left the real host in play.
     let(:ollama_url) { "http://test-ollama.invalid:11434/api/chat" }
 
+    OLLAMA_ENV_KEYS = %w[AIBRANCH_OLLAMA_HOST AIBRANCH_OLLAMA_PORT OLLAMA_HOST OLLAMA_PORT].freeze
+
     around do |ex|
-      original = { "OLLAMA_HOST" => ENV["OLLAMA_HOST"], "OLLAMA_PORT" => ENV["OLLAMA_PORT"] }
-      ENV["OLLAMA_HOST"] = "test-ollama.invalid"
-      ENV["OLLAMA_PORT"] = "11434"
+      original = OLLAMA_ENV_KEYS.to_h { |k| [ k, ENV[k] ] }
+      ENV["AIBRANCH_OLLAMA_HOST"] = ENV["OLLAMA_HOST"] = "test-ollama.invalid"
+      ENV["AIBRANCH_OLLAMA_PORT"] = ENV["OLLAMA_PORT"] = "11434"
       ex.run
     ensure
       original.each { |k, v| ENV[k] = v }

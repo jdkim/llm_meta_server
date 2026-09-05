@@ -91,6 +91,13 @@ class Api::ChatStreamsController < ApiController
     safe_emit_error(sink, "argument_error", e.message)
   rescue ModelNotFoundError => e
     safe_emit_error(sink, "model_not_found", e.message)
+  rescue LlmRbFacade::ContextOverflowError => e
+    # A sizing problem, not a malformed request. Ollama reports it as
+    # "no user query found in messages" after trimming the prompt to fit,
+    # which sends people looking for a bug in the request instead of at
+    # num_ctx. Distinct code so the client can say what actually happened.
+    Rails.logger.warn "[ChatStreams] context overflow: #{e.message}"
+    safe_emit_error(sink, "context_overflow", e.message)
   rescue TurnBudgetSink::Exceeded => e
     # A runaway generation, not a stalled one — bytes were arriving the whole
     # time, so no read timeout would ever have fired. Distinct code so the

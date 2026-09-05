@@ -3,6 +3,8 @@ require "rails_helper"
 # Ollama is the odd provider out: local, keyless, and its /api/tags lists
 # exactly what an operator pulled onto the box rather than a vendor catalog.
 RSpec.describe ProviderModelIndex, ".ollama" do
+  # Endpoint resolution — including the OLLAMA_HOST collision with the ollama
+  # CLI — is covered in spec/services/ollama_endpoint_spec.rb.
   let(:body) do
     {
       "models" => [
@@ -52,39 +54,6 @@ RSpec.describe ProviderModelIndex, ".ollama" do
 
   it "exposes the same ids through all_ids, unfiltered" do
     expect(described_class.all_ids("ollama", nil)).to include("nomic-embed-text")
-  end
-
-  # OLLAMA_HOST is written three different ways across this project's own
-  # environments. All three must resolve to the same URL — appending the port
-  # unconditionally produced "http://172.18.8.61:61434:61434", which is not a
-  # valid URI and made every fetch fail.
-  describe ".ollama_base_url" do
-    def with_env(host, port)
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with("OLLAMA_HOST").and_return(host)
-      allow(ENV).to receive(:[]).with("OLLAMA_PORT").and_return(port)
-      described_class.ollama_base_url
-    end
-
-    it "defaults to localhost when nothing is configured" do
-      expect(with_env(nil, nil)).to eq("http://127.0.0.1")
-    end
-
-    it "accepts a bare host plus a port" do
-      expect(with_env("172.18.8.61", "61434")).to eq("http://172.18.8.61:61434")
-    end
-
-    it "accepts a host that already carries its port, without doubling it" do
-      expect(with_env("172.18.8.61:61434", "61434")).to eq("http://172.18.8.61:61434")
-    end
-
-    it "accepts a full URL, without doubling the port" do
-      expect(with_env("http://172.18.8.61:61434", "61434")).to eq("http://172.18.8.61:61434")
-    end
-
-    it "strips a trailing slash" do
-      expect(with_env("http://172.18.8.61:61434/", "61434")).to eq("http://172.18.8.61:61434")
-    end
   end
 end
 

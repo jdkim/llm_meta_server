@@ -2,6 +2,13 @@ require "base64"
 require "tempfile"
 
 module LlmRbFacade
+  # The request no longer fits in the model's context window. Raised instead
+  # of letting the provider's own reporting through: Ollama trims the oldest
+  # messages to fit, then rejects its own trimmed array with "no user query
+  # found in messages" — an error about a malformed request, for what is
+  # really a sizing problem. That cost hours to diagnose on 2026-09-05.
+  class ContextOverflowError < StandardError; end
+
   class << self
     def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil, images: nil, document: nil, messages: nil)
       # Validate arguments at the entry point
@@ -112,7 +119,9 @@ module LlmRbFacade
             # Controller already emitted "thinking" at the top. The model may
             # still think for a while before emitting content; the client flips
             # the indicator to "streaming" on the first content delta.
-            response = session.chat effective_prompt, stream: sink
+            response = with_context_overflow(model_id, context_window(chat_params)) do
+              session.chat effective_prompt, stream: sink
+            end
             emit_length_cap_notice(response, sink)
             response.choices[-1]&.content || ""
           end
@@ -168,6 +177,61 @@ module LlmRbFacade
       return sink.content_bytes.zero? if sink.respond_to?(:content_bytes)
 
       response.choices[-1]&.content.to_s.strip.empty?
+    end
+
+    # num_ctx as configured for this turn, or 0 when the provider has no such
+    # notion (the hosted APIs manage their own window).
+    def context_window(generation_params)
+      opts = (generation_params || {})[:options] || (generation_params || {})["options"] || {}
+      (opts[:num_ctx] || opts["num_ctx"]).to_i
+    end
+
+    def context_overflow_message(model_id, window, needed: nil)
+      about = needed ? " (about #{needed} needed)" : ""
+      "The conversation and tool results no longer fit in #{model_id}'s context " \
+      "window of #{window} tokens#{about}. Select fewer tools, start a new chat, " \
+      "or choose a model with a larger window."
+    end
+
+    # Translates the provider's confusing overflow reporting into our own.
+    def with_context_overflow(model_id, window)
+      yield
+    rescue LLM::Error => e
+      body   = (e.response.body if e.respond_to?(:response) && e.response.respond_to?(:body)).to_s
+      detail = "#{e.message} #{body}"
+      raise ContextOverflowError, context_overflow_message(model_id, window) if detail.match?(CONTEXT_OVERFLOW_SIGNATURE)
+
+      raise
+    end
+
+    # Stops before a doomed turn rather than after it. Ollama reports the real
+    # token count of the last prompt, so `used` is measured rather than
+    # guessed; only the incoming tool results are estimated, since they have
+    # not been tokenised yet.
+    def guard_context!(model_id, window, response, tool_results)
+      return if window.zero?
+      return unless response.respond_to?(:prompt_eval_count)
+
+      used = response.prompt_eval_count.to_i
+      return if used.zero?
+
+      incoming = (tool_results.sum { |r| r.to_s.length } / 4.0).ceil
+      return if used + incoming < window
+
+      raise ContextOverflowError, context_overflow_message(model_id, window, needed: used + incoming)
+    end
+
+    # Non-blocking: this turn can still succeed, but the next one probably
+    # cannot, and saying so early beats a silent failure minutes later.
+    def warn_context_pressure(model_id, window, response, sink)
+      return if window.zero?
+      return unless response.respond_to?(:prompt_eval_count)
+
+      used = response.prompt_eval_count.to_i
+      return if used.zero? || used < window * CONTEXT_PRESSURE_RATIO
+
+      sink << "\n\n_(this conversation is using #{used} of #{model_id}'s #{window}-token " \
+              "window — further tool results may not fit)_"
     end
 
     private :stream_with_payloads
@@ -429,8 +493,10 @@ module LlmRbFacade
 
     def ollama_options
       opts = { timeout: PROVIDER_READ_TIMEOUT_SECONDS }
-      opts[:host] = ENV["OLLAMA_HOST"] if ENV["OLLAMA_HOST"].present?
-      opts[:port] = ENV["OLLAMA_PORT"].to_i if ENV["OLLAMA_PORT"].present?
+      host = OllamaEndpoint.host
+      port = OllamaEndpoint.port
+      opts[:host] = host if host.present?
+      opts[:port] = port.to_i if port.present?
       opts
     end
 
@@ -479,15 +545,26 @@ module LlmRbFacade
     # loops; the fallback notice below fires if we hit the cap.
     MAX_TOOL_ITERATIONS = 10
 
+    # Ollama's symptom of having trimmed the prompt to fit num_ctx.
+    CONTEXT_OVERFLOW_SIGNATURE = /no user query found in messages/i
+
+    # Warn once the prompt alone occupies this much of the window: there is
+    # little room left for tool results or an answer.
+    CONTEXT_PRESSURE_RATIO = 0.8
+
     EMPTY_ANSWER_NOTICE =
       "\n\n_(the model ended its turn without writing an answer. " \
       "Sending the message again often helps.)_"
 
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
+      window  = context_window(generation_params)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
       seed_session_messages!(session, messages)
-      response = session.chat prompt, stream: false # turn 1: explicitly non-streamed
+      response = with_context_overflow(model_id, window) do
+        session.chat prompt, stream: false # turn 1: explicitly non-streamed
+      end
+      warn_context_pressure(model_id, window, response, sink)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
       Rails.logger.info "[LlmRbFacade] turn=1 functions.any?=#{session.functions.any?} " \
                         "content_len=#{response.choices[-1]&.content.to_s.length}"
@@ -506,7 +583,12 @@ module LlmRbFacade
         # Each iteration may think again before emitting content — re-signal
         # so the role label flips back to "thinking" between turns.
         on_phase_change&.call("thinking")
-        response = session.chat tool_results, stream: sink # streamed
+        # Refuse a round that cannot fit rather than spending minutes of
+        # prefill to have the provider reject it.
+        guard_context!(model_id, window, response, tool_results)
+        response = with_context_overflow(model_id, window) do
+          session.chat tool_results, stream: sink # streamed
+        end
         rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
         iterations += 1
         Rails.logger.info "[LlmRbFacade] tool_iter=#{iterations} " \

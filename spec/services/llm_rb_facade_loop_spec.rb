@@ -111,6 +111,76 @@ RSpec.describe LlmRbFacade do
       expect(sink.buf).to include("ended its turn without writing an answer")
     end
 
+    # Ollama trims the oldest messages to fit num_ctx, then rejects its own
+    # trimmed array with "no user query found in messages" — an error about a
+    # malformed request, for what is really a sizing problem.
+    describe "context overflow" do
+      let(:params) { { options: { num_ctx: 32768 } } }
+
+      def server_error(body)
+        err = LLM::ServerError.new("Server error")
+        err.response = double("Response", body: body)
+        err
+      end
+
+      it "translates the provider's misleading error into a sizing one" do
+        allow(session).to receive(:functions).and_return([])
+        allow(session).to receive(:chat)
+          .and_raise(server_error('{"error":"no user query found in messages"}'))
+
+        expect {
+          described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                                  generation_params: params,
+                                  tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+        }.to raise_error(LlmRbFacade::ContextOverflowError, /no longer fit .*32768 tokens/)
+      end
+
+      it "leaves an unrelated server error alone" do
+        allow(session).to receive(:functions).and_return([])
+        allow(session).to receive(:chat).and_raise(server_error('{"error":"model not found"}'))
+
+        expect {
+          described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                                  generation_params: params,
+                                  tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+        }.to raise_error(LLM::ServerError)
+      end
+
+      it "refuses a tool round that cannot fit, before spending the prefill" do
+        big = "x" * 200_000                     # ~50k tokens of tool output
+        huge = double("Return", value: big, name: "t", to_s: big)
+        allow(tool).to receive(:call).and_return(huge)
+        turn1 = instance_double("Response", choices: [ instance_double("Choice", content: "") ],
+                                            body: nil, prompt_eval_count: 20_000)
+        allow(turn1).to receive(:respond_to?).with(:prompt_eval_count).and_return(true)
+        allow(session).to receive(:chat).and_return(turn1)
+        allow(session).to receive(:functions).and_return([ tool ])
+
+        expect {
+          described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                                  generation_params: params,
+                                  tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+        }.to raise_error(LlmRbFacade::ContextOverflowError, /about 7\d{4} needed/)
+
+        # Turn 2 was never attempted.
+        expect(session).to have_received(:chat).once
+      end
+
+      it "warns, without blocking, when the prompt already fills most of the window" do
+        turn1 = instance_double("Response", choices: [ instance_double("Choice", content: "an answer") ],
+                                            body: nil, prompt_eval_count: 30_000)
+        allow(session).to receive(:chat).and_return(turn1)
+        allow(session).to receive(:functions).and_return([])
+
+        described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                                generation_params: params,
+                                tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+        expect(sink.buf).to include("30000 of qwen3.8:27b's 32768-token window")
+        expect(sink.buf).to include("an answer")
+      end
+    end
+
     it "writes a truncation notice when Ollama stops on the num_predict cap" do
       # Ollama reports `done_reason: "length"` on the final chunk when it hits
       # options.num_predict. Without a notice the answer just stops mid-sentence.
