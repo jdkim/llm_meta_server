@@ -219,63 +219,25 @@ ollama:
       options:
         num_ctx: 32768
         num_predict: 8192
-  qwen3-6-35b:
-    api_id: qwen3.6:35b
-    display_name: qwen3.6:35b
+  qwen3-8-27b:
+    api_id: qwen3.8:27b
+    display_name: qwen3.8:27b
     supports_vision: true
     supports_tools: true
     defaults:
       options:
-        num_ctx: 131072
+        num_ctx: 262144
         num_predict: 32768
         repeat_penalty: 1.10
-  # Ollama's own default is 2048 tokens — dramatically undersized once you
-  # factor in a few conversation turns, tool schemas, or non-English (which
-  # uses more tokens per character). Silent front-truncation manifested as
-  # repetition-loop babble and 5-minute read-timeouts.
-  #
-  # The qwen3.6 models run at 128K. 32K proved too tight in practice: a
-  # single MCP server's tool schemas can be large (TogoMCP's 30 tools are
-  # ~80KB of JSON ≈ 20K tokens), leaving too little room for tool results
-  # and the reply, which trips context-shift mid-generation. Measured KV
-  # cost on the dgx1 host for qwen3.6:35b-fast — all resident, no CPU spill:
-  #   32K → 27.23GB | 64K → 28.30GB | 128K → 30.44GB | 256K → 36.42GB
-  # 128K costs +3.2GB over 32K and leaves 256K (the model's native max)
-  # available if needed. medgemma1.5:4b stays at 32K — not measured, and
-  # it is not the model hitting the ceiling.
-  #
-  # A large num_ctx is not a substitute for capping output length — it only
-  # raises the ceiling a runaway generation can climb to. Hence the paired
-  # `options.num_predict`. Ollama's default is unbounded, which let a
-  # single tool-using turn emit ~100K characters (≈25K tokens) over 12.7
-  # minutes before stopping on its own.
-  #
-  # `options.repeat_penalty` is 1.1 on the qwen3.6 tags because the Ollama
-  # builds ship it at 1 — i.e. off. On 2026-09-03 that let qwen3.6:35b-fast
-  # emit 87,961 characters over 10m51s, repeating "**Tool Calls:**" 420 times
-  # in a single generation. Ollama's own default is 1.1; nothing about these
-  # models justifies disabling it.
-  #
-  # The qwen3.6 models sit at 32768. 8192 (≈6,000 words) is ample for a
-  # plain synthesis answer, but a tool-using turn spends the same budget on
-  # reasoning before it writes anything, and turns that synthesise over large
-  # tool results were coming back truncated — or, with thinking enabled,
-  # empty. medgemma1.5:4b stays at 8192: it is not the model hitting that
-  # ceiling. Callers can still override per request via
-  # `generation_settings.options`.
-  #
-  # Ollama models run locally → no `pricing` block (always $0).
-  # qwen3.6 ignores the SYSTEM /no_think text directive; only the API-level
-  # think: false actually disables reasoning on this model. Users can still
-  # override per-request via the Settings panel.
-  qwen3-6-35b-fast:
-    api_id: qwen3.6:35b-fast
-    display_name: qwen3.6:35b-fast
+  # Same Ollama model as qwen3-8-27b, with thinking disabled. `think` is a per-request flag, not a load-time option, so both entries share one loaded instance — provided their options stay identical.
+  qwen3-8-27b-fast:
+    api_id: qwen3.8:27b
+    display_name: qwen3.8:27b-fast
     supports_vision: true
     supports_tools: true
     defaults:
       think: false
       options:
-        num_ctx: 131072
+        num_ctx: 262144
         num_predict: 32768
         repeat_penalty: 1.10
