@@ -66,6 +66,51 @@ RSpec.describe LlmRbFacade do
       expect(sink.buf).to include("tool rounds")
     end
 
+    # A thinking model can finish a tool round having reasoned at length and
+    # written nothing: qwen3.8 read TogoMCP's usage guide, produced 2,255
+    # characters of reasoning, then ended its turn. The bubble was empty with
+    # no explanation, which is indistinguishable from a failure.
+    it "explains itself when the loop ends with reasoning but no answer" do
+      empty = instance_double("Response", choices: [ instance_double("Choice", content: "") ], body: nil)
+      call_count = 0
+      allow(session).to receive(:chat) { call_count += 1; empty }
+      allow(session).to receive(:functions) { call_count >= 2 ? [] : [ tool ] }
+
+      described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                              tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+      expect(sink.buf).to include("ended its turn without writing an answer")
+    end
+
+    it "stays quiet when the model did answer" do
+      answered = instance_double("Response", choices: [ instance_double("Choice", content: "here you go") ], body: nil)
+      call_count = 0
+      # Turn 2 is streamed, so the real session writes the answer to the sink
+      # as it arrives; the notice keys off what actually reached the client.
+      allow(session).to receive(:chat) do |_input, **kwargs|
+        call_count += 1
+        kwargs[:stream] << "here you go" if kwargs[:stream].respond_to?(:<<) && call_count >= 2
+        answered
+      end
+      allow(session).to receive(:functions) { call_count >= 2 ? [] : [ tool ] }
+
+      described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                              tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+      expect(sink.buf).not_to include("ended its turn without writing an answer")
+    end
+
+    it "explains itself when turn 1 answers nothing and calls nothing" do
+      empty = instance_double("Response", choices: [ instance_double("Choice", content: "") ], body: nil)
+      allow(session).to receive(:chat).and_return(empty)
+      allow(session).to receive(:functions).and_return([])
+
+      described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                              tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+      expect(sink.buf).to include("ended its turn without writing an answer")
+    end
+
     it "writes a truncation notice when Ollama stops on the num_predict cap" do
       # Ollama reports `done_reason: "length"` on the final chunk when it hits
       # options.num_predict. Without a notice the answer just stops mid-sentence.

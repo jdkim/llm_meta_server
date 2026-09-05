@@ -160,6 +160,16 @@ module LlmRbFacade
       message[key] || message[key.to_s]
     end
 
+    # Whether anything reached the client as *content*. Reasoning deltas go to
+    # sink.thinking and do not count — a turn that streamed only reasoning is
+    # exactly the case this exists to catch. Prefers the sink's own byte count
+    # (what the user actually received) over the response body.
+    def streamed_no_content?(sink, response)
+      return sink.content_bytes.zero? if sink.respond_to?(:content_bytes)
+
+      response.choices[-1]&.content.to_s.strip.empty?
+    end
+
     private :stream_with_payloads
 
     # Params that only OpenAI's Responses endpoint accepts. When a model
@@ -469,6 +479,10 @@ module LlmRbFacade
     # loops; the fallback notice below fires if we hit the cap.
     MAX_TOOL_ITERATIONS = 10
 
+    EMPTY_ANSWER_NOTICE =
+      "\n\n_(the model ended its turn without writing an answer. " \
+      "Sending the message again often helps.)_"
+
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
@@ -503,11 +517,18 @@ module LlmRbFacade
       if iterations.zero?
         # Turn 1 had no tool calls — emit its content as one chunk.
         text = response.choices[-1]&.content || ""
-        sink << text unless text.empty?
+        text.empty? ? sink << EMPTY_ANSWER_NOTICE : sink << text
       elsif session.functions.any?
         # Cap hit while the model still wanted to call more tools. Tell the
         # user instead of leaving the bubble silently empty.
         sink << "\n\n_(stopped after #{MAX_TOOL_ITERATIONS} tool rounds without a final answer)_"
+      elsif streamed_no_content?(sink, response)
+        # The loop finished cleanly and the model still wrote nothing. A
+        # thinking model can end its turn this way: qwen3.8 read a tool's
+        # usage guide, spent 2,255 characters reasoning about it, then
+        # stopped without answering and without calling anything else. The
+        # bubble was empty with no explanation, which reads as a failure.
+        sink << EMPTY_ANSWER_NOTICE
       end
       emit_length_cap_notice(response, sink)
 
