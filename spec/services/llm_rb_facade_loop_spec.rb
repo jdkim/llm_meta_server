@@ -179,6 +179,189 @@ RSpec.describe LlmRbFacade do
         expect(sink.buf).to include("30000 of qwen3.8:27b's 32768-token window")
         expect(sink.buf).to include("an answer")
       end
+
+      # Ollama does not raise on overflow — it drops the oldest tokens and
+      # returns HTTP 200 with done_reason "stop". `prompt_eval_count` is
+      # reported post-truncation and so can never exceed num_ctx, which means
+      # nothing measured after the fact can reveal the overflow. Counting
+      # before sending is the only defence.
+      it "refuses a prompt that cannot fit, before contacting the provider" do
+        allow(session).to receive(:functions).and_return([])
+        allow(session).to receive(:chat)
+
+        expect {
+          described_class.stream!("qwen3.8:27b", "x" * 200_000, sink: sink, llm_api_key: nil,
+                                  generation_params: params,
+                                  tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+        }.to raise_error(LlmRbFacade::ContextOverflowError, /no longer fit .*32768 tokens/)
+
+        expect(session).not_to have_received(:chat)
+      end
+
+      it "leaves a hosted model alone, whose window it has no way to know" do
+        turn1 = double("Response", choices: [ double("Choice", content: "ok") ],
+                                   body: nil, done_reason: nil)
+        allow(session).to receive(:chat).and_return(turn1)
+        allow(session).to receive(:functions).and_return([])
+
+        expect {
+          described_class.stream!("qwen3.8:27b", "x" * 200_000, sink: sink, llm_api_key: nil,
+                                  generation_params: {}, # no num_ctx → window 0
+                                  tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+        }.not_to raise_error
+      end
+
+      it "says so when the provider silently dropped the front of the conversation" do
+        # ~57k tokens sent, but Ollama reports having evaluated only 16,386.
+        # The difference did not evaporate — it was trimmed off the front, and
+        # the answer was reasoned from what survived.
+        turn1 = double("Response", choices: [ double("Choice", content: "an answer") ],
+                                   body: nil, done_reason: nil, prompt_eval_count: 16_386)
+        allow(session).to receive(:chat).and_return(turn1)
+        allow(session).to receive(:functions).and_return([])
+
+        described_class.stream!("qwen3.8:27b", "x" * 200_000, sink: sink, llm_api_key: nil,
+                                generation_params: { options: { num_ctx: 262_144 } },
+                                tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+        expect(sink.buf).to include("did not fit")
+        expect(sink.buf).to include("16386")
+        expect(sink.buf).to include("an answer")
+      end
+
+      it "stays quiet when the provider evaluated everything we sent" do
+        turn1 = double("Response", choices: [ double("Choice", content: "an answer") ],
+                                   body: nil, done_reason: nil, prompt_eval_count: 1_200)
+        allow(session).to receive(:chat).and_return(turn1)
+        allow(session).to receive(:functions).and_return([])
+
+        described_class.stream!("qwen3.8:27b", "x" * 4_000, sink: sink, llm_api_key: nil,
+                                generation_params: params,
+                                tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+        expect(sink.buf).not_to include("did not fit")
+        expect(sink.buf).to include("an answer")
+      end
+
+      # The window has to hold the answer too. num_predict is the output cap,
+      # so a prompt that nearly fills num_ctx leaves nothing to generate into.
+      it "warns when the prompt leaves no room for the answer" do
+        turn1 = double("Response", choices: [ double("Choice", content: "an answer") ],
+                                   body: nil, done_reason: nil)
+        allow(session).to receive(:chat).and_return(turn1)
+        allow(session).to receive(:functions).and_return([])
+
+        # ~28.6k estimated: under the 32768 window, but not by 8192.
+        described_class.stream!("qwen3.8:27b", "x" * 100_000, sink: sink, llm_api_key: nil,
+                                generation_params: { options: { num_ctx: 32_768, num_predict: 8_192 } },
+                                tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+        expect(sink.buf).to include("may be cut short")
+        expect(sink.buf).to include("an answer")
+      end
+
+      # The margin that stops the detector crying wolf: our estimate is
+      # deliberately conservative, so a gap alone is not evidence of trimming.
+      it "does not cry truncation when the gap is within estimator error" do
+        # ~28.6k estimated vs 20k evaluated: a 8.6k gap, but under the 1.5x margin.
+        turn1 = double("Response", choices: [ double("Choice", content: "an answer") ],
+                                   body: nil, done_reason: nil, prompt_eval_count: 20_000)
+        allow(session).to receive(:chat).and_return(turn1)
+        allow(session).to receive(:functions).and_return([])
+
+        described_class.stream!("qwen3.8:27b", "x" * 100_000, sink: sink, llm_api_key: nil,
+                                generation_params: { options: { num_ctx: 262_144 } },
+                                tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+        expect(sink.buf).not_to include("did not fit")
+      end
+
+      # The motivating case: a short prompt on a conversation that has simply
+      # grown too long. Turn 1 carries the whole seeded history, and until the
+      # pre-flight check existed nothing sized it.
+      it "refuses when accumulated history alone overflows the window" do
+        allow(session).to receive(:functions).and_return([])
+        allow(session).to receive(:chat)
+
+        expect {
+          described_class.stream!("qwen3.8:27b", "one more question", sink: sink, llm_api_key: nil,
+                                  generation_params: params,
+                                  messages: [ { role: "user", content: "x" * 200_000 } ],
+                                  tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+        }.to raise_error(LlmRbFacade::ContextOverflowError, /no longer fit .*32768 tokens/)
+
+        expect(session).not_to have_received(:chat)
+      end
+
+      it "detects truncation on a later tool round, not just the first turn" do
+        big  = "x" * 200_000
+        huge = double("Return", value: big, name: "t", to_s: big)
+        allow(tool).to receive(:call).and_return(huge)
+
+        # Round 1 fits (1k evaluated + ~50k incoming, against a 262k window).
+        turn1 = double("Response", choices: [ double("Choice", content: "") ],
+                                   body: nil, done_reason: nil, prompt_eval_count: 1_000)
+        # Round 2: we sent ~57k of tool output, Ollama evaluated 16,386.
+        turn2 = double("Response", choices: [ double("Choice", content: "final") ],
+                                   body: nil, done_reason: nil, prompt_eval_count: 16_386)
+        calls = 0
+        allow(session).to receive(:chat) { calls += 1; calls == 1 ? turn1 : turn2 }
+        allow(session).to receive(:functions) { calls < 2 ? [ tool ] : [] }
+
+        described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                                generation_params: { options: { num_ctx: 262_144 } },
+                                tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+
+        expect(sink.buf).to include("did not fit")
+        expect(sink.buf).to include("16386")
+      end
+
+      # Measured against qwen3.8:27b: Japanese runs ~1.34 chars/token against
+      # English's ~6.2. Counting it at the Latin rate under-counts by ~2.6x,
+      # so a Japanese conversation would sail past the pre-flight check and
+      # be silently truncated — the exact failure this guard exists to stop.
+      it "does not under-count CJK text, which tokenizes far denser than Latin" do
+        allow(session).to receive(:functions).and_return([])
+        allow(session).to receive(:chat)
+
+        # 40k Japanese characters: ~40k tokens, well over the 32768 window.
+        # At the Latin rate this would have been scored ~11.4k and let through.
+        expect {
+          described_class.stream!("qwen3.8:27b", "\u3042" * 40_000, sink: sink, llm_api_key: nil,
+                                  generation_params: params,
+                                  tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+        }.to raise_error(LlmRbFacade::ContextOverflowError, /no longer fit .*32768 tokens/)
+
+        expect(session).not_to have_received(:chat)
+      end
+
+      it "sizes a tool whose schema cannot be read, rather than blowing up the turn" do
+        bad = double("Function")
+        allow(bad).to receive(:name).and_raise(RuntimeError, "schema exploded")
+        turn1 = double("Response", choices: [ double("Choice", content: "an answer") ],
+                                   body: nil, done_reason: nil)
+        allow(session).to receive(:chat).and_return(turn1)
+        allow(session).to receive(:functions).and_return([])
+
+        expect {
+          described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil,
+                                  generation_params: params, tools: [ bad ])
+        }.not_to raise_error
+      end
+    end
+
+    # Every earlier pre-flight spec routes through the tools branch; this one
+    # pins the plain streaming path, which is the one most chats actually use.
+    it "applies the pre-flight check on the plain (no-tools) streaming path" do
+      allow(session).to receive(:functions).and_return([])
+      allow(session).to receive(:chat)
+
+      expect {
+        described_class.stream!("qwen3.8:27b", "x" * 200_000, sink: sink, llm_api_key: nil,
+                                generation_params: { options: { num_ctx: 32_768 } })
+      }.to raise_error(LlmRbFacade::ContextOverflowError, /no longer fit .*32768 tokens/)
+
+      expect(session).not_to have_received(:chat)
     end
 
     it "writes a truncation notice when Ollama stops on the num_predict cap" do

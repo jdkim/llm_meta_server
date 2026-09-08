@@ -55,6 +55,87 @@ RSpec.describe LlmRbFacade do
         expect(result).to eq("Hello!")
       end
     end
+
+    # The streaming path can put a notice in the response body; call! has no
+    # sink, so a log line is the only signal it can leave behind.
+    context "context sizing" do
+      let(:params) { { options: { num_ctx: 32_768 } } }
+
+      it "refuses an oversized prompt before creating a session" do
+        allow(LLM::Session).to receive(:new).and_return(session)
+        allow(session).to receive(:chat)
+
+        expect {
+          described_class.call!(model_id, "x" * 200_000, generation_params: params)
+        }.to raise_error(LlmRbFacade::ContextOverflowError, /no longer fit .*32768 tokens/)
+
+        expect(LLM::Session).not_to have_received(:new)
+      end
+
+      it "refuses an oversized prompt on the tools path too" do
+        allow(LLM::Session).to receive(:new).and_return(session)
+        allow(session).to receive(:chat)
+        allow(session).to receive(:functions).and_return([])
+        allow(session).to receive(:extract_tool_calls).and_return([])
+
+        expect {
+          described_class.call!(model_id, "x" * 200_000,
+                                tools: [ double("tool") ], generation_params: params)
+        }.to raise_error(LlmRbFacade::ContextOverflowError, /no longer fit .*32768 tokens/)
+
+        expect(LLM::Session).not_to have_received(:new)
+      end
+
+      it "logs when the provider silently dropped part of the prompt" do
+        # ~57k tokens sent, 16,386 evaluated — the rest was trimmed off the front.
+        truncated = double("Messages", choices: [ choice ], body: nil, prompt_eval_count: 16_386)
+        allow(LLM::Session).to receive(:new).and_return(session)
+        allow(session).to receive(:chat).and_return(truncated)
+        allow(Rails.logger).to receive(:warn)
+
+        result = described_class.call!(model_id, "x" * 200_000,
+                                       generation_params: { options: { num_ctx: 262_144 } })
+
+        expect(result).to eq("Hello!")
+        expect(Rails.logger).to have_received(:warn)
+          .with(/input truncated by .*evaluated=16386 window=262144/)
+      end
+
+      it "logs truncation detected on the tool round, after tools have run" do
+        big  = "x" * 200_000
+        huge = double("Return", value: big, name: "t", to_s: big)
+        tool = double("Function", call: huge)
+        turn1 = double("Messages", choices: [ double("Choice", content: "") ],
+                                   body: nil, prompt_eval_count: 1_000)
+        turn2 = double("Messages", choices: [ choice ], body: nil, prompt_eval_count: 16_386)
+
+        calls = 0
+        allow(LLM::Session).to receive(:new).and_return(session)
+        allow(session).to receive(:chat) { calls += 1; calls == 1 ? turn1 : turn2 }
+        allow(session).to receive(:functions) { calls < 2 ? [ tool ] : [] }
+        allow(session).to receive(:extract_tool_calls).and_return([])
+        allow(Rails.logger).to receive(:info)
+        allow(Rails.logger).to receive(:warn)
+
+        described_class.call!(model_id, "hi", tools: [ tool ],
+                              generation_params: { options: { num_ctx: 262_144 } })
+
+        expect(Rails.logger).to have_received(:warn)
+          .with(/input truncated by .*evaluated=16386 window=262144/)
+      end
+
+      it "stays out of the way of a hosted model, whose window it cannot know" do
+        allow(LLM::Session).to receive(:new).and_return(session)
+        allow(session).to receive(:chat).and_return(messages)
+        allow(Rails.logger).to receive(:warn)
+
+        expect {
+          described_class.call!(model_id, "x" * 200_000, generation_params: {})
+        }.not_to raise_error
+
+        expect(Rails.logger).not_to have_received(:warn).with(/input truncated/)
+      end
+    end
   end
 
   describe "#coerce_file_payloads (private)" do
