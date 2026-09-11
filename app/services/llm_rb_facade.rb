@@ -106,22 +106,34 @@ module LlmRbFacade
             # Native-only (e.g. Gemini grounding / url_context): provider-side
             # tools, no function round-trip — stream the grounded answer directly.
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
+            window    = context_window(chat_params)
+            estimated = preflight_context!(model_id, window, chat_params,
+                                           messages: messages, prompt: effective_prompt,
+                                           tools: native, sink: sink)
             session = LLM::Session.new llm, model: model_id, tools: native, **chat_params
             seed_session_messages!(session, messages)
-            response = session.chat effective_prompt, stream: sink
+            response = with_context_overflow(model_id, window) do
+              session.chat effective_prompt, stream: sink
+            end
+            detect_truncation!(model_id, window, response, estimated, sink)
             log_finish_diagnostics(response, "native")
             emit_length_cap_notice(response, sink)
             response.choices[-1]&.content || ""
           else
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
+            window    = context_window(chat_params)
+            estimated = preflight_context!(model_id, window, chat_params,
+                                           messages: messages, prompt: effective_prompt,
+                                           sink: sink)
             session = LLM::Session.new llm, model: model_id, **chat_params
             seed_session_messages!(session, messages)
             # Controller already emitted "thinking" at the top. The model may
             # still think for a while before emitting content; the client flips
             # the indicator to "streaming" on the first content delta.
-            response = with_context_overflow(model_id, context_window(chat_params)) do
+            response = with_context_overflow(model_id, window) do
               session.chat effective_prompt, stream: sink
             end
+            detect_truncation!(model_id, window, response, estimated, sink)
             emit_length_cap_notice(response, sink)
             response.choices[-1]&.content || ""
           end
@@ -232,6 +244,125 @@ module LlmRbFacade
 
       sink << "\n\n_(this conversation is using #{used} of #{model_id}'s #{window}-token " \
               "window — further tool results may not fit)_"
+    end
+
+    # --- Pre-flight sizing -------------------------------------------------
+    #
+    # Why estimate at all, when `guard_context!` has a measured count?
+    # Because `prompt_eval_count` is reported POST-truncation and therefore
+    # can never exceed num_ctx — by the time we can measure, the overflow has
+    # already happened and the front of the conversation is gone. Ollama does
+    # not raise on overflow: it drops the oldest tokens and returns HTTP 200
+    # with done_reason "stop". Verified 2026-09-08 — a 398k-token prompt at
+    # num_ctx 32768 came back clean with prompt_eval_count 16386 and an
+    # answer invented from the surviving tail. Nothing downstream can detect
+    # that after the fact, so the only real defence is counting first.
+
+    def estimate_tokens(text)
+      return 0 if text.nil?
+
+      str   = text.to_s
+      cjk   = str.count(CJK_RANGES)
+      latin = str.length - cjk
+      (cjk / CJK_CHARS_PER_TOKEN + latin / ESTIMATE_CHARS_PER_TOKEN).ceil
+    end
+
+    def estimate_messages_tokens(messages)
+      Array(messages).sum do |m|
+        estimate_tokens(field(m, :content)) + MESSAGE_OVERHEAD_TOKENS
+      end
+    end
+
+    # `prompt` is a String on the plain path and [*file_contents, prompt] when
+    # attachments ride along. Binary payloads have no meaningful character
+    # count, so they contribute only their stringified form.
+    def estimate_prompt_tokens(prompt)
+      Array(prompt).sum { |part| estimate_tokens(part.is_a?(String) ? part : part.to_s) }
+    end
+
+    # Tool schemas are part of the prompt and are frequently the largest part
+    # of it — 29 MCP tools with prose descriptions can outweigh the whole
+    # conversation.
+    def estimate_tools_tokens(tools)
+      Array(tools).sum { |t| estimate_tokens(tool_schema_text(t)) }
+    end
+
+    def tool_schema_text(tool)
+      return tool.to_s unless tool.respond_to?(:name)
+
+      parts = [ tool.name.to_s ]
+      parts << tool.description.to_s if tool.respond_to?(:description)
+      if tool.respond_to?(:params) && (schema = tool.params)
+        parts << (schema.respond_to?(:to_h) ? schema.to_h.to_json : schema.to_s)
+      end
+      parts.compact.join(" ")
+    rescue StandardError
+      tool.to_s
+    end
+
+    def estimate_request_tokens(messages:, prompt:, tools:)
+      estimate_messages_tokens(messages) +
+        estimate_prompt_tokens(prompt) +
+        estimate_tools_tokens(tools)
+    end
+
+    # Room the answer itself needs. Ollama's num_predict is the output cap, so
+    # a prompt that fills the window leaves nothing to generate into.
+    def reserved_output_tokens(generation_params)
+      opts = (generation_params || {})[:options] || (generation_params || {})["options"] || {}
+      (opts[:num_predict] || opts["num_predict"]).to_i
+    end
+
+    # Refuse a turn whose prompt cannot fit, before spending a minute of
+    # prefill on a conversation the provider will quietly amputate.
+    #
+    # Raises only when overflow is certain (estimate alone exceeds the
+    # window); a merely tight fit warns instead, because the estimate is
+    # deliberately conservative and a short answer may still succeed.
+    # Returns the estimate so the post-hoc truncation check can reuse it.
+    def preflight_context!(model_id, window, generation_params, messages:, prompt:, tools: [], sink: nil)
+      estimated = estimate_request_tokens(messages: messages, prompt: prompt, tools: tools)
+      return estimated if window.zero?
+
+      if estimated >= window
+        raise ContextOverflowError, context_overflow_message(model_id, window, needed: estimated)
+      end
+
+      reserve = reserved_output_tokens(generation_params)
+      if reserve.positive? && estimated + reserve > window && sink
+        sink << "\n\n_(the prompt is using about #{estimated} of #{model_id}'s " \
+                "#{window}-token window, leaving under #{window - estimated} for a " \
+                "#{reserve}-token answer — it may be cut short)_"
+      end
+
+      estimated
+    end
+
+    # Post-hoc counterpart: the provider tells us how many tokens it actually
+    # evaluated. If we counted materially more than that, the difference did
+    # not evaporate — it was dropped off the front of the conversation, and
+    # whatever the model just said was reasoned from a mutilated history.
+    #
+    # Deliberately does not raise: the answer has already streamed to the
+    # user. Labelling it is more useful than discarding it.
+    def detect_truncation!(model_id, window, response, estimated, sink)
+      return false if window.zero? || estimated.to_i.zero?
+      return false unless response.respond_to?(:prompt_eval_count)
+
+      used = response.prompt_eval_count.to_i
+      return false if used.zero?
+
+      gap = estimated - used
+      return false if gap < TRUNCATION_MIN_GAP_TOKENS
+      return false if estimated < used * TRUNCATION_ESTIMATE_MARGIN
+
+      Rails.logger.warn "[LlmRbFacade] input truncated by #{model_id}: " \
+                        "estimated=#{estimated} evaluated=#{used} window=#{window}"
+      sink << "\n\n_(⚠ about #{gap} tokens of this conversation did not fit in " \
+              "#{model_id}'s #{window}-token window and were dropped — the model only " \
+              "saw the most recent #{used}. This answer may contradict or ignore " \
+              "earlier turns. Start a new chat or pick a model with a larger window.)_" if sink
+      true
     end
 
     private :stream_with_payloads
@@ -509,18 +640,27 @@ module LlmRbFacade
 
     def execute_chat!(llm, model_id, prompt, generation_params, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
+      window    = context_window(generation_params)
+      estimated = preflight_context!(model_id, window, generation_params,
+                                     messages: messages, prompt: prompt)
       bot = LLM::Session.new llm, model: model_id, **generation_params
       seed_session_messages!(bot, messages)
-      messages_ret = bot.chat prompt
+      messages_ret = with_context_overflow(model_id, window) { bot.chat prompt }
+      # No sink on the non-streaming path — the log line is the only signal.
+      detect_truncation!(model_id, window, messages_ret, estimated, nil)
 
       messages_ret.choices[-1]&.content || ""
     end
 
     def execute_chat_with_tools!(llm, model_id, prompt, tools, generation_params, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
+      window    = context_window(generation_params)
+      estimated = preflight_context!(model_id, window, generation_params,
+                                     messages: messages, prompt: prompt, tools: tools)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
       seed_session_messages!(session, messages)
-      response = session.chat prompt
+      response = with_context_overflow(model_id, window) { session.chat prompt }
+      detect_truncation!(model_id, window, response, estimated, nil)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
       Rails.logger.info "[LlmRbFacade] functions.any?=#{session.functions.any?} " \
                         "first_content=#{response.choices[-1]&.content.inspect} " \
@@ -529,7 +669,10 @@ module LlmRbFacade
       # If LLM requested tool calls, execute them and send results back
       if session.functions.any?
         tool_results = session.functions.map(&:call)
-        response = session.chat tool_results
+        guard_context!(model_id, window, response, tool_results)
+        estimated += tool_results.sum { |r| estimate_tokens(r.to_s) }
+        response = with_context_overflow(model_id, window) { session.chat tool_results }
+        detect_truncation!(model_id, window, response, estimated, nil)
         Rails.logger.info "[LlmRbFacade] after_tools_content=#{response.choices[-1]&.content.inspect}"
       end
 
@@ -546,11 +689,49 @@ module LlmRbFacade
     MAX_TOOL_ITERATIONS = 10
 
     # Ollama's symptom of having trimmed the prompt to fit num_ctx.
+    #
+    # Narrow fallback only — do NOT rely on this. It fires only when
+    # truncation ate the *user* message, but wire format v2 puts the current
+    # user turn last in the messages array, which is the one thing
+    # front-truncation never reaches. Overflow is normally silent (HTTP 200,
+    # done_reason "stop"); `preflight_context!` and `detect_truncation!` are
+    # what actually catch it.
     CONTEXT_OVERFLOW_SIGNATURE = /no user query found in messages/i
 
     # Warn once the prompt alone occupies this much of the window: there is
     # little room left for tool results or an answer.
     CONTEXT_PRESSURE_RATIO = 0.8
+
+    # Chars per token for the pre-flight estimate. English prose runs ~4;
+    # JSON tool payloads, CJK and code run denser, so 3.5 deliberately
+    # over-counts. The asymmetry is intentional: a false "won't fit" costs
+    # one clear error message, while a missed overflow costs a confidently
+    # wrong answer built on a silently truncated conversation.
+    ESTIMATE_CHARS_PER_TOKEN = 3.5
+
+    # CJK tokenizes far denser than Latin script, and the difference is not
+    # marginal. Measured against qwen3.8:27b on 2026-09-08: English ran 6.2
+    # chars/token (3,040 chars → 492), Japanese 1.34 (1,360 chars → 1,012).
+    # Counting Japanese at the Latin rate under-counts by ~2.6x — the one
+    # direction that matters, because it waves an overflowing prompt through.
+    # 1.0 keeps the estimate conservative on the measured 1.34.
+    CJK_CHARS_PER_TOKEN = 1.0
+
+    # Hiragana, katakana, CJK punctuation, unified ideographs (+ ext A),
+    # Hangul, compatibility ideographs and fullwidth forms.
+    CJK_RANGES = "\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff" \
+                 "\uac00-\ud7af\uf900-\ufaff\uff00-\uffef"
+
+    # Per-message envelope (role tags, delimiters) the character count can't see.
+    MESSAGE_OVERHEAD_TOKENS = 4
+
+    # Truncation is declared when our estimate exceeds what the provider says
+    # it actually evaluated by this factor. Estimator error is ~1.15x, so 1.5
+    # leaves margin before crying wolf.
+    TRUNCATION_ESTIMATE_MARGIN = 1.5
+
+    # ...and by at least this many tokens, so rounding on short prompts is quiet.
+    TRUNCATION_MIN_GAP_TOKENS = 512
 
     EMPTY_ANSWER_NOTICE =
       "\n\n_(the model ended its turn without writing an answer. " \
@@ -559,11 +740,18 @@ module LlmRbFacade
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
       window  = context_window(generation_params)
+      # Turn 1 carries the whole seeded history plus every tool schema, and
+      # until now nothing sized it — `guard_context!` only ran from round 2.
+      # This is the turn a long conversation actually overflows on.
+      estimated = preflight_context!(model_id, window, generation_params,
+                                     messages: messages, prompt: prompt,
+                                     tools: tools, sink: sink)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
       seed_session_messages!(session, messages)
       response = with_context_overflow(model_id, window) do
         session.chat prompt, stream: false # turn 1: explicitly non-streamed
       end
+      detect_truncation!(model_id, window, response, estimated, sink)
       warn_context_pressure(model_id, window, response, sink)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
       Rails.logger.info "[LlmRbFacade] turn=1 functions.any?=#{session.functions.any?} " \
@@ -586,9 +774,14 @@ module LlmRbFacade
         # Refuse a round that cannot fit rather than spending minutes of
         # prefill to have the provider reject it.
         guard_context!(model_id, window, response, tool_results)
+        # The tool results join the prompt for the next round, so carry the
+        # running estimate forward and re-check against what the provider
+        # says it evaluated.
+        estimated += tool_results.sum { |r| estimate_tokens(r.to_s) }
         response = with_context_overflow(model_id, window) do
           session.chat tool_results, stream: sink # streamed
         end
+        detect_truncation!(model_id, window, response, estimated, sink)
         rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
         iterations += 1
         Rails.logger.info "[LlmRbFacade] tool_iter=#{iterations} " \
