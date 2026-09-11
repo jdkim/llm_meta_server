@@ -6,6 +6,12 @@ Rails.application.routes.draw do
 
   # Custom session routes (all defined within Devise scope)
   devise_scope :user do
+    # OmniAuth's failure path. Devise dispatches failures through
+    # OmniAuth.config.on_failure rather than a URL, so nothing routed here and
+    # a user who landed on it got a 404 instead of the alert. Naming it also
+    # makes the behaviour testable without reaching into OmniAuth internals.
+    get "/users/auth/failure", to: "users/omniauth_callbacks#failure", as: :user_omniauth_failure
+
     delete "/logout", to: "users/sessions#destroy", as: :user_logout
     post "/logout", to: "users/sessions#destroy"
   end

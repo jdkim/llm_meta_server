@@ -94,8 +94,7 @@ RSpec.describe "Users::OmniauthCallbacksController", type: :request do
 
   describe "GET /users/auth/failure" do
     it "redirects to root with a generic auth-failure alert" do
-      OmniAuth.config.mock_auth[:google_oauth2] = :invalid_credentials
-      get "/users/auth/google_oauth2/callback"
+      get "/users/auth/failure"
 
       expect(response).to redirect_to(root_path)
       follow_redirect!
