@@ -17,7 +17,7 @@ RSpec.describe Api::ChatsController, type: :controller do
     context "without generation params" do
       it "calls LlmRbFacade without generation_params" do
         allow(LlmRbFacade).to receive(:call!)
-          .with(model_id, "Hello", generation_params: {})
+          .with(model_id, "Hello", generation_params: {}, endpoint: "chat_completions")
           .and_return("Hi!")
 
         post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hello" }
@@ -61,7 +61,7 @@ RSpec.describe Api::ChatsController, type: :controller do
         }
 
         expect(LlmRbFacade).to have_received(:call!)
-          .with(model_id, "Hello", generation_params: {})
+          .with(model_id, "Hello", generation_params: {}, endpoint: "chat_completions")
       end
     end
   end

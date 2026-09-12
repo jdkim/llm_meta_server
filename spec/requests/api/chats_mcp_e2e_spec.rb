@@ -39,6 +39,10 @@ RSpec.describe "POST /api/.../chats with MCP tools", type: :request do
   before do
     allow(GoogleIdTokenVerifier).to receive(:verify_all).with(good_token)
       .and_return("sub" => user.google_id)
+    # gpt-5's catalog entry declares `endpoint: responses`. These examples
+    # stub api.openai.com/v1/chat/completions, so pin them to that path; the
+    # Responses path has its own e2e specs.
+    allow(LlmModelMap).to receive(:endpoint_for).and_return("chat_completions")
   end
 
   # Two consecutive OpenAI responses: turn 1 emits a tool_call, turn 2

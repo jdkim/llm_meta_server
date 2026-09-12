@@ -9,23 +9,77 @@ module LlmRbFacade
   # really a sizing problem. That cost hours to diagnose on 2026-09-05.
   class ContextOverflowError < StandardError; end
 
+  # A sink for the non-streaming paths: collects what would have been streamed
+  # instead of forwarding it. Exists so the Responses tool loop has exactly one
+  # implementation — `call!` drives the same `stream_via_responses!` that
+  # `stream!` does, rather than a second copy that could drift from it.
+  #
+  # `content_bytes` is answered because the loop's "wrote nothing after the
+  # tool rounds" check reads it; without it the check would silently fall back
+  # to a different signal on this path only.
+  class CollectedSink
+    def initialize = @buf = +""
+    def <<(chunk) = tap { @buf << chunk.to_s }
+    # A JSON response has nowhere to put reasoning summaries.
+    def thinking(_delta) = nil
+    def content_bytes = @buf.bytesize
+    def to_s = @buf
+  end
+
   class << self
-    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil, images: nil, document: nil, messages: nil)
+    def call!(model_id, prompt, llm_api_key: nil, tools: [], generation_params: {}, image: nil, images: nil, document: nil, messages: nil, endpoint: "chat_completions")
       # Validate arguments at the entry point
       validate_arguments! model_id, prompt, llm_api_key
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
       all_tools = tools + native_server_tools(llm)
+      payloads  = coerce_file_payloads(image, images, document)
 
-      with_file_payloads(coerce_file_payloads(image, images, document)) do |contents|
+      with_file_payloads(payloads) do |contents|
         effective_prompt = contents.any? ? [ *contents, prompt ] : prompt
-        if all_tools.any?
-          execute_chat_with_tools! llm, model_id, effective_prompt, all_tools, generation_params, messages: messages
+
+        # Same routing rule as the streaming path, and for the same reason:
+        # OpenAI refuses function tools alongside a reasoning model's default
+        # reasoning_effort on /v1/chat/completions. Until this branch existed
+        # the JSON API still bounced those requests to chat completions and
+        # still produced that error, even though the SSE endpoint had been
+        # fixed.
+        if endpoint == "responses" && payloads.empty?
+          prior_turns, instructions = split_conversation(messages)
+          execute_via_responses! llm, model_id, effective_prompt, generation_params,
+                                 tools: all_tools, instructions: instructions, history: prior_turns
+        elsif all_tools.any?
+          chat_params = strip_responses_only_params(generation_params, endpoint)
+          execute_chat_with_tools! llm, model_id, effective_prompt, all_tools, chat_params, messages: messages
         else
-          execute_chat! llm, model_id, effective_prompt, generation_params, messages: messages
+          chat_params = strip_responses_only_params(generation_params, endpoint)
+          execute_chat! llm, model_id, effective_prompt, chat_params, messages: messages
         end
       end
+    end
+
+    # Non-streamed turn on the Responses API, including its tool loop.
+    #
+    # Deliberately not a second loop: it drives `stream_via_responses!` with a
+    # sink that collects rather than forwards, so streaming and non-streaming
+    # share one implementation and cannot drift apart.
+    #
+    # The returned message is what the sink collected, not just the final
+    # round's `output_text` — that is what a streaming client would have seen,
+    # and it keeps any opening text the model wrote before calling a tool
+    # (the content that used to be discarded, fixed for streaming in #188).
+    def execute_via_responses!(llm, model_id, prompt, params, tools:, instructions:, history:)
+      sink  = CollectedSink.new
+      calls = []
+
+      stream_via_responses!(llm, model_id, prompt, params, sink,
+                            instructions: instructions, history: history,
+                            tools: tools,
+                            on_tool_calls: ->(reported) { calls.concat(reported) })
+
+      message = sink.to_s
+      calls.any? ? { message: message, tool_calls: calls } : message
     end
 
     # Streaming variant: deltas are pushed to `sink` (any object responding to <<)
@@ -764,10 +818,10 @@ module LlmRbFacade
     # itself the signal that grounding is wanted — no separate toggle. These
     # are LLM::ServerTool objects; llm.rb merges them with MCP functions.
     #
-    # OpenAI's `web_search` is intentionally omitted here: llm.rb's OpenAI
-    # provider only exposes it via the Responses API, and the facade's
-    # `stream_via_responses!` branch currently rejects any request carrying
-    # tools. Wiring it needs a separate Responses-with-tools branch.
+    # OpenAI's `web_search` is still omitted here, but no longer for the old
+    # reason: the Responses branch now accepts tools, so the blocker is gone
+    # and wiring it up is a small, separate change (it is an LLM::ServerTool,
+    # not a function, so it rides in the same `tools:` array).
     NATIVE_GEMINI_TOOLS    = %i[google_search url_context].freeze
     NATIVE_ANTHROPIC_TOOLS = %i[web_search].freeze
 

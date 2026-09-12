@@ -23,6 +23,10 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
     allow(GoogleIdTokenVerifier).to receive(:verify_all)
       .with("bad-token")
       .and_raise(Google::Auth::IDTokens::VerificationError, "invalid signature")
+    # gpt-5's catalog entry declares `endpoint: responses`. These examples
+    # stub api.openai.com/v1/chat/completions, so pin them to that path; the
+    # Responses path has its own e2e specs.
+    allow(LlmModelMap).to receive(:endpoint_for).and_return("chat_completions")
   end
 
   describe "authentication" do

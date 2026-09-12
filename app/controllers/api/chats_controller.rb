@@ -24,11 +24,13 @@ class Api::ChatsController < ApiController
       message = LlmRbFacade.call! model_id, prompt,
         llm_api_key: llm_api_key,
         tools: tools,
-        generation_params: effective_generation_params(model_name, llm_api_key&.llm_type)
+        generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
+        endpoint: LlmModelMap.endpoint_for(model_name, llm_type: llm_api_key&.llm_type)
     else
       model_id = LlmModelMap.fetch! model_name
       message = LlmRbFacade.call! model_id, prompt,
-        generation_params: effective_generation_params(model_name, nil)
+        generation_params: effective_generation_params(model_name, nil),
+        endpoint: LlmModelMap.endpoint_for(model_name)
     end
 
     render json: {
