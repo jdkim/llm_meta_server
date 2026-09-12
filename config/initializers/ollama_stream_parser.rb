@@ -32,7 +32,19 @@ class LLM::Ollama
   end
 end
 
-# Ollama thinking-mode support.
+# Ollama thinking-mode support, and tool_calls accumulation.
+#
+# The `stream: false` patch above fixes only the turns we send non-streamed.
+# LlmRbFacade streams every tool round after turn 1, and there the accumulator
+# below still applied: it copied the first `message` chunk wholesale and then
+# appended only `content`, so any `tool_calls` arriving in a later chunk were
+# dropped. Models write a sentence before acting, so the call almost always
+# lands in a later chunk — which is why a streamed conversation made exactly
+# one tool call (turn 1, non-streamed) and never another. Verified against
+# qwen3.8:27b: identical prompt and tools gave session.functions=1
+# non-streamed and 0 streamed, while Ollama's own wire output carried the
+# tool_call in both modes. Merging tool_calls below took the same TogoMCP
+# prompt from 1 tool call to a full research loop.
 #
 # When the upstream model emits thinking content (qwen3 etc. with `think: true`),
 # Ollama splits each chunk into two siblings: `message.thinking` and
@@ -50,6 +62,12 @@ class LLM::Ollama::StreamParser
       if key == "message"
         if @body[key]
           @body[key]["content"] = @body[key]["content"].to_s + value["content"].to_s
+          # Ollama emits tool_calls in whichever chunk the model produces them,
+          # which is rarely the first one. Accumulate rather than discard.
+          calls = value["tool_calls"]
+          if calls.is_a?(Array) && calls.any?
+            @body[key]["tool_calls"] = Array(@body[key]["tool_calls"]) + calls
+          end
         else
           @body[key] = value
         end
