@@ -40,15 +40,18 @@ RSpec.describe LlmModelMap do
         .to raise_error(ModelNotFoundError, /not-a-model/)
     end
 
-    it "raises ModelNotFoundError when meta_id exists but under a different llm_type" do
-      # gpt-5 exists in the openai map; asking for it under anthropic should miss cleanly.
+    # These two used to expect ModelNotFoundError. The family isolation they
+    # guard is unchanged — the lookup still refuses to cross families — but
+    # "not found" was the wrong word for a model that is present and active,
+    # and it sent people searching the catalog instead of their session.
+    it "reports a cross-family lookup as unavailable, naming the owning family" do
       expect { described_class.fetch!("gpt-5", llm_type: "anthropic") }
-        .to raise_error(ModelNotFoundError, /gpt-5/)
+        .to raise_error(ModelUnavailableError, /gpt-5 requires an API key for openai/)
     end
 
-    it "raises ModelNotFoundError for an unknown llm_type" do
+    it "reports an unknown llm_type the same way when the model itself exists" do
       expect { described_class.fetch!("gpt-5", llm_type: "bogus") }
-        .to raise_error(ModelNotFoundError, /gpt-5/)
+        .to raise_error(ModelUnavailableError, /gpt-5/)
     end
   end
 
@@ -329,6 +332,40 @@ RSpec.describe LlmModelMap do
         expect(m).to have_key("pricing_tier")
         expect(m["pricing_label"]).to match(/per image/)
       end
+    end
+  end
+
+  # A request with no resolved provider key falls back to the ollama family.
+  # That used to report "Model not found: claude-fable-5-1" for a model that is
+  # present and active — a factually wrong answer that sends people hunting
+  # through the catalog when the real cause is an expired session. Seen in
+  # production 2026-09-12, 16 seconds after the caller's Google id_token
+  # lapsed.
+  describe ".fetch! when no provider key was resolved" do
+    it "says the model needs a key for its family, not that it is missing" do
+      expect { described_class.fetch!("claude-fable-5") }
+        .to raise_error(ModelUnavailableError, /requires an API key for anthropic/)
+    end
+
+    it "names the family the model actually belongs to" do
+      described_class.fetch!("claude-fable-5")
+    rescue ModelUnavailableError => e
+      expect(e.family).to eq("anthropic")
+      expect(e.model_name).to eq("claude-fable-5")
+    end
+
+    it "still reports a genuinely absent model as not found" do
+      expect { described_class.fetch!("no-such-model-anywhere") }
+        .to raise_error(ModelNotFoundError, /Model not found/)
+    end
+
+    it "resolves normally once the family is known" do
+      expect(described_class.fetch!("claude-fable-5", llm_type: "anthropic"))
+        .to eq("claude-fable-5")
+    end
+
+    it "leaves the ollama default working for anonymous local models" do
+      expect(described_class.fetch!("qwen3-6-35b")).to eq(LlmModelMap.catalog["ollama"]["qwen3-6-35b"][:api_id])
     end
   end
 end

@@ -238,8 +238,24 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
       }
     end
 
-    it "404s when an anonymous request names a non-Ollama model (only ollama meta_ids exist in the anonymous catalog)" do
+    # Was a 404 "Model not found". That is the wrong shape for this case: the
+    # model exists and is active, the request simply had no provider key
+    # resolved for its family — an authorization state. In production the 404
+    # wording sent a real diagnosis into the catalog when the actual cause was
+    # a Google id_token that had expired 16 seconds earlier.
+    it "403s when an anonymous request names a non-Ollama model, and says why" do
       post "/api/llm_api_keys/anything/models/gpt-5/chats",
+           params: { prompt: "hi" }
+
+      expect(response).to have_http_status(:forbidden)
+      body = JSON.parse(response.body)
+      expect(body["error"]).to eq("Model unavailable for this session")
+      expect(body["message"]).to match(/requires an API key for openai/)
+      expect(body["message"]).to match(/session may have expired/)
+    end
+
+    it "still 404s when the model genuinely is not in the catalog" do
+      post "/api/llm_api_keys/anything/models/not-a-real-model/chats",
            params: { prompt: "hi" }
 
       expect(response).to have_http_status(:not_found)

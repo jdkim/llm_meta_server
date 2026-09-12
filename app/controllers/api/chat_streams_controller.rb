@@ -89,6 +89,11 @@ class Api::ChatStreamsController < ApiController
     safe_emit_error(sink, "api_key_required", e.message)
   rescue ArgumentError => e
     safe_emit_error(sink, "argument_error", e.message)
+  rescue ModelUnavailableError => e
+    # Distinct code so the client can prompt a reload rather than implying the
+    # catalog is missing something.
+    Rails.logger.warn "[ChatStreams] model unavailable for this session: #{e.message}"
+    safe_emit_error(sink, "model_unavailable", e.message)
   rescue ModelNotFoundError => e
     safe_emit_error(sink, "model_not_found", e.message)
   rescue LlmRbFacade::ContextOverflowError => e
