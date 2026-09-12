@@ -111,7 +111,9 @@ class Api::ChatStreamsController < ApiController
   rescue Net::ReadTimeout, Net::OpenTimeout, Timeout::Error => e
     # Dedicated bucket so clients can distinguish an upstream stall (retry
     # with backoff) from a server crash (internal_error). Provider read
-    # ceiling is PROVIDER_READ_TIMEOUT_SECONDS in LlmRbFacade.
+    # ceiling is provider_read_timeout_for in LlmRbFacade — 900s for local
+    # models, 300s for hosted ones — so the message stays unquantified rather
+    # than naming a number that is wrong for half the providers.
     #
     # Blame is intentionally ambiguous: this rescue fires for both the LLM
     # provider call AND any MCP tool call that leaks a Timeout past
@@ -119,7 +121,7 @@ class Api::ChatStreamsController < ApiController
     # stall came from the tool side.
     Rails.logger.warn "[ChatStreams] upstream timeout: #{e.class}: #{e.message}"
     safe_emit_error(sink, "timeout",
-                    "An upstream call didn't respond within #{LlmRbFacade.singleton_class::PROVIDER_READ_TIMEOUT_SECONDS} seconds — " \
+                    "An upstream call didn't respond in time — " \
                     "this could be the model (#{model_name.presence || 'unknown'}) or an MCP tool it invoked. " \
                     "Try again in a moment, or try a smaller/faster model or a shorter prompt.")
   rescue McpClient::McpConnectionError => e

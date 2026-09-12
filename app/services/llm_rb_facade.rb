@@ -609,7 +609,30 @@ module LlmRbFacade
     # llm.rb's Provider#initialize defaults read timeout to 60s (per-read).
     # That's too short for large local models (e.g. qwen3.6:35b) with image
     # input, where the first-token wait alone can exceed it. Bump generously.
-    PROVIDER_READ_TIMEOUT_SECONDS = 300
+    #
+    # This is a *per-read* ceiling: how long one socket read may sit silent,
+    # not a total for the turn. A non-streamed turn 1 is silent for its whole
+    # prefill-plus-generation, which on a local 27B with 30 tool schemas and a
+    # 47KB tool result runs well past 300s.
+    PROVIDER_READ_TIMEOUT_SECONDS = Integer(ENV.fetch("LLM_PROVIDER_READ_TIMEOUT_SECONDS", 300))
+
+    # Local models get the same headroom as their wall-clock budget.
+    #
+    # A flat 300s here contradicted LOCAL_TURN_BUDGET_SECONDS = 900: local
+    # turns were nominally allowed 900s, but the socket gave up at 300, so the
+    # budget could never fire and the read timeout was the real ceiling.
+    # Measured over 12 live research runs (two prompts, streamed and not),
+    # genuine multi-database work ran 289-686s and timed out in 4 of 12 —
+    # at equal rates in both modes, so this is independent of streaming.
+    # Raising it to match the budget makes TurnBudgetSink the governor it was
+    # written to be, and keeps hosted providers on the tighter 300s, where a
+    # stall is a provider fault rather than honest slow local inference.
+    LOCAL_PROVIDER_READ_TIMEOUT_SECONDS =
+      Integer(ENV.fetch("LLM_LOCAL_PROVIDER_READ_TIMEOUT_SECONDS", 900))
+
+    def provider_read_timeout_for(model_id)
+      LlmModelMap.ollama_model?(model_id) ? LOCAL_PROVIDER_READ_TIMEOUT_SECONDS : PROVIDER_READ_TIMEOUT_SECONDS
+    end
 
     def create_llm_client(llm_api_key, model_id)
       if LlmModelMap.ollama_model?(model_id)
@@ -618,12 +641,13 @@ module LlmRbFacade
         llm_rb_method = llm_api_key.llm_rb_method
         LLM.public_send llm_rb_method,
           key: llm_api_key.encryptable_api_key.plain_api_key,
-          timeout: PROVIDER_READ_TIMEOUT_SECONDS
+          timeout: provider_read_timeout_for(model_id)
       end
     end
 
     def ollama_options
-      opts = { timeout: PROVIDER_READ_TIMEOUT_SECONDS }
+      # Ollama-only by construction, so the local ceiling always applies.
+      opts = { timeout: LOCAL_PROVIDER_READ_TIMEOUT_SECONDS }
       host = OllamaEndpoint.host
       port = OllamaEndpoint.port
       opts[:host] = host if host.present?
