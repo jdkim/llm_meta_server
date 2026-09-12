@@ -38,10 +38,20 @@ class LlmModelMap
     end
   end
 
+  # `llm_type` nil means "no provider key was resolved for this request", which
+  # the anonymous path uses to mean Ollama-only. That default used to turn an
+  # expired session into "Model not found: claude-fable-5-1" — a factually
+  # wrong answer that sends people hunting through the catalog for a model
+  # that is present and active. Distinguish the two cases.
   def self.fetch!(meta_id, llm_type: nil)
-    model_data = catalog.dig(llm_type || "ollama", meta_id)
-    raise ModelNotFoundError, meta_id if model_data.nil?
-    model_data[:api_id]
+    family = llm_type || "ollama"
+    model_data = catalog.dig(family, meta_id)
+    return model_data[:api_id] if model_data
+
+    owning_family = catalog.find { |_family, models| models.key?(meta_id) }&.first
+    raise ModelUnavailableError.new(meta_id, owning_family) if owning_family
+
+    raise ModelNotFoundError, meta_id
   end
 
   # Per-model generation-parameter defaults from the catalog. Returns an

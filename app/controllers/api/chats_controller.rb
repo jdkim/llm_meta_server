@@ -8,6 +8,7 @@ class Api::ChatsController < ApiController
   rescue_from LlmApiKeyRequiredError, with: :api_key_required_error
   rescue_from ArgumentError, with: :argument_error
   rescue_from ModelNotFoundError, with: :model_not_found_error
+  rescue_from ModelUnavailableError, with: :model_unavailable_error
   rescue_from McpClient::McpConnectionError, with: :mcp_connection_error
   rescue_from McpClient::McpProtocolError, with: :mcp_protocol_error
 
@@ -50,6 +51,14 @@ class Api::ChatsController < ApiController
 
   def model_not_found_error(exception)
     render json: { error: "Model not found", message: exception.message }, status: :not_found
+  end
+
+  # 403, not 404: the model exists — this request just had no provider key
+  # resolved for its family, which is an authorization state, not a missing
+  # resource.
+  def model_unavailable_error(exception)
+    render json: { error: "Model unavailable for this session", message: exception.message },
+           status: :forbidden
   end
 
   def mcp_connection_error(exception)
