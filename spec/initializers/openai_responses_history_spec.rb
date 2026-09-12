@@ -45,4 +45,27 @@ RSpec.describe "OpenAI Responses history labelling" do
   it "does not disturb non-string content" do
     expect { adapt("assistant", 42) }.to raise_error(LLM::PromptError)
   end
+
+  # Not a patch of ours — an upstream contract the Responses tool loop in
+  # LlmRbFacade depends on. The loop hands llm.rb an array of
+  # LLM::Function::Return values and trusts the adapter to turn them into
+  # `function_call_output` items keyed by call_id. Pinned here so a gem bump
+  # that changes the shape fails loudly instead of silently dropping every
+  # tool result.
+  describe "tool results (upstream contract)" do
+    it "adapts Function::Return values into function_call_output items" do
+      ret = LLM::Function::Return.new("call_1", "lookup", { "content" => [ { "text" => "found x" } ] })
+
+      expect(adapt("user", [ ret ])).to eq([
+        { type: "function_call_output", call_id: "call_1",
+          output: '{"content":[{"text":"found x"}]}' }
+      ])
+    end
+
+    it "keeps one output item per call, in order" do
+      rets = [ LLM::Function::Return.new("c1", "a", 1), LLM::Function::Return.new("c2", "b", 2) ]
+
+      expect(adapt("user", rets).map { |i| i[:call_id] }).to eq(%w[c1 c2])
+    end
+  end
 end

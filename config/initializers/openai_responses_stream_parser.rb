@@ -13,6 +13,16 @@
 #   * Tolerates the surrounding lifecycle events (summary_part.added /
 #     done, summary_text.done) as no-ops so the parser doesn't drop them
 #     into the body's unstructured catch.
+#
+# It also records the terminal `response.*` event. Stock llm.rb only copies
+# the response object from `response.created`, which is emitted before the
+# model has produced anything: `status`, `usage` and `incomplete_details` are
+# all still null there, so a streamed turn could never say why it stopped.
+# The terminal event carries the finished object, and overwriting
+# `@body["response"]` with it leaves `response_id` pointing at the same id
+# while making the stop reason and token counts readable. `@body["output"]`
+# is deliberately left alone — it is built incrementally by the events above
+# and is what `adapt_message` reads.
 
 require "llm/providers/openai"
 require "llm/providers/openai/responses/stream_parser"
@@ -33,6 +43,8 @@ class LLM::OpenAI::Responses::StreamParser
          "response.reasoning_summary_part.done",
          "response.reasoning_summary_text.done"
       # Lifecycle markers around the reasoning summary; nothing to do.
+    when "response.completed", "response.incomplete", "response.failed"
+      @body["response"] = chunk["response"] if chunk["response"]
     else
       __original_handle_event_for_thinking(chunk)
     end

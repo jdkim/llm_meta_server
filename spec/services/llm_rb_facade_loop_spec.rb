@@ -672,5 +672,51 @@ RSpec.describe LlmRbFacade, "turn 1 content and stop reasons" do
       r = double("Response", body: nil)
       expect(described_class.send(:stop_reason_for, r)).to be_nil
     end
+
+    # The three cases above pass against plain doubles whether or not the
+    # helper works, because a double has a real `public_send`. Provider bodies
+    # are LLM::Objects, which descend from BasicObject and have none — so
+    # these repeat the same assertions against the shape production sees.
+    it "reads Anthropic's stop_reason from a real LLM::Object body" do
+      r = double("Response", body: LLM::Object.from(stop_reason: "max_tokens"))
+      expect(described_class.send(:stop_reason_for, r)).to eq("max_tokens")
+    end
+
+    it "reads OpenAI's finish_reason from a real LLM::Object body" do
+      r = double("Response", body: LLM::Object.from(choices: [ { finish_reason: "length" } ]))
+      expect(described_class.send(:stop_reason_for, r)).to eq("length")
+    end
+
+    it "reads Gemini's finishReason from a real LLM::Object body" do
+      r = double("Response", body: LLM::Object.from(candidates: [ { finishReason: "MAX_TOKENS" } ]))
+      expect(described_class.send(:stop_reason_for, r)).to eq("MAX_TOKENS")
+    end
+
+    # OpenAI Responses names an unfinished turn differently again: status
+    # "incomplete" with incomplete_details.reason. A non-streamed body carries
+    # it at the top level.
+    it "reads the Responses API's incomplete_details reason" do
+      r = double("Response", body: LLM::Object.from(
+        status: "incomplete", incomplete_details: { reason: "max_output_tokens" }
+      ))
+      expect(described_class.send(:stop_reason_for, r)).to eq("max_output_tokens")
+    end
+
+    # A streamed body keeps the finished response object one level in, under
+    # "response" (see config/initializers/openai_responses_stream_parser.rb).
+    it "reads it through the streamed body's nested response object" do
+      r = double("Response", body: LLM::Object.from(
+        output: [], response: { status: "incomplete",
+                                incomplete_details: { reason: "max_output_tokens" } }
+      ))
+      expect(described_class.send(:stop_reason_for, r)).to eq("max_output_tokens")
+    end
+
+    it "stays nil for a Responses turn that finished normally" do
+      r = double("Response", body: LLM::Object.from(
+        output: [], response: { status: "completed", incomplete_details: nil }
+      ))
+      expect(described_class.send(:stop_reason_for, r)).to be_nil
+    end
   end
 end

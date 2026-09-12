@@ -67,4 +67,58 @@ RSpec.describe LLM::OpenAI::Responses::StreamParser do
 
     expect(bare_sink.buf).to eq("ok")
   end
+
+  # Stock llm.rb copies the response object from `response.created`, which
+  # fires before the model has produced anything: status, usage and
+  # incomplete_details are all null there. Without the terminal event a
+  # streamed turn can never say why it stopped.
+  describe "terminal response events" do
+    let(:created) {
+      { "type" => "response.created",
+        "response" => { "id" => "resp_1", "status" => "in_progress",
+                        "usage" => nil, "incomplete_details" => nil } }
+    }
+
+    it "replaces the created snapshot with the finished response object" do
+      parser.parse!(created)
+      parser.parse!({ "type" => "response.completed",
+                      "response" => { "id" => "resp_1", "status" => "completed",
+                                      "usage" => { "output_tokens" => 42 } } })
+
+      expect(parser.body["response"]["status"]).to eq("completed")
+      expect(parser.body["response"].dig("usage", "output_tokens")).to eq(42)
+    end
+
+    it "keeps the response id stable across the swap" do
+      parser.parse!(created)
+      parser.parse!({ "type" => "response.completed", "response" => { "id" => "resp_1" } })
+
+      expect(parser.body["response"]["id"]).to eq("resp_1")
+    end
+
+    it "records why an incomplete turn stopped" do
+      parser.parse!(created)
+      parser.parse!({ "type" => "response.incomplete",
+                      "response" => { "id" => "resp_1", "status" => "incomplete",
+                                      "incomplete_details" => { "reason" => "max_output_tokens" } } })
+
+      expect(parser.body["response"].dig("incomplete_details", "reason")).to eq("max_output_tokens")
+    end
+
+    # `output` is built incrementally by output_item.added/done and is what
+    # adapt_message reads, so the terminal event must not disturb it.
+    it "leaves the incrementally built output array alone" do
+      parser.parse!({ "type" => "response.output_item.added", "output_index" => 0,
+                      "item" => { "type" => "function_call", "call_id" => "c1",
+                                  "name" => "lookup", "arguments" => "" } })
+      parser.parse!({ "type" => "response.output_item.done", "output_index" => 0,
+                      "item" => { "type" => "function_call", "call_id" => "c1",
+                                  "name" => "lookup", "arguments" => '{"q":"x"}' } })
+      parser.parse!({ "type" => "response.completed",
+                      "response" => { "id" => "resp_1", "output" => [] } })
+
+      expect(parser.body["output"].length).to eq(1)
+      expect(parser.body["output"][0]["arguments"]).to eq('{"q":"x"}')
+    end
+  end
 end

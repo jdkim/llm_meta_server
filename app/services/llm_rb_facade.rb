@@ -69,12 +69,23 @@ module LlmRbFacade
 
         # Route OpenAI reasoning models through the Responses API so
         # `response.reasoning_summary_text.delta` events can stream into
-        # sink.thinking. Falls back to chat completions when the request
-        # carries tools or an image — Responses support for those exists
-        # but uses different wire shapes than we currently handle. Also
-        # carries history too: prior user/assistant turns go in as `input:`
+        # sink.thinking. Falls back to chat completions only for an image or
+        # document payload, whose Responses wire shape we do not handle yet.
+        # History carries too: prior user/assistant turns go in as `input:`
         # items, and the system prompt as `instructions:`, which is where the
         # Responses API takes each of them.
+        #
+        # Function tools used to force the fallback as well, and that was the
+        # worse bug of the two: OpenAI rejects function tools together with a
+        # reasoning model's own default reasoning_effort on
+        # /v1/chat/completions, and says so —
+        #
+        #   Function tools with reasoning_effort are not supported for
+        #   gpt-5.6-terra in /v1/chat/completions. To use function tools, use
+        #   /v1/responses [...]
+        #
+        # so MCP tools were unusable on exactly the models this endpoint
+        # exists for (production, 2026-09-13). They are handled here now.
         #
         # History used to force the chat-completions fallback, because llm.rb
         # labels every string content `input_text` and the API rejects that
@@ -87,9 +98,13 @@ module LlmRbFacade
         # history made even a brand-new chat look multi-turn.
         prior_turns, instructions = split_conversation(messages)
 
-        if endpoint == "responses" && tools.empty? && payloads.empty?
+        if endpoint == "responses" && payloads.empty?
+          # `native` is always empty here — native_server_tools only resolves
+          # for Gemini and Anthropic, and this branch is OpenAI-only.
           stream_via_responses!(llm, model_id, effective_prompt, generation_params, sink,
-                                instructions: instructions, history: prior_turns)
+                                instructions: instructions, history: prior_turns,
+                                tools: tools,
+                                on_tool_calls: on_tool_calls, on_phase_change: on_phase_change)
         else
           # Every other branch uses chat completions. If the model catalog
           # entry declared `endpoint: responses`, its defaults (e.g. `reasoning:`)
@@ -143,18 +158,140 @@ module LlmRbFacade
 
     # Stream a turn through OpenAI's Responses API. Used when the model's
     # catalog entry declares `endpoint: responses` (currently the GPT-5
-    # family, to expose reasoning summaries). Restricted to the simple case
-    # for now — no tools, no image.
-    def stream_via_responses!(llm, model_id, prompt, params, sink, instructions: nil, history: [])
+    # family, to expose reasoning summaries). Handles function tools; an
+    # image or document payload still routes to chat completions.
+    def stream_via_responses!(llm, model_id, prompt, params, sink,
+                              instructions: nil, history: [], tools: [],
+                              on_tool_calls: nil, on_phase_change: nil)
+      # `base` is what every round of the turn sends. Tool rounds repeat it
+      # verbatim, so nothing that belongs to the first request only (`input:`)
+      # may live here.
+      base = (params || {}).dup
+      base[:instructions] = instructions if instructions.present?
+      base[:tools] = tools if tools.any?
+
       # Prior turns ride along as `input:` items. llm.rb prepends them to the
       # current prompt (responses.rb: `[*params.delete(:input), Message.new(...)]`),
       # and openai_responses_history.rb makes sure assistant items are labelled
       # `output_text` rather than `input_text`.
-      params = (params || {}).dup
-      params[:instructions] = instructions if instructions.present?
-      params[:input] = history.map { |turn| LLM::Message.new(field(turn, :role), field(turn, :content)) } if history.present?
+      first = base.dup
+      if history.present?
+        first[:input] = history.map { |turn| LLM::Message.new(field(turn, :role), field(turn, :content)) }
+      end
 
-      response = llm.responses.create(prompt, model: model_id, stream: sink, **params)
+      response = llm.responses.create(prompt, model: model_id, stream: sink, **first)
+      return responses_output_text(response) if tools.empty?
+
+      stream_responses_tool_loop!(llm, model_id, base, sink, response,
+                                  on_tool_calls, on_phase_change)
+    end
+
+    # Rounds 2..N of a Responses turn whose first round asked for tools.
+    #
+    # Two things differ from the chat-completions loop. Every round streams,
+    # including the first: the Responses stream parser reconstructs
+    # `function_call` output items from `response.output_item.added/done`, so
+    # nothing is lost by streaming, and the reasoning summary keeps flowing
+    # while the model works — which is the whole reason these models are on
+    # this endpoint. And conversation state rides on `previous_response_id`
+    # rather than a replayed message array, the same mechanism llm.rb's own
+    # Session#respond uses, so each round uploads only the new tool results.
+    #
+    # `instructions:` is re-sent every round on purpose. The Responses API
+    # deliberately does not inherit it across a `previous_response_id` chain,
+    # so omitting it would silently drop the system prompt after round 1.
+    def stream_responses_tool_loop!(llm, model_id, base, sink, response,
+                                    on_tool_calls, on_phase_change)
+      # Round 1 has already streamed whatever it wrote. "Wrote nothing" must
+      # therefore mean "wrote nothing after round 1", or a preamble would
+      # suppress the notice even when no answer ever arrived.
+      content_before_tools = sink.respond_to?(:content_bytes) ? sink.content_bytes : 0
+      functions  = responses_functions(response)
+      iterations = 0
+      Rails.logger.info "[LlmRbFacade] responses turn=1 functions=#{functions.length} " \
+                        "stop=#{stop_reason_for(response).inspect}"
+
+      while functions.any? && iterations < MAX_TOOL_ITERATIONS
+        # Snapshot the call metadata before execution, so its pairing with
+        # tool_results stays 1:1 and obvious.
+        tool_call_meta = responses_call_meta(functions)
+        normalize_tool_arguments!(functions)
+        tool_results = functions.map(&:call)
+        emit_tool_errors_to_sink(tool_results, sink)
+        # Fire on_tool_calls AFTER execution with results attached, so the
+        # chat UI can show what each tool returned.
+        on_tool_calls&.call(zip_tool_calls_with_results(tool_call_meta, tool_results))
+        # Each round may think again before emitting content — re-signal so
+        # the role label flips back to "thinking" between rounds.
+        on_phase_change&.call("thinking")
+
+        response = llm.responses.create(
+          tool_results,
+          model: model_id, stream: sink,
+          previous_response_id: response.response_id,
+          **base
+        )
+        functions   = responses_functions(response)
+        iterations += 1
+        Rails.logger.info "[LlmRbFacade] responses tool_iter=#{iterations} " \
+                          "functions=#{functions.length} " \
+                          "stop=#{stop_reason_for(response).inspect}"
+      end
+
+      if functions.any?
+        # Cap hit while the model still wanted to call more tools. Say so
+        # rather than leaving the bubble to end mid-thought.
+        sink << "\n\n_(stopped after #{MAX_TOOL_ITERATIONS} tool rounds without a final answer)_"
+      elsif iterations.positive? && streamed_no_content?(sink, response, since: content_before_tools)
+        sink << EMPTY_ANSWER_NOTICE
+      end
+
+      responses_output_text(response)
+    end
+
+    # The pending function calls a Responses round asked for.
+    #
+    # `Responds#choices` rebuilds its message — and therefore a fresh `dup` of
+    # every function — on each call, so the result must be captured once per
+    # round and reused. Calling it twice would hand out duplicate functions
+    # whose `called?` state does not carry over.
+    def responses_functions(response)
+      message = response.choices[-1] if response.respond_to?(:choices)
+      return [] unless message.respond_to?(:functions)
+
+      Array(message.functions)
+    rescue JSON::ParserError
+      # adapt_tool parses each call's `arguments` eagerly, so a call that was
+      # cut off mid-JSON raises here rather than at the call site. Name the
+      # failure the same way the chat path does.
+      raise TruncatedToolCallError, "(unknown)"
+    end
+
+    # Arguments must be plain Ruby before they are nested in the tool_calls
+    # event: LLM::Object's own #to_json is correct in isolation, but Ruby's
+    # JSON encoder ignores it for a nested value and falls back to #each_pair,
+    # emitting [["k","v"]] instead of {"k":"v"}. Same coercion as
+    # LLM::Session#normalize_tool_call in config/initializers/llm_session.rb.
+    def responses_call_meta(functions)
+      functions.map do |fn|
+        { id: fn.id, name: fn.name.to_s, arguments: plain_ruby(fn.arguments) }
+      end
+    end
+
+    # Reduce LLM::Object (which LLM::Object.from builds recursively) to plain
+    # Hashes and Arrays, all the way down. LLM::Object#to_h is shallow, so a
+    # tool argument like {"filter" => {"taxon" => "9606"}} would otherwise
+    # keep an LLM::Object one level in and hit the encoder trap above.
+    def plain_ruby(obj)
+      case obj
+      when ::Array      then obj.map { plain_ruby(it) }
+      when ::Hash       then obj.transform_values { plain_ruby(it) }
+      when ::LLM::Object then plain_ruby(obj.to_h)
+      else obj
+      end
+    end
+
+    def responses_output_text(response)
       response.respond_to?(:output_text) ? response.output_text.to_s : ""
     end
 
@@ -199,6 +336,14 @@ module LlmRbFacade
         return body.stop_reason if reason?(body, :stop_reason)                    # anthropic
         return body.choices.first.finish_reason if nested?(body, :choices, :finish_reason)  # openai
         return body.candidates.first.finishReason if nested?(body, :candidates, :finishReason) # gemini
+
+        # openai responses: an unfinished turn is status "incomplete" plus
+        # incomplete_details: {reason: "max_output_tokens"}. Streaming keeps
+        # the finished response object under "response" (see
+        # config/initializers/openai_responses_stream_parser.rb); a
+        # non-streamed body carries the field at the top level.
+        details = body.respond_to?(:response) ? body.response : body
+        return details.incomplete_details.reason if nested_reason?(details)
       end
 
       response.respond_to?(:done_reason) ? response.done_reason : nil             # ollama
@@ -207,14 +352,25 @@ module LlmRbFacade
       nil
     end
 
+    # `__send__`, not `public_send`. Provider bodies are LLM::Objects, which
+    # descend from BasicObject and so have no `public_send` at all — their
+    # method_missing swallows the call and hands back nil. Every one of these
+    # checks therefore read as "no stop reason" against a real response,
+    # while passing happily against a plain test double.
     def reason?(obj, field)
-      obj.respond_to?(field) && obj.public_send(field).present?
+      obj.respond_to?(field) && obj.__send__(field).present?
+    end
+
+    def nested_reason?(obj)
+      return false unless obj.respond_to?(:incomplete_details)
+
+      reason?(obj.incomplete_details, :reason)
     end
 
     def nested?(body, collection, field)
       return false unless body.respond_to?(collection)
 
-      first = Array(body.public_send(collection)).first
+      first = Array(body.__send__(collection)).first
       !first.nil? && reason?(first, field)
     end
 
@@ -402,7 +558,8 @@ module LlmRbFacade
       true
     end
 
-    private :stream_with_payloads
+    private :stream_with_payloads, :stream_responses_tool_loop!, :responses_functions,
+            :responses_call_meta, :plain_ruby, :responses_output_text
 
     # Params that only OpenAI's Responses endpoint accepts. When a model
     # declared `endpoint: responses` but the request is routed through
@@ -1002,6 +1159,23 @@ module LlmRbFacade
         next unless fn.respond_to?(:arguments) && fn.respond_to?(:arguments=)
 
         raw = fn.arguments
+
+        # The Responses adapter parses each call's arguments for us and wraps
+        # the result in an LLM::Object (adapt_tool -> LLM.json.load ->
+        # Message#tool_calls -> LLM::Object.from). Flatten it to plain Ruby,
+        # because a nested LLM::Object is not safe to JSON-encode (see
+        # `plain_ruby`) and one reaches the MCP client verbatim.
+        #
+        # Top-level keys must be symbols. `Function#call` splats these into
+        # the runner, and `**` on a Hash with string keys is a TypeError —
+        # the only reason the untouched LLM::Object works is that its
+        # #to_hash symbolizes. Symbolizing just the top level reproduces that
+        # exactly, so this stays a pure improvement over doing nothing.
+        if LLM::Object === raw
+          fn.arguments = plain_ruby(raw).transform_keys(&:to_sym)
+          next
+        end
+
         next unless raw.is_a?(String)
 
         parsed = begin

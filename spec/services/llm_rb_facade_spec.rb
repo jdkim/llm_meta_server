@@ -495,17 +495,16 @@ RSpec.describe LlmRbFacade do
       end
     end
 
-    it "system-only messages with tools present still falls back to chat completions" do
-      allow(session).to receive(:chat).and_return(response)
-      allow(session).to receive(:functions).and_return([])
-      allow(session).to receive(:extract_tool_calls).and_return([])
+    it "system-only messages with tools present stays on the Responses API" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok", choices: [ nil ]))
 
       described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
                               endpoint: "responses",
                               tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ],
                               messages: [ { role: "system", content: "Respond with the body only." } ])
 
-      expect(responses_ns).not_to have_received(:create) if responses_ns.respond_to?(:create)
+      expect(responses_ns).to have_received(:create)
+      expect(LLM::Session).not_to have_received(:new)
     end
 
     # History used to force the chat-completions fallback. With
@@ -555,9 +554,13 @@ RSpec.describe LlmRbFacade do
       end
     end
 
-    it "still falls back to chat completions when tools are present, history or not" do
-      allow(session).to receive(:functions).and_return([])
-      allow(session).to receive(:extract_tool_calls).and_return([])
+    # The reverse of what this spec used to assert. Bouncing a tool request to
+    # chat completions is exactly what OpenAI refuses for a reasoning model:
+    # "Function tools with reasoning_effort are not supported for
+    # gpt-5.6-terra in /v1/chat/completions." Tools stay here, with `reasoning`
+    # intact — the Responses API is the endpoint that accepts it.
+    it "keeps tools on the Responses API, with history and reasoning intact" do
+      allow(responses_ns).to receive(:create).and_return(instance_double("R", output_text: "ok", choices: [ nil ]))
 
       described_class.stream!("gpt-5", "with tools", sink: sink, llm_api_key: openai_key,
                               endpoint: "responses",
@@ -565,13 +568,12 @@ RSpec.describe LlmRbFacade do
                               tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ],
                               messages: [ { role: "user", content: "prior" }, { role: "assistant", content: "prior-a" } ])
 
-      # Chat completions path used, and `reasoning` stripped so it doesn't 400.
-      expect(LLM::Session).to have_received(:new).with(openai_client, hash_not_including(:reasoning))
-      expect(LLM::Session).to have_received(:new).with(openai_client, hash_including(temperature: 0.4))
-      expect(responses_ns).not_to have_received(:create) if responses_ns.respond_to?(:create)
-      # And the historical messages still reach the session buffer.
-      expect(messages_buf).to have_received(:concat) do |msgs|
-        expect(msgs.length).to eq(2)
+      expect(LLM::Session).not_to have_received(:new)
+      expect(responses_ns).to have_received(:create) do |_prompt, params|
+        expect(params[:tools].map { |t| t["name"] }).to eq([ "t" ])
+        expect(params[:reasoning]).to eq({ effort: "medium" })
+        expect(params[:temperature]).to eq(0.4)
+        expect(params[:input].map(&:role)).to eq(%w[user assistant])
       end
     end
   end
@@ -1148,6 +1150,204 @@ RSpec.describe LlmRbFacade do
       out = described_class.send(:zip_tool_calls_with_results, call_meta, results)
       expect(out.first).to include(id: "x", name: "list", arguments: { q: "anatomy" })
       expect(out.first[:result]).to eq("found 3")
+    end
+  end
+  # Function tools on OpenAI's /v1/responses. Before this, any request with
+  # tools was bounced to chat completions, where OpenAI refuses function tools
+  # for a reasoning model:
+  #
+  #   Function tools with reasoning_effort are not supported for gpt-5.6-terra
+  #   in /v1/chat/completions. To use function tools, use /v1/responses [...]
+  #
+  # which made MCP tools unusable on the GPT-5 family in production.
+  describe "Responses API function tools" do
+    let(:openai_key) {
+      user = User.create!(email: "rtools@example.com", google_id: "g-rtools")
+      user.llm_api_keys.create!(llm_type: "openai", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "sk-oai"))
+    }
+    let(:openai_client) { double("LLM::OpenAI") }
+    let(:responses_ns)  { double("Responses") }
+    let(:sink) {
+      Class.new do
+        attr_reader :out
+        def initialize = @out = +""
+        def <<(chunk) = tap { @out << chunk.to_s }
+      end.new
+    }
+
+    # A tool whose runner echoes its arguments back, so a spec can assert what
+    # actually reached it.
+    let(:tool) {
+      LLM::Function.new("lookup") do |fn|
+        fn.description "look something up"
+        fn.define ->(**args) { { "content" => [ { "text" => "found #{args[:q]}" } ] } }
+      end
+    }
+
+    before do
+      allow_any_instance_of(ApiKeyEncrypter).to receive(:encrypt).and_return("ENC")
+      allow_any_instance_of(ApiKeyDecrypter).to receive(:decrypt).and_return("sk-oai")
+
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+      allow(LLM).to receive(:openai).and_return(openai_client)
+      allow(openai_client).to receive_message_chain(:class, :name).and_return("LLM::OpenAI")
+      allow(openai_client).to receive(:server_tools).and_return({})
+      allow(openai_client).to receive(:responses).and_return(responses_ns)
+      allow(LLM::Session).to receive(:new)
+    end
+
+    # A pending call the way the Responses adapter hands one over: a dup of the
+    # registered tool carrying the call id, with arguments already parsed and
+    # wrapped in an LLM::Object (adapt_tool -> Message#tool_calls).
+    # Keys are strings because that is what LLM.json.load hands the adapter.
+    def pending_call(id:, arguments:)
+      tool.dup.tap do |fn|
+        fn.id = id
+        fn.arguments = LLM::Object.from(arguments.deep_stringify_keys)
+      end
+    end
+
+    def responses_response(id:, functions: [], text: "")
+      instance_double("R", response_id: id, output_text: text,
+                           choices: [ double("Message", functions: functions) ])
+    end
+
+    # Each element of `rounds` is returned by successive calls to
+    # responses.create; the block records what each call was given.
+    def stub_rounds(*rounds)
+      seen = []
+      allow(responses_ns).to receive(:create) do |prompt, params|
+        seen << [ prompt, params ]
+        rounds[seen.length - 1] || rounds.last
+      end
+      seen
+    end
+
+    def run!(tools: [ tool ], messages: nil, **kwargs)
+      described_class.stream!("gpt-5", "hi", sink: sink, llm_api_key: openai_key,
+                              endpoint: "responses", tools: tools, messages: messages, **kwargs)
+    end
+
+    it "runs the tool and feeds the result back on the next round" do
+      seen = stub_rounds(responses_response(id: "resp_1", functions: [ pending_call(id: "call_1", arguments: { q: "x" }) ]),
+                         responses_response(id: "resp_2", text: "done"))
+
+      expect(run!).to eq("done")
+      expect(seen.length).to eq(2)
+
+      returns = seen[1][0]
+      expect(returns.map(&:class).uniq).to eq([ LLM::Function::Return ])
+      expect(returns.map(&:id)).to eq([ "call_1" ])
+      expect(returns.map(&:value)).to eq([ { "content" => [ { "text" => "found x" } ] } ])
+    end
+
+    # Conversation state rides on previous_response_id rather than a replayed
+    # message array, so a tool round must upload only the new results.
+    it "chains rounds with previous_response_id and does not resend input" do
+      seen = stub_rounds(responses_response(id: "resp_1", functions: [ pending_call(id: "c1", arguments: { q: "x" }) ]),
+                         responses_response(id: "resp_2", text: "done"))
+
+      run!(messages: [ { role: "user", content: "prior" } ])
+
+      expect(seen[0][1]).not_to have_key(:previous_response_id)
+      expect(seen[0][1][:input].map(&:role)).to eq([ "user" ])
+      expect(seen[1][1][:previous_response_id]).to eq("resp_1")
+      expect(seen[1][1]).not_to have_key(:input)
+    end
+
+    # The Responses API deliberately does not inherit `instructions` across a
+    # previous_response_id chain, so dropping it after round 1 would silently
+    # lose the system prompt mid-turn.
+    it "re-sends instructions and tools on every round" do
+      seen = stub_rounds(responses_response(id: "resp_1", functions: [ pending_call(id: "c1", arguments: { q: "x" }) ]),
+                         responses_response(id: "resp_2", text: "done"))
+
+      run!(messages: [ { role: "system", content: "Be terse." } ])
+
+      expect(seen.map { |(_, params)| params[:instructions] }).to eq([ "Be terse.", "Be terse." ])
+      expect(seen.map { |(_, params)| params[:tools] }).to eq([ [ tool ], [ tool ] ])
+    end
+
+    it "reports each call and its result through on_tool_calls" do
+      stub_rounds(responses_response(id: "resp_1", functions: [ pending_call(id: "c1", arguments: { q: "x" }) ]),
+                  responses_response(id: "resp_2", text: "done"))
+      reported = []
+
+      run!(on_tool_calls: ->(calls) { reported.concat(calls) })
+
+      expect(reported.length).to eq(1)
+      expect(reported[0]).to include(id: "c1", name: "lookup", arguments: { "q" => "x" })
+      expect(reported[0][:result]).to eq("found x")
+    end
+
+    # LLM::Object.from is recursive, so a nested argument object stays an
+    # LLM::Object one level in. Ruby's JSON encoder ignores its #to_json for a
+    # nested value and emits [["k","v"]], which is what poisoned a persisted
+    # tool_calls payload once already.
+    it "hands the tool, and the tool_calls event, plain Ruby arguments" do
+      got = nil
+      nested = LLM::Function.new("lookup") do |fn|
+        fn.description "d"
+        fn.define ->(**args) { got = args; "ok" }
+      end
+      call = nested.dup.tap { |fn| fn.id = "c1"; fn.arguments = LLM::Object.from("filter" => { "taxon" => "9606" }) }
+      stub_rounds(responses_response(id: "resp_1", functions: [ call ]),
+                  responses_response(id: "resp_2", text: "done"))
+      reported = []
+
+      run!(tools: [ nested ], on_tool_calls: ->(calls) { reported.concat(calls) })
+
+      expect(got).to eq({ filter: { "taxon" => "9606" } })
+      expect(reported[0][:arguments]).to eq({ "filter" => { "taxon" => "9606" } })
+      expect(reported[0][:arguments].to_json).to eq('{"filter":{"taxon":"9606"}}')
+    end
+
+    it "stops at MAX_TOOL_ITERATIONS and says so" do
+      stub_rounds(responses_response(id: "resp_n", functions: [ pending_call(id: "c1", arguments: { q: "x" }) ]))
+
+      run!
+
+      cap = described_class.singleton_class::MAX_TOOL_ITERATIONS
+      expect(sink.out).to include("stopped after #{cap} tool rounds")
+    end
+
+    # A tool round that ends with nothing written is the failure this notice
+    # exists for; round 1's own output must not suppress it.
+    it "explains a turn that ran tools and then wrote nothing" do
+      stub_rounds(responses_response(id: "resp_1", functions: [ pending_call(id: "c1", arguments: { q: "x" }) ]),
+                  responses_response(id: "resp_2", text: ""))
+
+      run!
+
+      expect(sink.out).to include("ended its turn without writing an answer")
+    end
+
+    it "stays quiet when the model did answer after its tool round" do
+      rounds = [ responses_response(id: "resp_1", functions: [ pending_call(id: "c1", arguments: { q: "x" }) ]),
+                 responses_response(id: "resp_2", text: "the answer") ]
+      n = 0
+      allow(responses_ns).to receive(:create) do |_prompt, params|
+        n += 1
+        # The real stream parser writes content deltas through the sink; the
+        # notice logic reads the sink, so a spec must do the same.
+        params[:stream] << "the answer" if n == 2
+        rounds[n - 1]
+      end
+
+      run!
+
+      expect(sink.out).to eq("the answer")
+    end
+
+    # No tools means no loop: the single-round path must behave exactly as it
+    # did before, returning output_text without touching choices.
+    it "skips the loop entirely when no tools were requested" do
+      seen = stub_rounds(instance_double("R", output_text: "plain"))
+
+      expect(run!(tools: [])).to eq("plain")
+      expect(seen.length).to eq(1)
+      expect(seen[0][1]).not_to have_key(:tools)
     end
   end
 end
