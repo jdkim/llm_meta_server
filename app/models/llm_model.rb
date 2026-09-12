@@ -29,6 +29,20 @@ class LlmModel < ApplicationRecord
   # reversible and the favourite should survive it. Only destruction does.
   after_destroy :purge_from_user_preferences
 
+  # Retiring a model strands it in every user's favourites just as deleting it
+  # does. build_catalog filters on `active`, so the stale meta_id matches
+  # nothing, renders nothing, and the user's quick-pick row silently shrinks
+  # with no explanation — the same blind spot llm_meta_chat documents for its
+  # system default in config/initializers/llm_service.rb.
+  #
+  # This used to be deliberate: hiding was treated as reversible, so
+  # preferences were kept in case the model came back. In practice retirement
+  # is one-way (the 2026-09-05 qwen3-6-35b retirement left a favourite that
+  # had done nothing for a week), and a preference that silently does nothing
+  # is worse than one that is cleanly gone. The cost is that re-activating a
+  # model no longer restores anyone's favourite; they re-favourite it.
+  after_update :purge_from_user_preferences, if: :just_retired?
+
   scope :active, -> { where(active: true) }
   scope :ordered, -> { order(:position, :id) }
 
@@ -57,6 +71,37 @@ class LlmModel < ApplicationRecord
       # update! rather than update_columns: the column is JSON-serialized, so
       # it has to go through the attribute coder to be written correctly.
       user.update!(favorite_model_meta_ids: favourites - [ name ])
+      touched += 1
+    end
+
+    touched
+  end
+
+  # True only on the active → inactive transition, so re-activating or any
+  # unrelated edit (pricing, position) never purges.
+  def just_retired?
+    saved_change_to_active? && !active?
+  end
+
+  # Removes preferences pointing at models the catalog no longer serves —
+  # anything hidden or absent. Covers the backlog left by retirements that
+  # happened before `just_retired?` existed, and is safe to re-run.
+  def self.prune_stale_user_preferences
+    live = active.pluck(:name)
+    touched = 0
+
+    User.find_each do |user|
+      stale = user.favorite_model_meta_ids - live
+      next if stale.empty?
+
+      user.update!(favorite_model_meta_ids: user.favorite_model_meta_ids - stale)
+      touched += 1
+    end
+
+    User.where.not(default_model_meta_id: nil).find_each do |user|
+      next if live.include?(user.default_model_meta_id)
+
+      user.update_columns(default_model_meta_id: nil)
       touched += 1
     end
 

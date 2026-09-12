@@ -171,4 +171,10 @@ namespace :models do
     warn "error: #{e.message}"
     exit 1
   end
+
+  desc "Remove favourites/defaults pointing at models the catalog no longer serves (hidden or deleted). Idempotent."
+  task prune_stale_preferences: :environment do
+    touched = LlmModel.prune_stale_user_preferences
+    puts "models:prune_stale_preferences — #{touched} preference(s) pruned"
+  end
 end
