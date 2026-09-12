@@ -86,6 +86,15 @@ RSpec.describe LLM::Ollama::StreamParser do
       expect(parser.body["message"]["tool_calls"]).to eq([ call_a, call_b ])
     end
 
+    it "accumulates onto a tool_call that was already in the first chunk" do
+      # The first chunk is stored wholesale, so this is the one path where the
+      # concat starts from a non-empty list rather than from nil.
+      parser.parse!({ "message" => { "content" => "", "tool_calls" => [ call_a ] }, "done" => false })
+      parser.parse!({ "message" => { "content" => "then", "tool_calls" => [ call_b ] }, "done" => true })
+
+      expect(parser.body["message"]["tool_calls"]).to eq([ call_a, call_b ])
+    end
+
     it "leaves the key absent when the model called nothing" do
       parser.parse!({ "message" => { "content" => "just an answer" }, "done" => true })
 
