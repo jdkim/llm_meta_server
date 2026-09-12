@@ -49,12 +49,86 @@ RSpec.describe LlmModel, "user-preference cleanup on destroy" do
     expect(user.reload.default_model_meta_id).to eq("keeper-1")
   end
 
-  it "does NOT purge when the model is merely hidden — hiding is reversible" do
+  # Reversed 2026-09-12. Hiding used to preserve preferences on the theory
+  # that it was reversible, but retirement is one-way in practice and a
+  # favourite pointing at a hidden model silently renders nothing — the user
+  # just sees a shorter picker with no explanation. The trade-off accepted
+  # here is that re-activating a model no longer restores anyone's favourite.
+  it "purges when the model is retired, not only when it is deleted" do
     user
 
     model.update!(active: false)
 
+    expect(user.reload.favorite_model_meta_ids).to eq([ "keeper-1", "keeper-2" ])
+  end
+
+  it "does not purge on an unrelated edit" do
+    user
+
+    model.update!(position: 42)
+
     expect(user.reload.favorite_model_meta_ids).to include("doomed-1")
+  end
+
+  # Closes a surviving mutant: a guard of `!active?` alone (without the
+  # transition check) would re-purge every time an already-hidden model is
+  # edited at all, so the hook has to fire on the change, not on the state.
+  it "does not purge again when an already-retired model is edited" do
+    model.update!(active: false)
+    later = User.create!(email: "again@example.com", google_id: "g-again",
+                         favorite_model_meta_ids: [ "doomed-1" ])
+
+    model.update!(notes: "retired, kept for the record")
+
+    expect(later.reload.favorite_model_meta_ids).to eq([ "doomed-1" ])
+  end
+
+  it "does not purge when a hidden model is brought back" do
+    model.update!(active: false)
+    other = User.create!(email: "later@example.com", google_id: "g-later",
+                         favorite_model_meta_ids: [ "doomed-1" ])
+
+    model.update!(active: true)
+
+    expect(other.reload.favorite_model_meta_ids).to eq([ "doomed-1" ])
+  end
+
+  describe ".prune_stale_user_preferences (backlog cleanup)" do
+    it "clears references to models that were retired before the hook existed" do
+      model.update_columns(active: false) # bypasses the callback, as history did
+      user
+
+      expect(described_class.prune_stale_user_preferences).to eq(1)
+      expect(user.reload.favorite_model_meta_ids).to eq([])
+    end
+
+    it "keeps references to models that are still served" do
+      live = llm.llm_models.create!(name: "keeper-1", api_id: "keeper.1",
+                                    display_name: "Keeper One",
+                                    pricing: { "input" => 1.0, "output" => 2.0 })
+      user.update!(favorite_model_meta_ids: [ live.name ])
+
+      described_class.prune_stale_user_preferences
+
+      expect(user.reload.favorite_model_meta_ids).to eq([ "keeper-1" ])
+    end
+
+    it "clears a default pointing at a retired model" do
+      model.update_columns(active: false)
+      user.update!(default_model_meta_id: "doomed-1")
+
+      described_class.prune_stale_user_preferences
+
+      expect(user.reload.default_model_meta_id).to be_nil
+    end
+
+    it "is idempotent" do
+      model.update_columns(active: false)
+      user
+
+      described_class.prune_stale_user_preferences
+      expect(described_class.prune_stale_user_preferences).to eq(0)
+    end
   end
 
   it "reports how many users it touched" do
