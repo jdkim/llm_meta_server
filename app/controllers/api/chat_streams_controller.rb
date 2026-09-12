@@ -83,6 +83,19 @@ class Api::ChatStreamsController < ApiController
     sink.event("done")
   rescue ActionController::Live::ClientDisconnected
     Rails.logger.info "[ChatStreams] client disconnected mid-stream"
+  rescue LLM::UnauthorizedError => e
+    # The provider rejected our stored API key — a key revoked, rotated or
+    # having its model access withdrawn mid-session is routine, not exotic.
+    # llm.rb raises a bare "Authentication error" that names neither the
+    # provider nor which credential failed, and it was falling through to the
+    # generic rescue as "internal_error". That reads as a bug in the service,
+    # and — worse — as the user's own sign-in having lapsed, which is a
+    # different failure with a different fix.
+    Rails.logger.warn "[ChatStreams] provider rejected the API key: #{e.class}: #{e.message}"
+    safe_emit_error(sink, "provider_unauthorized",
+                    "#{(llm_api_key&.llm_type || 'The provider').to_s.capitalize} rejected the stored API key " \
+                    "for #{model_name.presence || 'this model'}. This is the provider key registered on the hub, " \
+                    "not your sign-in — check the key is still valid and still has access to this model.")
   rescue LLM::RateLimitError => e
     safe_emit_error(sink, "rate_limit", e.message)
   rescue LlmApiKeyRequiredError => e

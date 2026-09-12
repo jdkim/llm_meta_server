@@ -4,6 +4,7 @@ class Api::ChatsController < ApiController
   wrap_parameters false
 
   # Google ID Token authentication required
+  rescue_from LLM::UnauthorizedError, with: :provider_unauthorized_error
   rescue_from LLM::RateLimitError, with: :rate_limit_error
   rescue_from LlmApiKeyRequiredError, with: :api_key_required_error
   rescue_from ArgumentError, with: :argument_error
@@ -56,6 +57,18 @@ class Api::ChatsController < ApiController
   # 403, not 404: the model exists — this request just had no provider key
   # resolved for its family, which is an authorization state, not a missing
   # resource.
+  # 502, not 401: the caller authenticated with us correctly — it is our
+  # upstream credential the provider refused. A 401 here would tell the user
+  # to sign in again, which fixes nothing.
+  def provider_unauthorized_error(exception)
+    Rails.logger.warn "[Chats] provider rejected the API key: #{exception.message}"
+    render json: { error: "Provider rejected the API key",
+                   message: "The provider rejected the stored API key. This is the provider key " \
+                            "registered on the hub, not your sign-in — check the key is still valid " \
+                            "and still has access to this model." },
+           status: :bad_gateway
+  end
+
   def model_unavailable_error(exception)
     render json: { error: "Model unavailable for this session", message: exception.message },
            status: :forbidden

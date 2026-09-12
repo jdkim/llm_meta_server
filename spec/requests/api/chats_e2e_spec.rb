@@ -307,4 +307,44 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
       }
     end
   end
+
+  # A provider revoking a key, rotating it, or withdrawing model access
+  # mid-session is routine. llm.rb raises a bare "Authentication error" that
+  # names neither the provider nor which credential, and it used to fall
+  # through to the generic rescue — surfacing as "internal_error" over SSE and
+  # a 500 over JSON. Both read as a bug in the service, and both invite the
+  # user to re-sign-in, which fixes nothing.
+  describe "the provider rejects our API key" do
+    let!(:anthropic_key) do
+      user.llm_api_keys.create!(llm_type: "anthropic", description: "personal",
+                                encryptable_api_key: EncryptableApiKey.new(plain_api_key: "a-key"))
+    end
+
+    before do
+      stub_request(:post, "https://api.anthropic.com/v1/messages")
+        .to_return(status: 401, body: { error: { message: "invalid x-api-key" } }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+    end
+
+    it "answers 502 and blames the provider key, not the caller's sign-in" do
+      meta = LlmModelMap.catalog.fetch("anthropic").keys.first
+
+      post "/api/llm_api_keys/#{anthropic_key.uuid}/models/#{meta}/chats",
+           params: { prompt: "hi" }, headers: auth_headers
+
+      expect(response).to have_http_status(:bad_gateway)
+      body = JSON.parse(response.body)
+      expect(body["error"]).to eq("Provider rejected the API key")
+      expect(body["message"]).to match(/provider key registered on the hub, not your sign-in/)
+    end
+
+    it "does not report it as an internal error" do
+      meta = LlmModelMap.catalog.fetch("anthropic").keys.first
+
+      post "/api/llm_api_keys/#{anthropic_key.uuid}/models/#{meta}/chats",
+           params: { prompt: "hi" }, headers: auth_headers
+
+      expect(response).not_to have_http_status(:internal_server_error)
+    end
+  end
 end
