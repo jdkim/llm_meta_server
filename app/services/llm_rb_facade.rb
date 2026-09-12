@@ -185,8 +185,45 @@ module LlmRbFacade
     # sink.thinking and do not count — a turn that streamed only reasoning is
     # exactly the case this exists to catch. Prefers the sink's own byte count
     # (what the user actually received) over the response body.
-    def streamed_no_content?(sink, response)
-      return sink.content_bytes.zero? if sink.respond_to?(:content_bytes)
+    # Why the provider stopped generating. Every provider names it
+    # differently and none of them is on every response, so try the known
+    # shapes and return nil rather than guess. Anthropic's "max_tokens" is the
+    # one that matters: a turn cut off mid-flight is indistinguishable from a
+    # turn that chose to stop, and that ambiguity cost a diagnosis on
+    # 2026-09-13 — nine tool rounds of real research ending with no answer and
+    # no way to tell which it was.
+    def stop_reason_for(response)
+      body = response.respond_to?(:body) ? response.body : nil
+
+      if body
+        return body.stop_reason if reason?(body, :stop_reason)                    # anthropic
+        return body.choices.first.finish_reason if nested?(body, :choices, :finish_reason)  # openai
+        return body.candidates.first.finishReason if nested?(body, :candidates, :finishReason) # gemini
+      end
+
+      response.respond_to?(:done_reason) ? response.done_reason : nil             # ollama
+    rescue StandardError => e
+      Rails.logger.debug { "[LlmRbFacade] stop_reason unavailable: #{e.class}" }
+      nil
+    end
+
+    def reason?(obj, field)
+      obj.respond_to?(field) && obj.public_send(field).present?
+    end
+
+    def nested?(body, collection, field)
+      return false unless body.respond_to?(collection)
+
+      first = Array(body.public_send(collection)).first
+      !first.nil? && reason?(first, field)
+    end
+
+    # `since` is the sink's byte count before the tool loop began. Turn 1's
+    # content is emitted up front now, so "wrote nothing" must mean "wrote
+    # nothing *after* turn 1" — otherwise a preamble would suppress the notice
+    # even when no answer ever arrived.
+    def streamed_no_content?(sink, response, since: 0)
+      return sink.content_bytes <= since if sink.respond_to?(:content_bytes)
 
       response.choices[-1]&.content.to_s.strip.empty?
     end
@@ -798,7 +835,19 @@ module LlmRbFacade
       warn_context_pressure(model_id, window, response, sink)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
       Rails.logger.info "[LlmRbFacade] turn=1 functions.any?=#{session.functions.any?} " \
-                        "content_len=#{response.choices[-1]&.content.to_s.length}"
+                        "content_len=#{response.choices[-1]&.content.to_s.length} " \
+                        "stop=#{stop_reason_for(response).inspect}"
+
+      # Turn 1 is deliberately non-streamed, so nothing it writes reaches the
+      # sink on its own. Emitting it only in the `iterations.zero?` branch
+      # below meant the model's opening text was discarded the moment a tool
+      # ran — 66 characters lost in production on 2026-09-13, after which the
+      # user was told the model had written nothing. Emit it here instead, and
+      # remember how much had been written so "wrote nothing" can still mean
+      # "wrote nothing after turn 1".
+      turn1_text = response.choices[-1]&.content.to_s
+      sink << turn1_text if turn1_text.present?
+      content_before_tools = sink.respond_to?(:content_bytes) ? sink.content_bytes : 0
 
       iterations = 0
       while session.functions.any? && iterations < MAX_TOOL_ITERATIONS
@@ -830,18 +879,19 @@ module LlmRbFacade
         iterations += 1
         Rails.logger.info "[LlmRbFacade] tool_iter=#{iterations} " \
                           "functions.any?=#{session.functions.any?} " \
-                          "content_len=#{response.choices[-1]&.content.to_s.length}"
+                          "content_len=#{response.choices[-1]&.content.to_s.length} " \
+                          "stop=#{stop_reason_for(response).inspect}"
       end
 
       if iterations.zero?
-        # Turn 1 had no tool calls — emit its content as one chunk.
-        text = response.choices[-1]&.content || ""
-        text.empty? ? sink << EMPTY_ANSWER_NOTICE : sink << text
+        # Turn 1's content was already emitted above; only the empty case is
+        # left to explain.
+        sink << EMPTY_ANSWER_NOTICE if turn1_text.blank?
       elsif session.functions.any?
         # Cap hit while the model still wanted to call more tools. Tell the
         # user instead of leaving the bubble silently empty.
         sink << "\n\n_(stopped after #{MAX_TOOL_ITERATIONS} tool rounds without a final answer)_"
-      elsif streamed_no_content?(sink, response)
+      elsif streamed_no_content?(sink, response, since: content_before_tools)
         # The loop finished cleanly and the model still wrote nothing. A
         # thinking model can end its turn this way: qwen3.8 read a tool's
         # usage guide, spent 2,255 characters reasoning about it, then

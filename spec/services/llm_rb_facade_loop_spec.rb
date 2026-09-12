@@ -152,7 +152,6 @@ RSpec.describe LlmRbFacade do
         allow(tool).to receive(:call).and_return(huge)
         turn1 = instance_double("Response", choices: [ instance_double("Choice", content: "") ],
                                             body: nil, prompt_eval_count: 20_000)
-        allow(turn1).to receive(:respond_to?).with(:prompt_eval_count).and_return(true)
         allow(session).to receive(:chat).and_return(turn1)
         allow(session).to receive(:functions).and_return([ tool ])
 
@@ -586,5 +585,92 @@ RSpec.describe LlmRbFacade, "tool argument normalisation" do
     described_class.send(:normalize_tool_arguments!, [ a, b ])
 
     expect([ a.arguments, b.arguments ]).to eq([ { "x" => 1 }, { "y" => 2 } ])
+  end
+end
+
+# Turn 1 runs non-streamed, so nothing it writes reaches the sink by itself.
+# Its content used to be emitted only when NO tool ran, so the moment the loop
+# started the model's opening text was discarded — 66 characters lost in
+# production 2026-09-13, after which the user was told it had written nothing.
+RSpec.describe LlmRbFacade, "turn 1 content and stop reasons" do
+  let(:llm_client) { instance_double("LLM::Provider") }
+  let(:session)    { instance_double("LLM::Session") }
+  let(:sink) { Class.new { def <<(x); (@b ||= +"") << x.to_s; self; end; def buf = (@b || ""); def thinking(_d) = nil }.new }
+  let(:tool) { double("Function", call: double("Return", value: { "ok" => true }, name: "t")) }
+
+  before do
+    allow(LlmModelMap).to receive(:ollama_model?).and_return(true)
+    allow(LLM).to receive(:ollama).and_return(llm_client)
+    allow(llm_client).to receive_message_chain(:class, :name).and_return("LLM::Ollama")
+    allow(LLM::Session).to receive(:new).and_return(session)
+    allow(session).to receive(:extract_tool_calls).and_return([])
+  end
+
+  def run(tools: [ { "name" => "t", "description" => "d", "inputSchema" => {} } ])
+    described_class.stream!("qwen3.8:27b", "hi", sink: sink, llm_api_key: nil, tools: tools)
+  end
+
+  it "emits turn 1's content even when the tool loop runs" do
+    turn1 = double("Response", choices: [ double("Choice", content: "I'll look that up.") ], body: nil)
+    final = double("Response", choices: [ double("Choice", content: "the answer") ], body: nil)
+    calls = 0
+    # Streamed rounds write through the sink, as llm.rb does; turn 1 does not.
+    allow(session).to receive(:chat) do |_, **kw|
+      calls += 1
+      kw[:stream] << "the answer" if calls > 1 && kw[:stream].respond_to?(:<<)
+      calls == 1 ? turn1 : final
+    end
+    allow(session).to receive(:functions) { calls < 2 ? [ tool ] : [] }
+
+    run
+
+    expect(sink.buf).to include("I'll look that up."), "turn 1's preamble must not be discarded"
+    expect(sink.buf).to include("the answer")
+  end
+
+  it "still reports an empty answer when nothing was written after turn 1" do
+    turn1 = double("Response", choices: [ double("Choice", content: "I'll look that up.") ], body: nil)
+    final = double("Response", choices: [ double("Choice", content: "") ], body: nil)
+    calls = 0
+    allow(session).to receive(:chat) { calls += 1; calls == 1 ? turn1 : final }
+    allow(session).to receive(:functions) { calls < 2 ? [ tool ] : [] }
+
+    run
+
+    expect(sink.buf).to include("I'll look that up.")
+    expect(sink.buf).to include("ended its turn without writing an answer"),
+                        "a preamble is not an answer — the notice must still fire"
+  end
+
+  it "does not emit turn 1's content twice when no tool ran" do
+    only = double("Response", choices: [ double("Choice", content: "just an answer") ], body: nil)
+    allow(session).to receive(:chat).and_return(only)
+    allow(session).to receive(:functions).and_return([])
+
+    run
+
+    expect(sink.buf.scan("just an answer").size).to eq(1)
+  end
+
+  describe ".stop_reason_for" do
+    it "reads Anthropic's stop_reason" do
+      r = double("Response", body: double("Body", stop_reason: "max_tokens"))
+      expect(described_class.send(:stop_reason_for, r)).to eq("max_tokens")
+    end
+
+    it "reads OpenAI's finish_reason" do
+      r = double("Response", body: double("Body", choices: [ double("C", finish_reason: "length") ]))
+      expect(described_class.send(:stop_reason_for, r)).to eq("length")
+    end
+
+    it "reads Ollama's done_reason" do
+      r = double("Response", body: nil, done_reason: "stop")
+      expect(described_class.send(:stop_reason_for, r)).to eq("stop")
+    end
+
+    it "returns nil rather than guessing when the provider reports none" do
+      r = double("Response", body: nil)
+      expect(described_class.send(:stop_reason_for, r)).to be_nil
+    end
   end
 end
