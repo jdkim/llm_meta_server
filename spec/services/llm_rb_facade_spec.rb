@@ -170,6 +170,48 @@ RSpec.describe LlmRbFacade do
     end
   end
 
+  # A flat 300s read ceiling contradicted LOCAL_TURN_BUDGET_SECONDS = 900:
+  # local turns were nominally allowed 900s but the socket gave up at 300, so
+  # the budget never fired and real multi-database research turns (measured
+  # 289-686s) died as upstream timeouts. Local now matches its budget; hosted
+  # stays tight, where a stall is a provider fault rather than slow inference.
+  describe "#provider_read_timeout_for (private)" do
+    it "gives a local model the same headroom as its wall-clock budget" do
+      allow(LlmModelMap).to receive(:ollama_model?).with("qwen3.8:27b").and_return(true)
+
+      expect(described_class.send(:provider_read_timeout_for, "qwen3.8:27b"))
+        .to eq(described_class.singleton_class::LOCAL_TURN_BUDGET_SECONDS)
+    end
+
+    it "keeps a hosted model on the tighter ceiling" do
+      allow(LlmModelMap).to receive(:ollama_model?).with("gpt-5").and_return(false)
+
+      expect(described_class.send(:provider_read_timeout_for, "gpt-5"))
+        .to eq(described_class.singleton_class::PROVIDER_READ_TIMEOUT_SECONDS)
+    end
+
+    it "is longer for local models than for hosted ones" do
+      expect(described_class.singleton_class::LOCAL_PROVIDER_READ_TIMEOUT_SECONDS)
+        .to be > described_class.singleton_class::PROVIDER_READ_TIMEOUT_SECONDS
+    end
+
+    it "passes the local ceiling to the Ollama client" do
+      expect(described_class.send(:ollama_options))
+        .to include(timeout: described_class.singleton_class::LOCAL_PROVIDER_READ_TIMEOUT_SECONDS)
+    end
+
+    it "passes the hosted ceiling to a hosted client" do
+      allow(LlmModelMap).to receive(:ollama_model?).with("gpt-5").and_return(false)
+      key = double("LlmApiKey", llm_rb_method: :openai,
+                   encryptable_api_key: double(plain_api_key: "sk-test"))
+      expect(LLM).to receive(:openai)
+        .with(hash_including(timeout: described_class.singleton_class::PROVIDER_READ_TIMEOUT_SECONDS))
+        .and_return(double("client"))
+
+      described_class.send(:create_llm_client, key, "gpt-5")
+    end
+  end
+
   describe "#native_server_tools (private)" do
     let(:google_search_tool) { double("google_search") }
     let(:url_context_tool)   { double("url_context") }
