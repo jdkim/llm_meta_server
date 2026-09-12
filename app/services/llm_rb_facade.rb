@@ -692,6 +692,7 @@ module LlmRbFacade
 
       # If LLM requested tool calls, execute them and send results back
       if session.functions.any?
+        normalize_tool_arguments!(session.functions)
         tool_results = session.functions.map(&:call)
         guard_context!(model_id, window, response, tool_results)
         estimated += tool_results.sum { |r| estimate_tokens(r.to_s) }
@@ -805,6 +806,7 @@ module LlmRbFacade
         # walks the assistant messages that will still be there after execution,
         # but capturing now keeps the pairing with tool_results 1:1 obvious.
         tool_call_meta = session.extract_tool_calls
+        normalize_tool_arguments!(session.functions)
         tool_results   = session.functions.map(&:call)
         emit_tool_errors_to_sink(tool_results, sink)
         # Fire on_tool_calls AFTER execution with results attached, so the
@@ -932,6 +934,40 @@ module LlmRbFacade
     # Session#talk pushes a nil into the messages buffer. Reconstruct the
     # missing assistant message from response.body.content so session.functions
     # / session.extract_tool_calls work uniformly with OpenAI's flow.
+    # Tool arguments must be a Hash — llm.rb calls `runner.call(**arguments)`.
+    #
+    # Anthropic streams them as `input_json_delta` fragments that the stream
+    # parser accumulates into a JSON string and parses at `content_block_stop`.
+    # If that event never arrives, the string survives to the call site and
+    # `**` raises "no implicit conversion of String into Hash" — an error that
+    # names neither the tool nor the reason. Seen in production 2026-09-12 on
+    # claude-fable-5-1, after four tool rounds had already succeeded.
+    #
+    # A complete fragment string still parses, so recover where we can and
+    # name the tool where we cannot.
+    def normalize_tool_arguments!(functions)
+      Array(functions).each do |fn|
+        # Native server tools (Gemini grounding, Anthropic web_search) are
+        # provider-side and carry no arguments of ours to normalise.
+        next unless fn.respond_to?(:arguments) && fn.respond_to?(:arguments=)
+
+        raw = fn.arguments
+        next unless raw.is_a?(String)
+
+        parsed = begin
+          JSON.parse(raw)
+        rescue JSON::ParserError
+          nil
+        end
+
+        raise TruncatedToolCallError, fn.name unless parsed.is_a?(Hash)
+
+        Rails.logger.warn "[LlmRbFacade] tool #{fn.name} arrived with unparsed " \
+                          "string arguments; recovered by parsing"
+        fn.arguments = parsed
+      end
+    end
+
     def rehydrate_anthropic_tool_response!(session, response)
       body = response.body rescue nil
       return unless body.respond_to?(:content)
