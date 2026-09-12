@@ -534,4 +534,57 @@ RSpec.describe LlmRbFacade do
       )
     end
   end
+
+  # Anthropic streams tool inputs as input_json_delta fragments; the stream
+  # parser accumulates them into a JSON string and parses back to a Hash at
+  # content_block_stop. When that event never arrives — a turn cut off
+  # mid-tool-call is the usual way — the string reaches llm.rb's
+  # `runner.call(**arguments)` and Ruby raises "no implicit conversion of String
+  # into Hash", naming neither the tool nor the cause. Production, 2026-09-12,
+  # claude-fable-5-1, after four tool rounds had already succeeded.
+end
+
+RSpec.describe LlmRbFacade, "tool argument normalisation" do
+  def function(name, arguments)
+    Struct.new(:name, :arguments).new(name, arguments)
+  end
+
+  it "parses arguments that arrived as a complete JSON string" do
+    fn = function("run_sparql", '{"query":"SELECT 1"}')
+
+    described_class.send(:normalize_tool_arguments!, [ fn ])
+
+    expect(fn.arguments).to eq({ "query" => "SELECT 1" })
+  end
+
+  it "leaves arguments alone when they are already a Hash" do
+    fn = function("run_sparql", { "query" => "SELECT 1" })
+
+    described_class.send(:normalize_tool_arguments!, [ fn ])
+
+    expect(fn.arguments).to eq({ "query" => "SELECT 1" })
+  end
+
+  it "names the tool when the arguments were cut off mid-JSON" do
+    fn = function("get_MIE_file", '{"database":"che')
+
+    expect { described_class.send(:normalize_tool_arguments!, [ fn ]) }
+      .to raise_error(TruncatedToolCallError, /get_MIE_file was cut off/)
+  end
+
+  it "rejects valid JSON that is not an object, rather than splatting it" do
+    fn = function("lookup", '"just a string"')
+
+    expect { described_class.send(:normalize_tool_arguments!, [ fn ]) }
+      .to raise_error(TruncatedToolCallError, /lookup/)
+  end
+
+  it "normalises every function, not just the first" do
+    a = function("a", '{"x":1}')
+    b = function("b", '{"y":2}')
+
+    described_class.send(:normalize_tool_arguments!, [ a, b ])
+
+    expect([ a.arguments, b.arguments ]).to eq([ { "x" => 1 }, { "y" => 2 } ])
+  end
 end
