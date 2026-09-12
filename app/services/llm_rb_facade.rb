@@ -708,9 +708,27 @@ module LlmRbFacade
     # the bubble empty. Loop until the model emits text or we hit the cap.
     # Bumped from 5 to 10 (2026-07-22): Gemini + broker-aggregated tools
     # regularly need ≥6 rounds to converge (e.g. YouTube-transcript demo:
-    # search → 5 parallel transcripts → synthesis). 10 still bounds runaway
-    # loops; the fallback notice below fires if we hit the cap.
-    MAX_TOOL_ITERATIONS = 10
+    # search → 5 parallel transcripts → synthesis).
+    #
+    # Bumped 10 → 20 (2026-09-12). This is the *only* bound on a model that
+    # chains tool calls while emitting no content: TurnBudgetSink#check! runs
+    # on `<<` and `thinking`, so a round producing nothing but tool calls never
+    # touches the wall-clock budget. It therefore has to stay a count, not a
+    # duration.
+    #
+    # 10 was too tight for real multi-database work. Measured over 12 live
+    # TogoMCP research runs: one completed legitimately at 8 rounds, and one
+    # hit the cap at 10 after 686s with 5 distinct tools and no answer — the
+    # user got "stopped after 10 tool rounds" instead of the research.
+    #
+    # Loosening is safe now in a way it was not before: until #182 the 300s
+    # read ceiling cut local turns long before any budget applied, whereas the
+    # 900s wall-clock budget is now actually reachable and binds any loop that
+    # emits text (the realistic case — the capped run wrote 1,014 chars). That
+    # leaves this cap as a pure backstop for the silent-chaining case, so it
+    # can afford headroom. At the observed ~69s/round, 20 rounds cannot finish
+    # inside the 900s budget anyway.
+    MAX_TOOL_ITERATIONS = Integer(ENV.fetch("LLM_MAX_TOOL_ITERATIONS", 20))
 
     # Ollama's symptom of having trimmed the prompt to fit num_ctx.
     #
