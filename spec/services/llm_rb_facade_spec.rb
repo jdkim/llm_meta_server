@@ -1466,7 +1466,9 @@ RSpec.describe LlmRbFacade do
     context "when the LLM emits tool_calls" do
       it "returns them WITHOUT looping (session.chat called once, no re-entry after tool_calls)" do
         tool_calls = [ { id: "1", name: "add_dictionaries", arguments: { names: [ "uberon" ] } } ]
-        allow(session).to receive(:extract_tool_calls).and_return(tool_calls)
+        # First read is taken after seeding history (none here); the second
+        # after this turn, when the model's new call has joined the session.
+        allow(session).to receive(:extract_tool_calls).and_return([], tool_calls)
 
         result = described_class.single_llm_turn!(
           llm_api_key: api_key, model_id: "gpt-5",

@@ -199,4 +199,37 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
     expect(body).not_to include("event: done")
     expect(WebMock).not_to have_requested(:post, /openai\.com/)
   end
+
+  # Found in end-to-end testing against qwen3.8: the turn after a page action
+  # re-emitted that action as a fresh tool_call. The session is seeded with
+  # the browser's history, and the reported calls came from every assistant
+  # message in it — so a call the browser had already run came back, and the
+  # widget would have run it again (e.g. adding the dictionary twice).
+  it "does not re-emit a tool_call that is already in the history" do
+    stub_request(:post, "https://api.openai.com/v1/chat/completions")
+      .to_return(status: 200,
+                 headers: { "Content-Type" => "text/event-stream" },
+                 body: openai_sse_body([ "Added uberon." ]))
+
+    history = [
+      { role: "user", content: "Add the uberon dictionary." },
+      { role: "assistant", content: "",
+        tool_calls: [ { id: "call_1", name: "add_dictionaries", arguments: { names: [ "uberon" ] } } ] },
+      { role: "tool", tool_call_id: "call_1", name: "add_dictionaries",
+        content: { ok: true }.to_json }
+    ]
+    local_tools = [ { name: "add_dictionaries", description: "Add dictionaries by name.",
+                      input_schema: { type: "object",
+                                      properties: { names: { type: "array", items: { type: "string" } } },
+                                      required: [ "names" ] } } ]
+
+    post "/api/llm_api_keys/#{openai_key.uuid}/models/gpt-5/single_llm_calls",
+         params: { messages: history, local_tools: local_tools }.to_json,
+         headers: auth_headers.merge("Content-Type" => "application/json")
+
+    expect(response).to have_http_status(:ok)
+    expect(text_deltas(response.body).join).to eq("Added uberon.")
+    expect(response.body).not_to include("event: tool_call"),
+      "the history's call must not come back as a new one"
+  end
 end

@@ -393,6 +393,11 @@ module LlmRbFacade
 
       session = LLM::Session.new(llm, model: model_id, tools: tools, **generation_params)
       seed_session_messages!(session, history_msgs) if history_msgs.any?
+      # Calls already present in the seeded history — the browser has run
+      # them. extract_tool_calls walks every assistant message in the session
+      # (in order, oldest first), so without this the next turn reported them
+      # again as new calls and the widget dispatched each page action twice.
+      calls_in_history = session.extract_tool_calls.length
 
       input = messages_to_session_input(input_msgs)
 
@@ -402,7 +407,7 @@ module LlmRbFacade
 
       {
         content: response.choices[-1]&.content || "",
-        tool_calls: session.extract_tool_calls,
+        tool_calls: session.extract_tool_calls.drop(calls_in_history),
         finish_reason: extract_finish_reason(response)
       }
     end
