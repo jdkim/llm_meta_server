@@ -8,7 +8,11 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
     # widget flow). Add new widget-embedding origins here as they land.
     origins "http://localhost:3001",
             "http://127.0.0.1:3001",
-            "https://test2.pubannotation.org",   # PubDictionaries dev, hosts the level-1 widget
+            # PubDictionaries dev — hosts the level-1 widget. Local loopback for
+            # a developer on the dev box, plus the public TLS-terminated hostname.
+            "http://localhost:6000",
+            "http://127.0.0.1:6000",
+            "https://test2.pubannotation.org",
             "https://pubdictionaries.org"        # PubDictionaries prod (forward-looking)
 
     resource "/api/*",

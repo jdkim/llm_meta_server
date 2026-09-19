@@ -132,3 +132,53 @@ RSpec.describe LLM::Message, "#functions with an unknown tool name" do
     end
   end
 end
+
+# This initializer is the only override of LLM::Message#functions. Before the
+# client-orchestrated widget work landed, a second one lived in llm_session.rb
+# for replayed history — and since this file loads later and begins with
+# `remove_method`, that one was silently discarded. Both behaviours now live
+# here, told apart by whether the message came from a live provider response.
+RSpec.describe LLM::Message, "#functions — replayed history versus a hallucinated name" do
+  def replayed(tool_calls)
+    # How LlmRbFacade#messages_to_llm_objects rebuilds client-sent history:
+    # tool_calls in `extra`, and no provider response at all.
+    LLM::Message.new("assistant", "", tool_calls: tool_calls)
+  end
+
+  def live(tool_calls, tools)
+    LLM::Message.new("assistant", "", tool_calls: tool_calls,
+                     response: double("LLM::Response", __tools__: tools))
+  end
+
+  let(:call) { { "id" => "call_1", "name" => "add_dictionaries", "arguments" => { "names" => [ "uberon" ] } } }
+
+  it "rebuilds a replayed call instead of treating it as hallucinated" do
+    fn = replayed([ call ]).functions.first
+
+    expect(fn.name.to_s).to eq("add_dictionaries")
+    expect(fn.id).to eq("call_1")
+    expect(fn.arguments.to_h).to eq({ "names" => [ "uberon" ] })
+  end
+
+  # The browser already ran it. A pending replayed call would be dispatched
+  # again by Session#functions, running a page action twice.
+  it "marks a replayed call as already made" do
+    fn = replayed([ call ]).functions.first
+
+    expect(fn.pending?).to be(false)
+  end
+
+  it "still answers a live call to an unknown tool with a readable error" do
+    fn = live([ call ], [ LLM::Function.new("run_sparql") ]).functions.first
+
+    expect(fn.pending?).to be(true)
+    expect(fn.call.value["isError"]).to be(true)
+  end
+
+  it "is not redefined anywhere else" do
+    owners = Dir[Rails.root.join("config/initializers/*.rb")].select do |f|
+      File.read(f).match?(/class (LLM::)?Message\b.*?^\s*def functions\b/m)
+    end
+    expect(owners.map { File.basename(_1) }).to eq([ "llm_unknown_tool_call.rb" ])
+  end
+end

@@ -28,14 +28,49 @@ require "llm/function"
 class LLM::Message
   remove_method :functions if instance_methods(false).include?(:functions)
 
+  # The ONLY override of this method. Two branches used to each redefine it —
+  # this file for hallucinated tool names, config/initializers/llm_session.rb
+  # (from the client-orchestrated `develop` work) for replayed history — and
+  # since initializers load alphabetically this one ran second and began with
+  # `remove_method`, silently discarding the other. Both cases are real and
+  # look identical from inside `find` ("no tool by that name"), so they are
+  # told apart by where the message came from:
+  #
+  #   * known tool                      -> the registered function, pending
+  #   * no provider response (replayed) -> rebuilt from the call, already called
+  #   * live response, unknown name     -> an error stub the model can read
   def functions
     @functions ||= tool_calls.map do |fn|
       known = available_tools.find { _1.name.to_s == fn["name"].to_s }
-      known ? resolved_function(known, fn) : unknown_tool_function(fn)
+      if known
+        resolved_function(known, fn)
+      elsif replayed?
+        replayed_function(fn)
+      else
+        unknown_tool_function(fn)
+      end
     end
   end
 
   private
+
+  # A message rebuilt from client-sent history (LlmRbFacade
+  # #messages_to_llm_objects, used by the client-orchestrated single_llm_calls
+  # flow) carries tool_calls but no provider response, so available_tools is
+  # always empty. Every call on it would otherwise look hallucinated.
+  def replayed?
+    response.nil?
+  end
+
+  # The client already dispatched this call, so it is marked called:
+  # Session#functions selects only pending ones and must not re-run it.
+  def replayed_function(fn)
+    LLM::Function.new(fn["name"].to_s).tap do |f|
+      f.id = fn["id"] || fn.id
+      f.arguments = fn["arguments"] || fn.arguments
+      f.instance_variable_set(:@called, true)
+    end
+  end
 
   def resolved_function(tool, fn)
     tool.dup.tap do |f|
