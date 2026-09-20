@@ -12,6 +12,10 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
             # a developer on the dev box, plus the public TLS-terminated hostname.
             "http://localhost:6000",
             "http://127.0.0.1:6000",
+            # Chrome refuses port 6000 outright (X11, on its unsafe-port list),
+            # so browser-driven testing of the widget runs PD on 3002.
+            "http://localhost:3002",
+            "http://127.0.0.1:3002",
             "https://test2.pubannotation.org",
             "https://pubdictionaries.org"        # PubDictionaries prod (forward-looking)
 
