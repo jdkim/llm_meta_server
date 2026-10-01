@@ -91,7 +91,13 @@ class Api::SingleLlmCallsController < ApiController
   def selected_tools
     tool_ids = params.permit(tool_ids: [])[:tool_ids]
     return [] if tool_ids.blank?
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: current_user))
+
+    viewer = bearer_token.present? ? current_user : nil
+
+    McpToolAdapter.to_llm_functions(
+      McpTool.lookup(tool_ids, viewer: viewer),
+      caller_ip: request.remote_ip
+    )
   end
 
   # Inline tool schemas the client declares — for page-embedded local actions
