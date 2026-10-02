@@ -9,6 +9,8 @@
 # public+active. Anonymous callers may invoke only public_to_anonymous
 # servers. Ownership is NOT required.
 class Api::McpToolCallsController < ApiController
+  include AnonymousUsageGuard
+
   wrap_parameters false
 
   rescue_from McpClient::McpConnectionError, with: :mcp_connection_error
@@ -19,12 +21,30 @@ class Api::McpToolCallsController < ApiController
     tool = McpTool.lookup([ params[:tool_id] ], viewer: viewer).first
     raise ActiveRecord::RecordNotFound if tool.nil?
 
-    server = tool.mcp_server
-    client = McpClient.new(server.url, auth_token: server.auth_token)
-    client.initialize_connection!
-    result = client.call_tool!(tool.name, arguments_param)
+    unless viewer
+      usage_policy.validate_arguments!(params[:arguments])
+      permit = usage_policy.acquire!(kind: "mcp", ip: request.remote_ip, tool: tool)
+    end
+    arguments = arguments_param
+    operation = -> {
+      server = tool.mcp_server
+      client = McpClient.new(server.url, auth_token: server.auth_token, caller_ip: request.remote_ip,
+        max_response_bytes: permit && permit[:result_bytes])
+      client.initialize_connection!
+      client.call_tool!(tool.name, arguments)
+    }
+    result = permit ? usage_policy.run(permit, &operation) : operation.call
+    if permit && result.to_json.bytesize > permit[:result_bytes]
+      raise AnonymousUsagePolicy::Rejected.new("result_too_large", "MCP result exceeds the configured limit", status: 502)
+    end
 
     render json: { result: result }
+  rescue AnonymousUsagePolicy::Rejected => e
+    render_usage_rejection(e)
+  rescue AnonymousUsagePolicy::Cancelled => e
+    render json: { error: e.is_a?(AnonymousUsagePolicy::DeadlineExceeded) ? "execution_timeout" : "stopped", message: e.message }, status: :gateway_timeout
+  ensure
+    usage_policy.release!(permit) if permit
   end
 
   private

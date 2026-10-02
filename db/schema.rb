@@ -10,9 +10,17 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_03_100000) do
+ActiveRecord::Schema[8.0].define(version: 2026_10_02_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "anonymous_usage_states", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "scope", null: false
+    t.jsonb "state", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["scope"], name: "index_anonymous_usage_states_on_scope", unique: true
+  end
 
   create_table "credit_transactions", force: :cascade do |t|
     t.bigint "user_id", null: false

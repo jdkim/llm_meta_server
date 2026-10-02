@@ -156,6 +156,23 @@ RSpec.describe "POST /api/mcp_tools/:tool_id/call (E2E)", type: :request do
       end
     end
 
+    it "rejects oversized arguments without touching the upstream" do
+      tool = create_tool!(public: true, public_to_anonymous: true)
+      stub_mcp
+      post "/api/mcp_tools/#{tool.id}/call", params: { arguments: { q: "x" * 32768 } }.to_json, headers: anon_headers
+      expect(response).to have_http_status(:bad_request)
+      expect(WebMock).not_to have_requested(:post, mcp_url)
+    end
+
+    it "stops MCP independently of LLM before touching the upstream" do
+      tool = create_tool!(public: true, public_to_anonymous: true)
+      stub_mcp
+      AnonymousUsagePolicy.set_enabled!("mcp", false, actor: "spec", reason: "incident")
+      post "/api/mcp_tools/#{tool.id}/call", params: "{}", headers: anon_headers
+      expect(response).to have_http_status(:service_unavailable)
+      expect(WebMock).not_to have_requested(:post, mcp_url)
+    end
+
     it "does not treat an invalid bearer token as anonymous" do
       tool = create_tool!(public: true, public_to_anonymous: true)
       stub_mcp

@@ -9,11 +9,22 @@
 # request → tool_call → tool_exec → follow-up loop server-side.
 class Api::SingleLlmCallsController < ApiController
   include ActionController::Live
+  include AnonymousUsageGuard
 
   wrap_parameters false
 
   def create
     uuid, model_name = expected_params
+    llm_api_key = bearer_token ? current_user.find_llm_api_key(uuid) : nil
+    model_id = LlmModelMap.fetch!(model_name, llm_type: nil) unless bearer_token
+    if !bearer_token && params[:generation_settings] && !(params[:generation_settings].is_a?(Hash) || params[:generation_settings].is_a?(ActionController::Parameters))
+      raise AnonymousUsagePolicy::Rejected.new("invalid_input", "generation_settings must be an object", status: 400)
+    end
+    generation = effective_generation_params(model_name, llm_api_key&.llm_type)
+    unless bearer_token
+      generation = usage_policy.validate_llm!(params, model: model_name, generation: generation)
+      permit = usage_policy.acquire!(kind: "llm", ip: request.remote_ip)
+    end
 
     response.headers["Content-Type"] = "text/event-stream"
     response.headers["Cache-Control"] = "no-cache"
@@ -25,21 +36,25 @@ class Api::SingleLlmCallsController < ApiController
     sink.phase("thinking")
     heartbeat = start_heartbeat(sink)
 
-    llm_api_key = bearer_token ? current_user.find_llm_api_key(uuid) : nil
-    model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
+    model_id ||= LlmModelMap.fetch!(model_name, llm_type: llm_api_key&.llm_type)
 
-    result = LlmRbFacade.single_llm_turn!(
+    operation = -> { LlmRbFacade.single_llm_turn!(
       llm_api_key: llm_api_key,
       model_id: model_id,
       tools: selected_tools + local_tools_as_llm_functions,
-      generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
+      generation_params: generation,
       messages: messages_param,
       sink: sink,
       on_phase_change: on_phase_change
-    )
+    ) }
+    result = permit ? usage_policy.run(permit, disconnected: -> { @anonymous_client_disconnected }, &operation) : operation.call
 
     Array(result[:tool_calls]).each { |tc| sink.tool_call(tc) }
     sink.event("done", { content: result[:content], finish_reason: result[:finish_reason] })
+  rescue AnonymousUsagePolicy::Rejected => e
+    sink ? safe_emit_error(sink, e.code, e.message) : render_usage_rejection(e)
+  rescue AnonymousUsagePolicy::Cancelled => e
+    safe_emit_error(sink, e.is_a?(AnonymousUsagePolicy::DeadlineExceeded) ? "execution_timeout" : "stopped", e.message)
   rescue ActionController::Live::ClientDisconnected
     Rails.logger.info "[SingleLlmCalls] client disconnected mid-stream"
   rescue LLM::RateLimitError => e
@@ -55,13 +70,18 @@ class Api::SingleLlmCallsController < ApiController
     safe_emit_error(sink, "internal_error", e.message)
   ensure
     heartbeat&.kill
+    usage_policy.release!(permit) if permit
     response.stream.close
   end
 
   private
 
   def safe_emit_error(sink, code, message)
-    sink.event("error", { code: code, message: message })
+    if sink
+      sink.event("error", { code: code, message: message })
+    else
+      render json: { error: code, message: message }, status: :bad_request
+    end
   rescue IOError, ActionController::Live::ClientDisconnected
     # Stream already closed; nothing to do.
   end
@@ -73,6 +93,7 @@ class Api::SingleLlmCallsController < ApiController
         begin
           sink.heartbeat
         rescue IOError, ActionController::Live::ClientDisconnected, StandardError
+          @anonymous_client_disconnected = true
           break
         end
       end

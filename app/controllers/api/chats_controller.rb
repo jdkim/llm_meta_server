@@ -1,6 +1,8 @@
 class Api::ChatsController < ApiController
   # JSON requests already send flat top-level keys; skip resource wrapping
   # so :chat doesn't appear as a duplicated, unpermitted parameter.
+  before_action :require_authenticated_legacy_chat
+
   wrap_parameters false
 
   # Google ID Token authentication required
@@ -39,6 +41,13 @@ class Api::ChatsController < ApiController
   end
 
   private
+
+  # Anonymous inference uses the bounded, client-orchestrated endpoint.
+  def require_authenticated_legacy_chat
+    if bearer_token.blank?
+      render json: { error: "anonymous_endpoint_disabled", message: "Use single_llm_calls for anonymous inference" }, status: :forbidden
+    end
+  end
 
   def rate_limit_error(exception)
     render json: { error: "LLM API Rate limit exceeded", message: exception.message }, status: :too_many_requests
