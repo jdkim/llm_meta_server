@@ -6,7 +6,8 @@
 #
 # Visibility mirrors LlmRbFacade's tool-selection path: McpTool.lookup allows
 # a user to invoke any active tool from a server that is either theirs or
-# public+active. Ownership is NOT required.
+# public+active. Anonymous callers may invoke only public_to_anonymous
+# servers. Ownership is NOT required.
 class Api::McpToolCallsController < ApiController
   wrap_parameters false
 
@@ -14,7 +15,8 @@ class Api::McpToolCallsController < ApiController
   rescue_from McpClient::McpProtocolError,   with: :mcp_protocol_error
 
   def create
-    tool = McpTool.lookup([ params[:tool_id] ], viewer: current_user).first
+    viewer = bearer_token.present? ? current_user : nil
+    tool = McpTool.lookup([ params[:tool_id] ], viewer: viewer).first
     raise ActiveRecord::RecordNotFound if tool.nil?
 
     server = tool.mcp_server
