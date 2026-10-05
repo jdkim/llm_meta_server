@@ -247,7 +247,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
   # 200 OK for a plain message and "Token is missing" 80 seconds later with
   # tool_ids present.
   describe "tool lookup viewer" do
-    let(:ollama_model) { "glm-4-7-flash" }
+    let(:ollama_model) { LlmModelMap.available_models_for("ollama").first["value"] }
 
     let!(:anon_tool) do
       server = user.mcp_servers.create!(name: "togo", url: "http://mcp.test/rpc", active: true,
@@ -258,6 +258,9 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
     end
 
     before do
+      # Viewer selection is independent of deployment-specific model limits.
+      # Full admission behavior is covered in anonymous_usage_protection_spec.
+      allow_any_instance_of(AnonymousUsagePolicy).to receive(:validate_llm!).and_return({})
       allow(LlmRbFacade).to receive(:single_llm_turn!)
         .and_return(content: "ok", finish_reason: "stop", tool_calls: [])
     end
@@ -266,7 +269,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
       expect(McpTool).to receive(:lookup).with(anything, viewer: nil).and_call_original
 
       post "/api/llm_api_keys/ollama-local/models/#{ollama_model}/single_llm_calls",
-           params: { messages: [ { role: "user", content: "hi" } ], tool_ids: [ anon_tool.id ] }
+           params: { messages: [ { role: "user", content: "hi" } ], tool_ids: [ anon_tool.id ] }, as: :json
 
       expect(response.body).not_to include("Token is missing")
     end
