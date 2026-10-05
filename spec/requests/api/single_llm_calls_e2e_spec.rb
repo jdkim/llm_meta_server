@@ -232,4 +232,47 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
     expect(response.body).not_to include("event: tool_call"),
       "the history's call must not come back as a new one"
   end
+
+  # Regression: `selected_tools` passed `viewer: current_user` unguarded, and
+  # ApiController#current_user raises "Token is missing" without a bearer. The
+  # `return [] if tool_ids.blank?` line above hid it — anonymous chat worked
+  # until the visitor selected a hub-registered tool, then every turn 400'd.
+  # Production showed exactly that asymmetry: the same anonymous visitor got
+  # 200 OK for a plain message and "Token is missing" 80 seconds later with
+  # tool_ids present.
+  describe "tool lookup viewer" do
+    let(:ollama_model) { LlmModelMap.available_models_for("ollama").first["value"] }
+
+    let!(:anon_tool) do
+      server = user.mcp_servers.create!(name: "togo", url: "http://mcp.test/rpc", active: true,
+                                        public: true, public_to_anonymous: true)
+      server.mcp_tools.create!(name: "search", description: "d",
+                               input_schema: { "type" => "object", "properties" => {} },
+                               active: true)
+    end
+
+    before do
+      allow(LlmRbFacade).to receive(:single_llm_turn!)
+        .and_return(content: "ok", finish_reason: "stop", tool_calls: [])
+    end
+
+    it "looks tools up as an anonymous viewer when there is no bearer token" do
+      expect(McpTool).to receive(:lookup).with(anything, viewer: nil).and_call_original
+
+      post "/api/llm_api_keys/ollama-local/models/#{ollama_model}/single_llm_calls",
+           params: { messages: [ { role: "user", content: "hi" } ], tool_ids: [ anon_tool.id ] }
+
+      expect(response.body).not_to include("Token is missing")
+    end
+
+    it "still looks tools up as the signed-in user when a bearer token is present" do
+      expect(McpTool).to receive(:lookup).with(anything, viewer: user).and_call_original
+
+      post "/api/llm_api_keys/#{openai_key.uuid}/models/gpt-5/single_llm_calls",
+           params: { messages: [ { role: "user", content: "hi" } ], tool_ids: [ anon_tool.id ] },
+           headers: auth_headers
+
+      expect(response.body).not_to include("Token is missing")
+    end
+  end
 end

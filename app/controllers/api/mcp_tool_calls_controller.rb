@@ -14,7 +14,10 @@ class Api::McpToolCallsController < ApiController
   rescue_from McpClient::McpProtocolError,   with: :mcp_protocol_error
 
   def create
-    tool = McpTool.lookup([ params[:tool_id] ], viewer: current_user).first
+    # bearer-guard, as in single_llm_calls: an anonymous caller that was
+    # offered a public_to_anonymous tool must also be able to EXECUTE it.
+    viewer = bearer_token.present? ? current_user : nil
+    tool = McpTool.lookup([ params[:tool_id] ], viewer: viewer).first
     raise ActiveRecord::RecordNotFound if tool.nil?
 
     server = tool.mcp_server
