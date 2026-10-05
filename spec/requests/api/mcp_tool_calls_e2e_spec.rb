@@ -183,4 +183,44 @@ RSpec.describe "POST /api/mcp_tools/:tool_id/call (E2E)", type: :request do
       expect(WebMock).not_to have_requested(:post, mcp_url)
     end
   end
+
+  # Regression: the lookup passed `viewer: current_user` unguarded, and
+  # ApiController#current_user raises "Token is missing" without a bearer. A
+  # widget visitor who was *offered* a public_to_anonymous tool therefore could
+  # never execute one. Nothing covered the anonymous path here, which is how it
+  # shipped; the existing "returns 401 without a bearer token" case passed
+  # throughout because its tool is private either way.
+  describe "anonymous caller (no bearer token)" do
+    def anon_tool!(public_to_anonymous:, name: "search")
+      server = user.mcp_servers.create!(name: "s-anon-#{name}", url: mcp_url, active: true,
+                                        public: true, public_to_anonymous: public_to_anonymous)
+      server.mcp_tools.create!(name: name, description: "d",
+                               input_schema: { "type" => "object", "properties" => {} },
+                               active: true)
+    end
+
+    it "executes a public_to_anonymous tool instead of failing on the missing token" do
+      tool = anon_tool!(public_to_anonymous: true)
+      stub_mcp(tool_result_text: "anon ok")
+
+      post "/api/mcp_tools/#{tool.id}/call",
+           params: { arguments: { q: "x" } }.to_json,
+           headers: { "Content-Type" => "application/json" }
+
+      expect(response.body).not_to include("Token is missing")
+      expect(response).to have_http_status(:ok)
+      expect(JSON.parse(response.body).dig("result", "content", 0, "text")).to eq("anon ok")
+    end
+
+    it "still refuses a tool that is public but NOT public_to_anonymous" do
+      tool = anon_tool!(public_to_anonymous: false, name: "private_search")
+
+      post "/api/mcp_tools/#{tool.id}/call",
+           params: { arguments: {} }.to_json,
+           headers: { "Content-Type" => "application/json" }
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(WebMock).not_to have_requested(:post, mcp_url)
+    end
+  end
 end

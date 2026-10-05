@@ -113,12 +113,13 @@ class Api::SingleLlmCallsController < ApiController
     tool_ids = params.permit(tool_ids: [])[:tool_ids]
     return [] if tool_ids.blank?
 
+    # bearer-guard: `current_user` in ApiController raises "Token is missing"
+    # when the request carries no bearer. Match chats/chat_streams and pass nil
+    # on the anon path — routes through McpServer.visible_to(nil). Without this
+    # an anonymous caller could chat, but only until it selected a hub tool:
+    # the blank-tool_ids early return above was hiding the breakage.
     viewer = bearer_token.present? ? current_user : nil
-
-    McpToolAdapter.to_llm_functions(
-      McpTool.lookup(tool_ids, viewer: viewer),
-      caller_ip: request.remote_ip
-    )
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: request.remote_ip)
   end
 
   # Inline tool schemas the client declares — for page-embedded local actions
