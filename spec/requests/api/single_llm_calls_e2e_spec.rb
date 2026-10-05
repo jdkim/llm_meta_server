@@ -12,6 +12,12 @@ require "rails_helper"
 #   - closing `event: done\ndata: {"content":"...","finish_reason":"..."}\n\n`
 #   - `event: error\ndata: {...}\n\n` on failure (no `done`)
 RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)", type: :request do
+  # These HTTP/LLM examples do not exercise KMS or require AWS credentials.
+  before do
+    allow(ApiKeyEncrypter).to receive(:new).and_return(instance_double(ApiKeyEncrypter, encrypt: "test-ciphertext"))
+    allow(ApiKeyDecrypter).to receive(:new).and_return(instance_double(ApiKeyDecrypter, decrypt: "sk-test"))
+  end
+
   let(:user) { User.create!(email: "u@example.com", google_id: "g-single") }
   let(:good_token) { "tok" }
   let(:auth_headers) { { "Authorization" => "Bearer #{good_token}" } }
@@ -241,7 +247,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
   # 200 OK for a plain message and "Token is missing" 80 seconds later with
   # tool_ids present.
   describe "tool lookup viewer" do
-    let(:ollama_model) { LlmModelMap.available_models_for("ollama").first["value"] }
+    let(:ollama_model) { "glm-4-7-flash" }
 
     let!(:anon_tool) do
       server = user.mcp_servers.create!(name: "togo", url: "http://mcp.test/rpc", active: true,
