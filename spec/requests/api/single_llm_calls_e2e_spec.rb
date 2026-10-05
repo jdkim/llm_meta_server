@@ -12,6 +12,12 @@ require "rails_helper"
 #   - closing `event: done\ndata: {"content":"...","finish_reason":"..."}\n\n`
 #   - `event: error\ndata: {...}\n\n` on failure (no `done`)
 RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)", type: :request do
+  # These HTTP/LLM examples do not exercise KMS or require AWS credentials.
+  before do
+    allow(ApiKeyEncrypter).to receive(:new).and_return(instance_double(ApiKeyEncrypter, encrypt: "test-ciphertext"))
+    allow(ApiKeyDecrypter).to receive(:new).and_return(instance_double(ApiKeyDecrypter, decrypt: "sk-test"))
+  end
+
   let(:user) { User.create!(email: "u@example.com", google_id: "g-single") }
   let(:good_token) { "tok" }
   let(:auth_headers) { { "Authorization" => "Bearer #{good_token}" } }
@@ -252,6 +258,9 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
     end
 
     before do
+      # Viewer selection is independent of deployment-specific model limits.
+      # Full admission behavior is covered in anonymous_usage_protection_spec.
+      allow_any_instance_of(AnonymousUsagePolicy).to receive(:validate_llm!).and_return({})
       allow(LlmRbFacade).to receive(:single_llm_turn!)
         .and_return(content: "ok", finish_reason: "stop", tool_calls: [])
     end
@@ -260,7 +269,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
       expect(McpTool).to receive(:lookup).with(anything, viewer: nil).and_call_original
 
       post "/api/llm_api_keys/ollama-local/models/#{ollama_model}/single_llm_calls",
-           params: { messages: [ { role: "user", content: "hi" } ], tool_ids: [ anon_tool.id ] }
+           params: { messages: [ { role: "user", content: "hi" } ], tool_ids: [ anon_tool.id ] }, as: :json
 
       expect(response.body).not_to include("Token is missing")
     end

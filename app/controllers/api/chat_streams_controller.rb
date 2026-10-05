@@ -1,6 +1,8 @@
 class Api::ChatStreamsController < ApiController
   include ActionController::Live
 
+  before_action :require_authenticated_legacy_chat
+
   wrap_parameters false
 
   def create
@@ -167,6 +169,13 @@ class Api::ChatStreamsController < ApiController
   end
 
   private
+
+  # Anonymous inference uses the bounded, client-orchestrated endpoint.
+  def require_authenticated_legacy_chat
+    if bearer_token.blank?
+      render json: { error: "anonymous_endpoint_disabled", message: "Use single_llm_calls for anonymous inference" }, status: :forbidden
+    end
+  end
 
   def safe_emit_error(sink, code, message)
     sink.event("error", { code: code, message: message })

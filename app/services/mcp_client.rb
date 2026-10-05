@@ -9,10 +9,11 @@ class McpClient
 
   attr_reader :url, :session_id, :server_info, :protocol_version
 
-  def initialize(url, auth_token: nil, caller_ip: nil)
+  def initialize(url, auth_token: nil, caller_ip: nil, max_response_bytes: nil)
     @url = url
     @auth_token = auth_token
     @caller_ip = caller_ip
+    @max_response_bytes = max_response_bytes
     @session_id = nil
     @server_info = nil
     @protocol_version = nil
@@ -71,11 +72,18 @@ class McpClient
       params: params
     }
 
-    response = HTTParty.post(url, {
-      body: body.to_json,
-      headers: request_headers,
-      timeout: 30
-    })
+    options = { body: body.to_json, headers: request_headers, timeout: 30 }
+    received = 0
+    response = if @max_response_bytes
+      HTTParty.post(url, options) do |fragment|
+        received += fragment.to_s.bytesize
+        if received > @max_response_bytes
+          raise McpProtocolError, "MCP response exceeds #{@max_response_bytes} bytes"
+        end
+      end
+    else
+      HTTParty.post(url, options)
+    end
 
     update_session_id(response)
 
@@ -108,11 +116,16 @@ class McpClient
       params: params
     }
 
-    HTTParty.post(url, {
-      body: body.to_json,
-      headers: request_headers,
-      timeout: 10
-    })
+    options = { body: body.to_json, headers: request_headers, timeout: 10 }
+    if @max_response_bytes
+      received = 0
+      HTTParty.post(url, options) do |fragment|
+        received += fragment.to_s.bytesize
+        raise McpProtocolError, "MCP response exceeds #{@max_response_bytes} bytes" if received > @max_response_bytes
+      end
+    else
+      HTTParty.post(url, options)
+    end
   rescue Net::ReadTimeout => e
     # Write completed; server chose not to send a response (spec-compliant).
     Rails.logger.info "[McpClient #{url}] notification '#{method}' delivered; " \

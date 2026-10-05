@@ -1,4 +1,5 @@
 require_relative "boot"
+require_relative "../lib/anonymous_request_body_limit"
 
 require "rails"
 # Pick the frameworks you want:
@@ -21,6 +22,7 @@ module LlmApiCallMetaServer
   class Application < Rails::Application
     # Initialize configuration defaults for originally generated Rails version.
     config.load_defaults 8.0
+    config.middleware.insert_before 0, AnonymousRequestBodyLimit
 
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
