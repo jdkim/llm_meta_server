@@ -95,6 +95,7 @@ module LlmRbFacade
     def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, document: nil, messages: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
       sink = TurnBudgetSink.new(sink, seconds: turn_budget_for(model_id)) unless sink.is_a?(TurnBudgetSink)
+      sink = GptOssReasoning.wrap(sink, model_id)
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
@@ -106,6 +107,8 @@ module LlmRbFacade
                              tools:, generation_params:, on_tool_calls:, on_phase_change:,
                              messages:, endpoint:)
       ensure
+        # A partial tag held back by the splitter would otherwise never appear.
+        sink.flush! if sink.respond_to?(:flush!)
         # Logged whatever happened — a turn that raised is exactly when you
         # want to know how far it got.
         Rails.logger.info(
@@ -187,7 +190,7 @@ module LlmRbFacade
             detect_truncation!(model_id, window, response, estimated, sink)
             log_finish_diagnostics(response, "native")
             emit_length_cap_notice(response, sink)
-            response.choices[-1]&.content || ""
+            GptOssReasoning.strip(response.choices[-1]&.content || "", model_id)
           else
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
             window    = context_window(chat_params)
@@ -204,7 +207,7 @@ module LlmRbFacade
             end
             detect_truncation!(model_id, window, response, estimated, sink)
             emit_length_cap_notice(response, sink)
-            response.choices[-1]&.content || ""
+            GptOssReasoning.strip(response.choices[-1]&.content || "", model_id)
           end
         end
       end
@@ -402,11 +405,13 @@ module LlmRbFacade
       input = messages_to_session_input(input_msgs)
 
       on_phase_change&.call("thinking")
+      sink = GptOssReasoning.wrap(sink, model_id)
       response = session.chat(input, stream: sink)
+      sink.flush! if sink.respond_to?(:flush!)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
 
       {
-        content: response.choices[-1]&.content || "",
+        content: GptOssReasoning.strip(response.choices[-1]&.content || "", model_id),
         tool_calls: session.extract_tool_calls.drop(calls_in_history),
         finish_reason: extract_finish_reason(response)
       }
@@ -1031,7 +1036,7 @@ module LlmRbFacade
         Rails.logger.info "[LlmRbFacade] after_tools_content=#{response.choices[-1]&.content.inspect}"
       end
 
-      build_response_with_tools(response, session)
+      build_response_with_tools(response, session, model_id)
     end
 
     # Split client-sent messages into (prior-history, current-input). Bundles
@@ -1265,7 +1270,7 @@ module LlmRbFacade
       end
       emit_length_cap_notice(response, sink)
 
-      build_response_with_tools(response, session)
+      build_response_with_tools(response, session, model_id)
     end
 
     # Ollama stops at `options.num_predict` and reports `done_reason: "length"`.
@@ -1436,8 +1441,9 @@ module LlmRbFacade
       obj.public_send(key) if obj.respond_to?(key)
     end
 
-    def build_response_with_tools(response, session)
-      content = response.choices[-1]&.content || ""
+    def build_response_with_tools(response, session, model_id)
+      # gpt-oss on Bedrock inlines its reasoning in the content here too.
+      content = GptOssReasoning.strip(response.choices[-1]&.content || "", model_id)
       tool_calls = session.extract_tool_calls
 
       if tool_calls.any?
