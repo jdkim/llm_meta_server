@@ -95,7 +95,7 @@ module LlmRbFacade
     def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, document: nil, messages: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
       sink = TurnBudgetSink.new(sink, seconds: turn_budget_for(model_id)) unless sink.is_a?(TurnBudgetSink)
-      sink = GptOssReasoning.wrap(sink, model_id)
+      sink = InlineReasoning.wrap(sink, model_id)
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
@@ -190,7 +190,7 @@ module LlmRbFacade
             detect_truncation!(model_id, window, response, estimated, sink)
             log_finish_diagnostics(response, "native")
             emit_length_cap_notice(response, sink)
-            GptOssReasoning.strip(response.choices[-1]&.content || "", model_id)
+            InlineReasoning.strip(response.choices[-1]&.content || "", model_id)
           else
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
             window    = context_window(chat_params)
@@ -207,7 +207,7 @@ module LlmRbFacade
             end
             detect_truncation!(model_id, window, response, estimated, sink)
             emit_length_cap_notice(response, sink)
-            GptOssReasoning.strip(response.choices[-1]&.content || "", model_id)
+            InlineReasoning.strip(response.choices[-1]&.content || "", model_id)
           end
         end
       end
@@ -405,13 +405,13 @@ module LlmRbFacade
       input = messages_to_session_input(input_msgs)
 
       on_phase_change&.call("thinking")
-      sink = GptOssReasoning.wrap(sink, model_id)
+      sink = InlineReasoning.wrap(sink, model_id)
       response = session.chat(input, stream: sink)
       sink.flush! if sink.respond_to?(:flush!)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
 
       {
-        content: GptOssReasoning.strip(response.choices[-1]&.content || "", model_id),
+        content: InlineReasoning.strip(response.choices[-1]&.content || "", model_id),
         tool_calls: session.extract_tool_calls.drop(calls_in_history),
         finish_reason: extract_finish_reason(response)
       }
@@ -1450,7 +1450,7 @@ module LlmRbFacade
 
     def build_response_with_tools(response, session, model_id)
       # gpt-oss on Bedrock inlines its reasoning in the content here too.
-      content = GptOssReasoning.strip(response.choices[-1]&.content || "", model_id)
+      content = InlineReasoning.strip(response.choices[-1]&.content || "", model_id)
       tool_calls = session.extract_tool_calls
 
       if tool_calls.any?

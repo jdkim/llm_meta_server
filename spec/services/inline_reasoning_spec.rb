@@ -4,7 +4,7 @@ require "rails_helper"
 # <reasoning> tags. Production evidence: a turn stored 12,212 characters
 # beginning "<reasoning>We need to interpret..." with reasoning column empty,
 # and 18 tag pairs back to back — one per streamed chunk.
-RSpec.describe GptOssReasoning do
+RSpec.describe InlineReasoning do
   # Collects what each channel received, so the split is observable.
   let(:collector) do
     Class.new do
@@ -116,6 +116,53 @@ RSpec.describe GptOssReasoning do
     it "leaves other models untouched" do
       text = "<reasoning>keep me</reasoning>hi"
       expect(described_class.split(text, "openai.gpt-5-6")).to eq([ text, nil ])
+    end
+  end
+
+  # Gemma writes ONE leading thought block with its own tokens, and the answer
+  # follows the closing marker — a different delimiter pair and a different
+  # shape from gpt-oss's many per-chunk blocks. Captured from a live
+  # medgemma1.5:4b response.
+  describe "gemma / medgemma" do
+    let(:model) { "medgemma1.5:4b" }
+
+    it "routes the thought block to thinking and keeps only the answer" do
+      stream("<unused94> thought\nWork it out step by step.<unused95>144", model_id: model)
+      expect(collector.content).to eq("144")
+      expect(collector.reasoning).to eq(" thought\nWork it out step by step.")
+    end
+
+    it "splits the stored content the same way" do
+      content, reasoning = described_class.split(
+        "<unused94> thinking<unused95>The answer is 144.", model
+      )
+      expect(content).to eq("The answer is 144.")
+      expect(reasoning).to eq(" thinking")
+    end
+
+    it "survives the tokens being split across chunks" do
+      (1..5).each do |size|
+        collector.content.clear
+        collector.reasoning.clear
+        stream("<unused94>why<unused95>answer", model_id: model, chunk: size)
+        expect(collector.content).to eq("answer"), "chunk size #{size}"
+      end
+    end
+
+    it "leaves gpt-oss delimiters alone for a gemma model, and vice versa" do
+      stream("<reasoning>not gemma's marker</reasoning>text", model_id: model)
+      expect(collector.content).to eq("<reasoning>not gemma's marker</reasoning>text")
+    end
+
+    it "applies to plain gemma as well as medgemma" do
+      expect(described_class.applies_to?("google.gemma-3-12b-it")).to be(true)
+    end
+  end
+
+  describe "models with no inline reasoning" do
+    it "passes an unknown model through untouched" do
+      text = "<unused94>x<unused95>y"
+      expect(described_class.split(text, "anthropic.claude-opus-4-7")).to eq([ text, nil ])
     end
   end
 end
