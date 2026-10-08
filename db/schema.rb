@@ -10,19 +10,19 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_03_100000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_08_122507) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "credit_transactions", force: :cascade do |t|
-    t.bigint "user_id", null: false
+    t.integer "amount_cents", null: false
+    t.datetime "created_at", null: false
     t.bigint "granted_by_id"
     t.string "kind", null: false
-    t.integer "amount_cents", null: false
-    t.string "note"
     t.string "model"
-    t.datetime "created_at", null: false
+    t.string "note"
     t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
     t.index ["granted_by_id"], name: "index_credit_transactions_on_granted_by_id"
     t.index ["kind"], name: "index_credit_transactions_on_kind"
     t.index ["user_id", "created_at"], name: "index_credit_transactions_on_user_id_and_created_at"
@@ -30,64 +30,65 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_03_100000) do
   end
 
   create_table "llm_api_keys", force: :cascade do |t|
-    t.bigint "user_id"
-    t.text "llm_type"
-    t.text "encrypted_api_key"
-    t.text "uuid"
     t.timestamptz "created_at"
-    t.timestamptz "updated_at"
     t.text "description"
+    t.text "encrypted_api_key"
+    t.text "llm_type"
+    t.timestamptz "updated_at"
+    t.bigint "user_id"
+    t.text "uuid"
     t.index ["user_id", "llm_type"], name: "idx_2679874_index_llm_api_keys_on_user_id_and_llm_type"
     t.index ["user_id"], name: "idx_2679874_index_llm_api_keys_on_user_id"
     t.index ["uuid"], name: "idx_2679874_index_llm_api_keys_on_uuid", unique: true
   end
 
   create_table "llm_models", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.text "api_id"
+    t.timestamptz "created_at"
+    t.jsonb "defaults", default: {}, null: false
+    t.text "display_name"
+    t.text "endpoint"
+    t.boolean "free_access", default: false, null: false
+    t.text "kind"
     t.bigint "llm_id"
     t.text "name"
-    t.timestamptz "created_at"
-    t.timestamptz "updated_at"
-    t.text "display_name"
-    t.text "api_id"
-    t.boolean "supports_vision", default: false, null: false
-    t.boolean "supports_tools", default: false, null: false
-    t.boolean "responses_only", default: false, null: false
-    t.boolean "active", default: true, null: false
-    t.text "kind"
-    t.text "endpoint"
-    t.jsonb "defaults", default: {}, null: false
-    t.jsonb "pricing", default: {}, null: false
     t.text "notes"
     t.integer "position", default: 0, null: false
+    t.jsonb "pricing", default: {}, null: false
     t.date "released_on"
+    t.boolean "responses_only", default: false, null: false
+    t.boolean "supports_tools", default: false, null: false
+    t.boolean "supports_vision", default: false, null: false
+    t.timestamptz "updated_at"
     t.index ["llm_id", "name"], name: "index_llm_models_on_llm_id_and_name", unique: true
     t.index ["llm_id"], name: "idx_2679881_index_llm_models_on_llm_id"
   end
 
   create_table "llms", force: :cascade do |t|
-    t.text "name"
     t.timestamptz "created_at"
-    t.timestamptz "updated_at"
     t.text "family"
+    t.text "name"
+    t.timestamptz "updated_at"
     t.index ["family"], name: "idx_2679858_index_llms_on_family", unique: true
   end
 
   create_table "mcp_servers", force: :cascade do |t|
-    t.bigint "user_id"
-    t.text "uuid"
-    t.text "name"
-    t.text "url"
     t.boolean "active", default: true
+    t.timestamptz "created_at"
+    t.text "encrypted_auth_token"
+    t.text "last_error"
+    t.timestamptz "last_fetched_at"
+    t.text "name"
+    t.text "protocol_version"
+    t.boolean "public", default: false
+    t.boolean "public_to_anonymous", default: false, null: false
     t.text "server_name"
     t.text "server_version"
-    t.text "protocol_version"
-    t.timestamptz "last_fetched_at"
-    t.text "last_error"
-    t.timestamptz "created_at"
     t.timestamptz "updated_at"
-    t.boolean "public", default: false
-    t.text "encrypted_auth_token"
-    t.boolean "public_to_anonymous", default: false, null: false
+    t.text "url"
+    t.bigint "user_id"
+    t.text "uuid"
     t.index ["public"], name: "idx_2679888_index_mcp_servers_on_public"
     t.index ["user_id", "url"], name: "idx_2679888_index_mcp_servers_on_user_id_and_url", unique: true
     t.index ["user_id"], name: "idx_2679888_index_mcp_servers_on_user_id"
@@ -95,36 +96,36 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_03_100000) do
   end
 
   create_table "mcp_tools", force: :cascade do |t|
-    t.bigint "mcp_server_id"
-    t.text "name"
+    t.boolean "active", default: true
+    t.json "annotations", default: {}
+    t.timestamptz "created_at"
     t.text "description"
     t.json "input_schema"
-    t.boolean "active", default: true
-    t.timestamptz "created_at"
+    t.bigint "mcp_server_id"
+    t.text "name"
     t.timestamptz "updated_at"
-    t.json "annotations", default: {}
     t.index ["mcp_server_id", "name"], name: "idx_2679897_index_mcp_tools_on_mcp_server_id_and_name", unique: true
     t.index ["mcp_server_id"], name: "idx_2679897_index_mcp_tools_on_mcp_server_id"
   end
 
   create_table "model_catalog_checks", force: :cascade do |t|
-    t.string "provider", null: false
     t.timestamptz "checked_at", null: false
-    t.jsonb "new_in_provider", default: [], null: false
-    t.jsonb "missing_from_provider", default: [], null: false
-    t.string "error"
     t.datetime "created_at", null: false
+    t.string "error"
+    t.jsonb "missing_from_provider", default: [], null: false
+    t.jsonb "new_in_provider", default: [], null: false
+    t.string "provider", null: false
     t.datetime "updated_at", null: false
     t.index ["provider", "checked_at"], name: "index_model_catalog_checks_on_provider_and_checked_at"
   end
 
   create_table "users", force: :cascade do |t|
-    t.text "email", default: ""
-    t.text "google_id"
     t.timestamptz "created_at"
-    t.timestamptz "updated_at"
-    t.text "favorite_model_meta_ids", default: "[]"
     t.text "default_model_meta_id"
+    t.text "email", default: ""
+    t.text "favorite_model_meta_ids", default: "[]"
+    t.text "google_id"
+    t.timestamptz "updated_at"
     t.index ["email"], name: "idx_2679865_index_users_on_email", unique: true
     t.index ["google_id"], name: "idx_2679865_index_users_on_google_id", unique: true
   end

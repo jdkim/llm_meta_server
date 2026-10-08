@@ -210,6 +210,22 @@ RSpec.describe LlmRbFacade do
 
       described_class.send(:create_llm_client, key, "gpt-5")
     end
+
+    # Bedrock is the one provider with no LLM.<name> factory — it resolves to our
+    # own subclass. Nothing else asserted that, so deleting the branch would have
+    # failed only at runtime, with NoMethodError on LLM.bedrock.
+    it "builds a BedrockClient for a bedrock key, not an LLM factory call" do
+      allow(LlmModelMap).to receive(:ollama_model?).with("openai.gpt-oss-120b-1:0").and_return(false)
+      key = double("LlmApiKey", llm_rb_method: :bedrock,
+                   encryptable_api_key: double(plain_api_key: "bedrock-key"))
+
+      client = described_class.send(:create_llm_client, key, "openai.gpt-oss-120b-1:0")
+
+      expect(client).to be_a(BedrockClient)
+      expect(client.__send__(:base_uri).host).to start_with("bedrock-runtime.")
+      expect(client.__send__(:timeout))
+        .to eq(described_class.singleton_class::PROVIDER_READ_TIMEOUT_SECONDS)
+    end
   end
 
   describe "#native_server_tools (private)" do
@@ -1504,6 +1520,59 @@ RSpec.describe LlmRbFacade do
             messages: [ { "role" => "user", "content" => "hi" } ]
           )
         }.to raise_error(LlmApiKeyRequiredError)
+      end
+
+      # Proves the gate asks the ACCESS question, not the locality one: with
+      # ollama_model? false, only free_access_model? can let this through.
+      #
+      # It still fails afterwards, on purpose — there is no house-key branch in
+      # create_llm_client yet, so a keyless non-Ollama model has nothing to
+      # execute against. That is the next piece of work, and this example pins
+      # the boundary: the gate opens, execution does not yet follow.
+      it "lets a free_access hosted model past the key gate" do
+        allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+        allow(LlmModelMap).to receive(:free_access_model?)
+          .with("openai.gpt-oss-120b-1:0").and_return(true)
+
+        begin
+          described_class.single_llm_turn!(
+            llm_api_key: nil, model_id: "openai.gpt-oss-120b-1:0",
+            messages: [ { "role" => "user", "content" => "hi" } ]
+          )
+        rescue LlmApiKeyRequiredError
+          raise "the key gate rejected a free_access model"
+        rescue StandardError
+          # Expected for now: no house key wired, so execution cannot proceed.
+        end
+      end
+
+      # Free-access is NOT locality. A hosted model that happens to be free to the
+      # caller still runs over the network and must keep the hosted ceilings — the
+      # 1800s leash exists for the DGX1's ~93 tok/s prefill, not for Bedrock.
+      # Collapsing the two predicates back together is the specific regression
+      # this pins; it is otherwise invisible.
+      describe "a free_access HOSTED model keeps hosted ceilings" do
+        let(:hosted_id) { "openai.gpt-oss-120b-1:0" }
+        let(:singleton) { described_class.singleton_class }
+
+        before do
+          allow(LlmModelMap).to receive(:ollama_model?).with(hosted_id).and_return(false)
+          allow(LlmModelMap).to receive(:free_access_model?).with(hosted_id).and_return(true)
+        end
+
+        it "uses the hosted read timeout, not the local one" do
+          expect(described_class.__send__(:provider_read_timeout_for, hosted_id))
+            .to eq(singleton.const_get(:PROVIDER_READ_TIMEOUT_SECONDS))
+          expect(described_class.__send__(:provider_read_timeout_for, hosted_id))
+            .not_to eq(singleton.const_get(:LOCAL_PROVIDER_READ_TIMEOUT_SECONDS))
+        end
+
+        it "uses the hosted turn budget, not the local leash" do
+          expect(described_class.__send__(:turn_budget_for, hosted_id))
+            .to eq(singleton.const_get(:TURN_BUDGET_SECONDS))
+          expect(described_class.__send__(:turn_budget_for, hosted_id))
+            .not_to eq(singleton.const_get(:LOCAL_TURN_BUDGET_SECONDS))
+        end
       end
 
       it "does NOT raise for Ollama models" do

@@ -374,7 +374,7 @@ module LlmRbFacade
     def single_llm_turn!(model_id:, messages:, llm_api_key: nil, tools: [], generation_params: {}, sink: nil, on_phase_change: nil)
       raise ArgumentError, "model_id is required" if model_id.blank?
       raise ArgumentError, "messages must contain at least one message" if messages.nil? || messages.empty?
-      if llm_api_key.nil? && !LlmModelMap.ollama_model?(model_id)
+      if llm_api_key.nil? && !LlmModelMap.free_access_model?(model_id)
         raise LlmApiKeyRequiredError, model_id
       end
 
@@ -883,7 +883,7 @@ module LlmRbFacade
       raise ArgumentError, "prompt is required" if prompt.blank?
 
       # API key is required for non-Ollama models
-      if llm_api_key.nil? && !LlmModelMap.ollama_model?(model_id)
+      if llm_api_key.nil? && !LlmModelMap.free_access_model?(model_id)
         raise LlmApiKeyRequiredError, model_id
       end
     end
@@ -962,9 +962,16 @@ module LlmRbFacade
         LLM.ollama(**ollama_options)
       else
         llm_rb_method = llm_api_key.llm_rb_method
-        LLM.public_send llm_rb_method,
-          key: llm_api_key.encryptable_api_key.plain_api_key,
-          timeout: provider_read_timeout_for(model_id)
+        key = llm_api_key.encryptable_api_key.plain_api_key
+        timeout = provider_read_timeout_for(model_id)
+
+        # Bedrock has no LLM.bedrock factory: it is our own LLM::OpenAI subclass
+        # with the region host and the /openai/v1 path.
+        if llm_rb_method == :bedrock
+          BedrockClient.new(key: key, timeout: timeout)
+        else
+          LLM.public_send llm_rb_method, key: key, timeout: timeout
+        end
       end
     end
 

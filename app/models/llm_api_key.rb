@@ -9,10 +9,14 @@ class LlmApiKey < ApplicationRecord
   before_validation :set_uuid
   before_validation :initialize_encryptable_api_key
 
+  # Maps llm_type to the llm.rb factory method. :bedrock has no LLM.bedrock —
+  # it resolves to BedrockClient in LlmRbFacade#create_llm_client, because the
+  # OpenAI-compatible Bedrock endpoint needs a host and path override.
   LLM_SERVICES = {
     "openai" => :openai,
     "anthropic" => :anthropic,
-    "google" => :gemini
+    "google" => :gemini,
+    "bedrock" => :bedrock
   }.freeze
 
   def encryptable_api_key

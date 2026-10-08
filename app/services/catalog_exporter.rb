@@ -103,6 +103,7 @@ class CatalogExporter
     lines << "    supports_vision: true" if model.supports_vision?
     lines << "    supports_tools: true"  if model.supports_tools?
     lines << "    responses_only: true"  if model.responses_only?
+    lines << "    free_access: true"    if model.free_access?
     lines << "    kind: #{scalar(model.kind)}"             if model.kind.present?
     lines << "    endpoint: #{scalar(model.endpoint)}"     if model.endpoint.present?
     lines << "    released_on: #{model.released_on.iso8601}" if model.released_on.present?

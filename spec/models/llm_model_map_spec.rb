@@ -112,6 +112,55 @@ RSpec.describe LlmModelMap do
     end
   end
 
+  # The access question, split out from ollama_model? so that "runs on our box"
+  # and "callable without a user key" can diverge. They used to be the same
+  # thing only because Ollama happens to need no credential.
+  describe ".free_access_model?" do
+    def stub_catalog(bedrock)
+      allow(described_class).to receive(:catalog).and_return("ollama" => {}, "bedrock" => bedrock)
+    end
+
+    it "is true for every ollama model — no credential exists to require" do
+      LlmModelMap.catalog.fetch("ollama").values.map { |m| m[:api_id] }.each do |id|
+        expect(described_class.free_access_model?(id)).to be(true), "#{id} should be free-access"
+      end
+    end
+
+    it "is false for a hosted model that is not flagged" do
+      expect(described_class.free_access_model?("gpt-5")).to be(false)
+      expect(described_class.free_access_model?("claude-opus-4-7")).to be(false)
+    end
+
+    it "is true for a hosted model flagged free_access" do
+      stub_catalog("gpt-oss-120b" => { api_id: "openai.gpt-oss-120b-1:0", free_access: true })
+      expect(described_class.free_access_model?("openai.gpt-oss-120b-1:0")).to be(true)
+    end
+
+    it "is false for an unflagged sibling in the same family" do
+      stub_catalog(
+        "gpt-oss-120b" => { api_id: "openai.gpt-oss-120b-1:0", free_access: true },
+        "qwen3-32b"    => { api_id: "qwen.qwen3-32b-v1:0",     free_access: false }
+      )
+      expect(described_class.free_access_model?("qwen.qwen3-32b-v1:0")).to be(false)
+    end
+
+    it "is false for nil and for unknown ids" do
+      expect(described_class.free_access_model?(nil)).to be(false)
+      expect(described_class.free_access_model?("totally-fake")).to be(false)
+    end
+
+    # THE INVARIANT THE SPLIT EXISTS FOR. A free-access hosted model must not
+    # start looking local: ollama_model? still drives the turn budget, the read
+    # timeout and client construction. Collapsing these two back into one
+    # predicate would hand Bedrock a 30-minute leash and build it as an Ollama
+    # client.
+    it "does not make a flagged hosted model look local" do
+      stub_catalog("gpt-oss-120b" => { api_id: "openai.gpt-oss-120b-1:0", free_access: true })
+      expect(described_class.free_access_model?("openai.gpt-oss-120b-1:0")).to be(true)
+      expect(described_class.ollama_model?("openai.gpt-oss-120b-1:0")).to be(false)
+    end
+  end
+
   describe ".image_model?" do
     it "is true when the model has kind: :image" do
       expect(described_class.image_model?("gemini-3-pro-image", llm_type: "google")).to be(true)

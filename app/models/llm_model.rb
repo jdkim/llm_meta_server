@@ -191,6 +191,7 @@ class LlmModel < ApplicationRecord
       supports_vision: supports_vision?,
       supports_tools: supports_tools?,
       responses_only: responses_only?,
+      free_access: free_access?,
       kind: kind.presence&.to_sym,
       endpoint: endpoint.presence,
       released_on: released_on,

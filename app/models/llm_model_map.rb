@@ -127,6 +127,22 @@ class LlmModelMap
     catalog.fetch("ollama", {}).each_value.any? { |m| m[:api_id] == model_id }
   end
 
+  # May this model be called WITHOUT a user-supplied API key?
+  #
+  # Deliberately NOT the same question as ollama_model?, which is about where
+  # the model runs. That distinction matters: a free-access hosted model still
+  # needs the hosted read timeout and turn budget, and must not be built as an
+  # Ollama client. Ollama is free-access by construction (it needs no
+  # credential); anything else has to be flagged in the catalog, and is paid
+  # for by a server-owned key.
+  def self.free_access_model?(model_id)
+    return true if ollama_model?(model_id)
+
+    catalog.each_value.any? do |family|
+      family.any? { |_meta_id, m| m[:api_id] == model_id && m[:free_access] == true }
+    end
+  end
+
   def self.image_model?(meta_id, llm_type: nil)
     catalog.dig(llm_type || "ollama", meta_id, :kind).to_s == "image"
   end

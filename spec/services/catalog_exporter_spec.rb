@@ -14,7 +14,7 @@ RSpec.describe CatalogExporter do
     openai = Llm.find_or_create_by!(family: "openai") { |l| l.name = "Openai" }
     openai.llm_models.create!(
       name: "zeta-1", api_id: "zeta.1", display_name: "Zeta One",
-      supports_vision: true, supports_tools: true, responses_only: true,
+      supports_vision: true, supports_tools: true, responses_only: true, free_access: true,
       endpoint: "responses", released_on: Date.new(2026, 7, 9),
       defaults: { "reasoning" => { "summary" => "auto" } },
       pricing: { "input" => 4.0, "output" => 20.0, "reviewed_at" => "2026-09-04", "verified" => false },
@@ -32,18 +32,28 @@ RSpec.describe CatalogExporter do
 
     it "round-trips through CatalogSeeder without changing a single field" do
       before_state = LlmModel.includes(:llm).map do |m|
-        [ m.llm.family, m.name, m.api_id, m.display_name, m.supports_vision, m.supports_tools,
-          m.responses_only, m.kind, m.endpoint, m.defaults, m.pricing, m.notes, m.released_on ]
-      end.sort_by { |row| row[0, 2] }
+        # Every column but the volatile ones, so a column added later is covered
+        # without anyone remembering to extend a list — which is exactly how
+        # free_access slipped past this test when it was added. "position" is
+        # excluded on purpose: render reorders (chat before image, dearest
+        # first) and the seeder renumbers from file order, so it is derived,
+        # not preserved.
+        [ m.llm.family, m.attributes.except("id", "llm_id", "created_at", "updated_at", "position") ]
+      end.sort_by { |family, attrs| [ family, attrs["name"] ] }
 
       File.write(path, described_class.render)
       LlmModel.delete_all
       CatalogSeeder.call(path: path)
 
       after_state = LlmModel.includes(:llm).map do |m|
-        [ m.llm.family, m.name, m.api_id, m.display_name, m.supports_vision, m.supports_tools,
-          m.responses_only, m.kind, m.endpoint, m.defaults, m.pricing, m.notes, m.released_on ]
-      end.sort_by { |row| row[0, 2] }
+        # Every column but the volatile ones, so a column added later is covered
+        # without anyone remembering to extend a list — which is exactly how
+        # free_access slipped past this test when it was added. "position" is
+        # excluded on purpose: render reorders (chat before image, dearest
+        # first) and the seeder renumbers from file order, so it is derived,
+        # not preserved.
+        [ m.llm.family, m.attributes.except("id", "llm_id", "created_at", "updated_at", "position") ]
+      end.sort_by { |family, attrs| [ family, attrs["name"] ] }
 
       expect(after_state).to eq(before_state)
     end

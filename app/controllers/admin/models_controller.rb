@@ -275,7 +275,7 @@ module Admin
     def model_params
       permitted = params.expect(llm_model: [ :llm_id, :name, :api_id, :display_name, :supports_vision,
                                              :supports_tools, :responses_only, :kind, :endpoint,
-                                             :active, :notes, :position, :released_on, :defaults_json, :pricing_json ])
+                                             :active, :free_access, :notes, :position, :released_on, :defaults_json, :pricing_json ])
       defaults = parse_json(permitted.delete(:defaults_json))
       pricing  = parse_json(permitted.delete(:pricing_json))
       permitted.to_h.merge("defaults" => defaults, "pricing" => pricing).compact
