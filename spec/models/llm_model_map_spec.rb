@@ -115,6 +115,38 @@ RSpec.describe LlmModelMap do
   # The access question, split out from ollama_model? so that "runs on our box"
   # and "callable without a user key" can diverge. They used to be the same
   # thing only because Ollama happens to need no credential.
+  # fetch! assumed "no key means Ollama", which predates free hosted models.
+  # The security property: relaxing it must let through ONLY models the
+  # catalog gives away.
+  describe ".fetch! for a keyless caller" do
+    def stub_catalog
+      allow(described_class).to receive(:catalog).and_return(
+        "ollama"  => {},
+        "bedrock" => {
+          "gpt-oss-120b" => { api_id: "openai.gpt-oss-120b-1:0", free_access: true },
+          "big-paid"     => { api_id: "vendor.big-paid",         free_access: false }
+        }
+      )
+    end
+
+    it "resolves a free model in its own family" do
+      stub_catalog
+      expect(described_class.fetch!("gpt-oss-120b", llm_type: nil)).to eq("openai.gpt-oss-120b-1:0")
+    end
+
+    it "still refuses a paid model — this is the wallet boundary" do
+      stub_catalog
+      expect { described_class.fetch!("big-paid", llm_type: nil) }
+        .to raise_error(ModelUnavailableError)
+    end
+
+    it "does not relax anything when a key IS supplied" do
+      stub_catalog
+      expect { described_class.fetch!("gpt-oss-120b", llm_type: "openai") }
+        .to raise_error(ModelUnavailableError)
+    end
+  end
+
   describe ".free_access_model?" do
     def stub_catalog(bedrock)
       allow(described_class).to receive(:catalog).and_return("ollama" => {}, "bedrock" => bedrock)

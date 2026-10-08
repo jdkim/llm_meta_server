@@ -966,6 +966,13 @@ module LlmRbFacade
       if LlmModelMap.ollama_model?(model_id)
         LLM.ollama(**ollama_options)
       else
+        # An anonymous caller reaching here has already passed the free_access
+        # gate, so the server pays with its own key. Without this the nil key
+        # raised NoMethodError here — the gate opened and execution could not
+        # follow.
+        llm_api_key ||= LlmApiKey.house_key if LlmModelMap.free_access_model?(model_id)
+        raise LlmApiKeyRequiredError, model_id if llm_api_key.nil?
+
         llm_rb_method = llm_api_key.llm_rb_method
         key = llm_api_key.encryptable_api_key.plain_api_key
         timeout = provider_read_timeout_for(model_id)

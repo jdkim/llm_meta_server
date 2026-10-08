@@ -275,4 +275,59 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
       expect(response.body).not_to include("Token is missing")
     end
   end
+
+  # The throttle's logic is unit-tested; what is untested is the WIRING. The
+  # check! call and its rescue were both inserted by hand into an existing
+  # method, and a misplaced rescue would still throttle — it would just report
+  # "internal_error" instead of telling the caller they hit the free limit and
+  # can supply their own key. Every unit test stays green through that.
+  describe "free-model throttling" do
+    let(:free_model_id) { "openai.gpt-oss-120b-1:0" }
+
+    around do |example|
+      was = Rails.cache
+      Rails.cache = ActiveSupport::Cache::MemoryStore.new   # test env is :null_store
+      example.run
+      Rails.cache = was
+    end
+
+    before do
+      allow(LlmModelMap).to receive(:fetch!).and_return(free_model_id)
+      allow(LlmModelMap).to receive(:free_access_model?).and_return(true)
+      allow(LlmModelMap).to receive(:ollama_model?).and_return(true)   # keeps execution local/cheap
+    end
+
+    def post_free_turn
+      post "/api/llm_api_keys/free-models/models/gpt-oss-120b/single_llm_calls",
+           params: { messages: [ { role: "user", content: "hi" } ] }.to_json,
+           headers: { "Content-Type" => "application/json", "Origin" => "https://demo.example" }
+    end
+
+    it "reports the limit as a rate_limit error event, not internal_error" do
+      allow(FreeModelThrottle).to receive(:check!)
+        .and_raise(FreeModelThrottle::Exceeded, "Free-model limit reached (30 requests per 5 minutes). " \
+                                                "Add your own API key to continue.")
+
+      post_free_turn
+
+      expect(response.body).to include("event: error")
+      expect(response.body).not_to include("event: done")
+      payload = response.body[/^event: error\ndata: (\{.*\})$/, 1]
+      expect(payload).to be_present
+      parsed = JSON.parse(payload)
+      expect(parsed["code"]).to eq("rate_limit")
+      expect(parsed["message"]).to include("Add your own API key")
+    end
+
+    it "consults the throttle with the request's origin and the resolved model" do
+      expect(FreeModelThrottle).to receive(:check!)
+        .with(hash_including(model_id: free_model_id, llm_api_key: nil,
+                             origin: "https://demo.example"))
+        .and_raise(FreeModelThrottle::Exceeded, "nope")
+
+      post_free_turn
+
+      expect(response.body).to include("rate_limit")
+    end
+  end
 end

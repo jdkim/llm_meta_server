@@ -19,6 +19,24 @@ class LlmApiKey < ApplicationRecord
     "bedrock" => :bedrock
   }.freeze
 
+  # The server's own credential, used when an ANONYMOUS caller picks a model
+  # the catalog marks free_access. Ollama needs no key, so this exists purely
+  # for hosted models we choose to give away (gpt-oss on Bedrock).
+  #
+  # Named by uuid in the environment rather than stored as a raw secret, so
+  # the key itself stays an ordinary LlmApiKey row: encrypted through the
+  # existing KMS path, rotatable from /admin, and visible in one place. The
+  # env var holds only an identifier.
+  #
+  # Deliberately NOT memoized: a rotated or revoked key must take effect on
+  # the next request, not after a restart.
+  def self.house_key
+    uuid = ENV["HOUSE_LLM_API_KEY_UUID"].presence
+    return nil if uuid.nil?
+
+    find_by(uuid: uuid)
+  end
+
   def encryptable_api_key
     @encryptable_api_key ||= EncryptableApiKey.new(encrypted_api_key: encrypted_api_key)
   end

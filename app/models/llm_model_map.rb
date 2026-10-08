@@ -49,7 +49,17 @@ class LlmModelMap
     return model_data[:api_id] if model_data
 
     owning_family = catalog.find { |_family, models| models.key?(meta_id) }&.first
-    raise ModelUnavailableError.new(meta_id, owning_family) if owning_family
+    if owning_family
+      # `family = llm_type || "ollama"` above encodes an assumption that
+      # predates free hosted models: that a caller with no key must mean
+      # Ollama. A model the catalog gives away is reachable without a key
+      # whoever hosts it, so resolve it in its own family instead of
+      # reporting it unavailable.
+      owning = catalog.dig(owning_family, meta_id)
+      return owning[:api_id] if llm_type.nil? && owning[:free_access] == true
+
+      raise ModelUnavailableError.new(meta_id, owning_family)
+    end
 
     raise ModelNotFoundError, meta_id
   end
@@ -75,6 +85,7 @@ class LlmModelMap
       {
         "label" => value[:display_name], # Display name: official model name
         "value" => key,                   # Internal ID: meta_id (without dots)
+        "free_access" => value[:free_access] == true,
         "supports_vision" => value[:supports_vision] == true,
         "supports_tools" => tool_capable?(value),
         # `kind` is only emitted for image-gen models — the frontend

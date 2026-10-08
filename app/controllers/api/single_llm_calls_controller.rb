@@ -28,6 +28,14 @@ class Api::SingleLlmCallsController < ApiController
     llm_api_key = bearer_token ? current_user.find_llm_api_key(uuid) : nil
     model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
 
+    # Bounds spending of the HOUSE key. current_user raises for an anonymous
+    # caller, hence the bearer_token guard.
+    FreeModelThrottle.check!(
+      model_id: model_id, llm_api_key: llm_api_key,
+      user: (bearer_token.present? ? current_user : nil),
+      origin: request.headers["Origin"], ip: request.remote_ip
+    )
+
     result = LlmRbFacade.single_llm_turn!(
       llm_api_key: llm_api_key,
       model_id: model_id,
@@ -42,6 +50,8 @@ class Api::SingleLlmCallsController < ApiController
     sink.event("done", { content: result[:content], finish_reason: result[:finish_reason] })
   rescue ActionController::Live::ClientDisconnected
     Rails.logger.info "[SingleLlmCalls] client disconnected mid-stream"
+  rescue FreeModelThrottle::Exceeded => e
+    safe_emit_error(sink, "rate_limit", e.message)
   rescue LLM::RateLimitError => e
     safe_emit_error(sink, "rate_limit", e.message)
   rescue LlmApiKeyRequiredError => e

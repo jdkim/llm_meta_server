@@ -156,4 +156,41 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (E2E)", t
     # No upstream call happened — vision-gating ran first.
     expect(WebMock).not_to have_requested(:post, /openai\.com/)
   end
+
+  # The throttle is wired into BOTH branches of this action (signed-in and
+  # anonymous) by hand, with a shared rescue. A misplaced rescue would still
+  # throttle, but report internal_error instead of telling the caller they hit
+  # the free limit — invisible to every unit test.
+  describe "free-model throttling" do
+    let(:ollama_meta) { LlmModelMap.available_models_for("ollama").first["value"] }
+
+    def expect_rate_limit_event
+      body = response.body
+      expect(body).to match(/^event: error$/)
+      err = JSON.parse(body[/^event: error\ndata: (\{.*\})/, 1])
+      expect(err["code"]).to eq("rate_limit")
+      expect(err["message"]).to include("Add your own API key")
+      expect(body).not_to include("event: done")
+    end
+
+    before do
+      allow(FreeModelThrottle).to receive(:check!)
+        .and_raise(FreeModelThrottle::Exceeded,
+                   "Free-model limit reached (30 requests per 5 minutes). Add your own API key to continue.")
+    end
+
+    it "reports the limit on the anonymous branch" do
+      post "/api/llm_api_keys/free-models/models/#{ollama_meta}/chat_streams",
+           params: { prompt: "hi" }
+
+      expect_rate_limit_event
+    end
+
+    it "reports the limit on the signed-in branch too" do
+      post "/api/llm_api_keys/free-models/models/#{ollama_meta}/chat_streams",
+           params: { prompt: "hi" }, headers: auth_headers
+
+      expect_rate_limit_event
+    end
+  end
 end

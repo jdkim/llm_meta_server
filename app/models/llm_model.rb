@@ -164,7 +164,8 @@ class LlmModel < ApplicationRecord
       supports_vision: supports_vision?,
       supports_tools: tool_capable?,
       kind: kind.to_s.presence,
-      active: active?
+      active: active?,
+      free_access: free_access?
     }
   end
 
