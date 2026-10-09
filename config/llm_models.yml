@@ -246,7 +246,7 @@ ollama:
         repeat_penalty: 1.10
 
 bedrock:
-  # Bedrock ap-northeast-1. Text-only (inputModalities: TEXT). Tool use verified 2026-10-08 via Converse (stopReason: tool_use); the OpenAI-compatible Chat Completions path AIbranch uses is not separately verified.
+  # Bedrock ap-northeast-1. Text-only (inputModalities: TEXT). Tool use verified 2026-10-10 on the OpenAI-compatible Chat Completions path AIbranch actually uses: a local_tools declaration produced a tool_call naming the right tool with the right arguments, on both the dev and production hubs. An earlier check (2026-10-08) was via Converse only (stopReason: tool_use), which left this path unverified.
   gpt-oss-120b:
     api_id: openai.gpt-oss-120b-1:0
     display_name: gpt-oss-120b
