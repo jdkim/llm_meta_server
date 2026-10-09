@@ -730,6 +730,26 @@ module LlmRbFacade
         # drop all other empty-content messages as noise.
         next if content.empty? && !(role == "assistant" && tool_calls.is_a?(Array) && tool_calls.any?)
 
+        # A tool result sitting in the MIDDLE of history (the trailing one is
+        # the current input and goes through messages_to_session_input). Every
+        # provider adapter renders a tool result from an LLM::Function::Return
+        # carried as the message CONTENT, and OpenAI requires its
+        # tool_call_id. Seeded as a plain string the id is simply absent and
+        # the provider rejects the whole request:
+        #   Invalid 'messages': missing field `tool_call_id`
+        # This stayed hidden while a bug upstream made the model loop, because
+        # a tool result was then always the last message, never history.
+        if role == "tool"
+          tool_call_id = (h[:tool_call_id] || h["tool_call_id"]).presence
+          # No id means no representable pair. Inventing one would match
+          # nothing, so fall through to the old plain-message behaviour and
+          # let the provider say so rather than lose the result silently.
+          if tool_call_id
+            name = (h[:name] || h["name"]).to_s
+            next LLM::Message.new(role, LLM::Function::Return.new(tool_call_id, name, content), {})
+          end
+        end
+
         extra = if tool_calls.is_a?(Array) && tool_calls.any?
                   { tool_calls: tool_calls,
                     original_tool_calls: native_tool_calls(tool_calls, llm) }.compact
