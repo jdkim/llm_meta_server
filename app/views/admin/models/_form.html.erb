@@ -45,6 +45,8 @@
     <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :responses_only %>
       responses_only <span class="text-xs text-gray-500">(Responses API only — tools cannot be routed)</span></label>
     <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :active %> available to users</label>
+    <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :free_access %>
+      free access <span class="text-xs text-gray-500">(served from the house key to callers with no API key — Ollama models are always free)</span></label>
   </div>
 
   <div class="grid grid-cols-2 gap-4 mt-4">

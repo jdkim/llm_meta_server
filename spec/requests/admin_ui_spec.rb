@@ -706,6 +706,48 @@ RSpec.describe "Admin service-management UI", type: :request do
     end
   end
 
+  describe "marking a model free for keyless callers" do
+    let(:openai) { Llm.find_by(family: "openai") }
+
+    it "offers the checkbox on the form" do
+      as_super_user
+
+      get new_admin_model_path(provider: "openai")
+
+      field = Nokogiri::HTML(response.body).css(%(input[name="llm_model[free_access]"]))
+      expect(field).not_to be_empty
+    end
+
+    it "flags a chargeable model as free, and the catalog says so" do
+      as_super_user
+
+      post admin_models_path, params: { llm_model: {
+        llm_id: openai.id, name: "free-one", api_id: "openai.free-one",
+        display_name: "Free One", active: "1", free_access: "1",
+        pricing_json: %({"input":1.0,"output":2.0}), defaults_json: "{}"
+      } }
+
+      created = openai.llm_models.find_by(name: "free-one")
+      expect(created.free_access).to be(true)
+      # What the keyless path reads to decide whether to use the house key.
+      expect(LlmModelMap.catalog.dig("openai", "free-one", :free_access)).to be(true)
+    end
+
+    it "clears the flag when the box is unticked" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "was-free", api_id: "openai.was-free", display_name: "Was Free",
+        free_access: true, pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      patch admin_model_path(model), params: { llm_model: { free_access: "0" } }
+
+      expect(model.reload.free_access).to be(false)
+      # A partial update must not wipe the price it did not submit.
+      expect(model.pricing["input"]).to eq(1.0)
+    end
+  end
+
   describe "adding a provider family" do
     it "creates a servable family that has no row yet" do
       as_super_user
