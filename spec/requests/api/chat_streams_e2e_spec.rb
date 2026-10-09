@@ -176,7 +176,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (E2E)", t
     before do
       allow(FreeModelThrottle).to receive(:check!)
         .and_raise(FreeModelThrottle::Exceeded,
-                   "Free-model limit reached (30 requests per 5 minutes). Add your own API key to continue.")
+                   "Free-model limit reached (#{FreeModelThrottle::LIMIT} requests per #{FreeModelThrottle::WINDOW / 60} minutes). Add your own API key to continue.")
     end
 
     it "reports the limit on the anonymous branch" do

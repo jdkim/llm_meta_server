@@ -32,6 +32,15 @@ RSpec.describe FreeModelThrottle do
     expect { call }.to raise_error(described_class::Exceeded, /Add your own API key/)
   end
 
+  # The advertised rate is a policy, not an implementation detail: the visitor
+  # is told what the ceiling is, so the numbers in the message must be the
+  # numbers actually enforced.
+  it "tells the caller the rate it enforces" do
+    described_class::LIMIT.times { call }
+
+    expect { call }.to raise_error(described_class::Exceeded, /15 requests per 5 minutes/)
+  end
+
   it "never throttles a caller paying with their own key" do
     (described_class::LIMIT + 5).times do
       expect { call(llm_api_key: double("LlmApiKey")) }.not_to raise_error
@@ -49,7 +58,7 @@ RSpec.describe FreeModelThrottle do
     allow(LlmModelMap).to receive(:free_access_model?).with(other).and_return(true)
 
     (described_class::LIMIT - 1).times { call }
-    expect { call(model_id: other) }.not_to raise_error   # the 30th, different model
+    expect { call(model_id: other) }.not_to raise_error   # the last one, different model
     expect { call(model_id: other) }.to raise_error(described_class::Exceeded)
   end
 

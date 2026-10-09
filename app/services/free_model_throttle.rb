@@ -18,7 +18,7 @@
 module FreeModelThrottle
   Exceeded = Class.new(StandardError)
 
-  LIMIT  = Integer(ENV.fetch("FREE_MODEL_RATE_LIMIT", 30))
+  LIMIT  = Integer(ENV.fetch("FREE_MODEL_RATE_LIMIT", 15))
   WINDOW = Integer(ENV.fetch("FREE_MODEL_RATE_WINDOW_SECONDS", 300))
 
   # Raises Exceeded when this caller has used up the window.
