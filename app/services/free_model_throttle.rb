@@ -18,6 +18,18 @@
 module FreeModelThrottle
   Exceeded = Class.new(StandardError)
 
+  # COUNTED PER PUMA WORKER, NOT PER SERVER. Production runs :memory_store,
+  # which lives inside one process, so every worker keeps its own bucket and
+  # the real ceiling is LIMIT x worker count. 15 here is deliberate: two
+  # workers make the intended ~30 per origin per window.
+  #
+  # So the effective limit moves if the worker count changes — four workers
+  # would quietly allow 60. A shared store (solid_cache, or a counter table)
+  # would make LIMIT mean exactly what it says; that is the fix if the number
+  # ever has to be exact.
+  #
+  # `bump` below notices a store that CANNOT count and logs loudly. It cannot
+  # notice a store that counts per process, which fails just as quietly.
   LIMIT  = Integer(ENV.fetch("FREE_MODEL_RATE_LIMIT", 15))
   WINDOW = Integer(ENV.fetch("FREE_MODEL_RATE_WINDOW_SECONDS", 300))
 
