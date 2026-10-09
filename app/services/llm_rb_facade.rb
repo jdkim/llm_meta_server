@@ -183,7 +183,7 @@ module LlmRbFacade
                                            messages: messages, prompt: effective_prompt,
                                            tools: native, sink: sink)
             session = LLM::Session.new llm, model: model_id, tools: native, **chat_params
-            seed_session_messages!(session, messages)
+            seed_session_messages!(session, messages, llm: llm)
             response = with_context_overflow(model_id, window) do
               session.chat effective_prompt, stream: sink
             end
@@ -198,7 +198,7 @@ module LlmRbFacade
                                            messages: messages, prompt: effective_prompt,
                                            sink: sink)
             session = LLM::Session.new llm, model: model_id, **chat_params
-            seed_session_messages!(session, messages)
+            seed_session_messages!(session, messages, llm: llm)
             # Controller already emitted "thinking" at the top. The model may
             # still think for a while before emitting content; the client flips
             # the indicator to "streaming" on the first content delta.
@@ -395,7 +395,7 @@ module LlmRbFacade
       history_msgs, input_msgs = split_history_from_current_input(messages)
 
       session = LLM::Session.new(llm, model: model_id, tools: tools, **generation_params)
-      seed_session_messages!(session, history_msgs) if history_msgs.any?
+      seed_session_messages!(session, history_msgs, llm: llm) if history_msgs.any?
       # Calls already present in the seeded history — the browser has run
       # them. extract_tool_calls walks every assistant message in the session
       # (in order, oldest first), so without this the next turn reported them
@@ -702,8 +702,8 @@ module LlmRbFacade
     # role-tagged conversation history — instead of the historical
     # "concatenate everything into one user string" packaging that made
     # models re-execute the previous prompt's task instead of the new one.
-    def seed_session_messages!(session, messages)
-      objs = messages_to_llm_objects(messages)
+    def seed_session_messages!(session, messages, llm: nil)
+      objs = messages_to_llm_objects(messages, llm: llm)
       return if objs.empty?
       session.messages.concat objs
     end
@@ -718,7 +718,7 @@ module LlmRbFacade
     # own record of what it just requested and confuses the follow-up.
     # tool_calls ride in the LLM::Message `extra` bag under `:tool_calls`,
     # which is where llm.rb's Session#extract_tool_calls looks for them.
-    def messages_to_llm_objects(messages)
+    def messages_to_llm_objects(messages, llm: nil)
       return [] if messages.nil? || (messages.respond_to?(:empty?) && messages.empty?)
       Array(messages).filter_map do |m|
         h = m.respond_to?(:to_h) ? m.to_h : m
@@ -730,9 +730,60 @@ module LlmRbFacade
         # drop all other empty-content messages as noise.
         next if content.empty? && !(role == "assistant" && tool_calls.is_a?(Array) && tool_calls.any?)
 
-        extra = tool_calls.is_a?(Array) && tool_calls.any? ? { tool_calls: tool_calls } : {}
+        extra = if tool_calls.is_a?(Array) && tool_calls.any?
+                  { tool_calls: tool_calls,
+                    original_tool_calls: native_tool_calls(tool_calls, llm) }.compact
+        else
+                  {}
+        end
         LLM::Message.new(role, content, extra)
       end
+    end
+
+    # llm.rb re-sends a PRIOR tool call from extra[:original_tool_calls], and
+    # each provider's request adapter expects its OWN native shape there:
+    # OpenAI sends it as `tool_calls:`, Anthropic as `content:`, Gemini as
+    # `parts:`. `extra[:tool_calls]` is llm.rb's normalised form and is only
+    # read back out by our own code, never sent.
+    #
+    # We seed history from the client's wire shape, so this key has to be
+    # synthesised. Without it the OpenAI adapter still takes the tool-call
+    # branch — Message#tool_call? reads the normalised key — and emits
+    # `content: nil, tool_calls: nil`: an EMPTY assistant turn. The model then
+    # sees a tool result it has no record of requesting and calls the tool
+    # again, round after round, until the budget runs out. Seen on Bedrock with
+    # gpt-oss on 2026-10-10; qwen on Ollama tolerated the same history because
+    # only the OpenAI family reads this key.
+    #
+    # Only the OpenAI family is synthesised here, since that is the one a
+    # client-orchestrated round-trip runs on. Anthropic and Gemini would each
+    # need their own shape before this flow is pointed at them.
+    def native_tool_calls(calls, llm)
+      return nil unless openai_shaped?(llm)
+
+      native = Array(calls).filter_map { |c| openai_tool_call(c) }
+      native.presence
+    end
+
+    def openai_shaped?(llm)
+      llm.is_a?(LLM::OpenAI)
+    end
+
+    # OpenAI's wire shape, where `arguments` is a JSON STRING, not an object.
+    # Returns nil when the call carries no id: the matching tool result is sent
+    # with that same id as `tool_call_id`, and a pair the provider cannot match
+    # is rejected outright. Better to leave the key unset — the old behaviour —
+    # than to invent an id that lines up with nothing.
+    def openai_tool_call(call)
+      h    = call.respond_to?(:to_h) ? call.to_h : call
+      id   = (h[:id]   || h["id"]).presence
+      name = (h[:name] || h["name"]).to_s
+      return nil if id.nil? || name.empty?
+
+      args = h[:arguments] || h["arguments"]
+      { "id" => id, "type" => "function",
+        "function" => { "name" => name,
+                        "arguments" => args.is_a?(String) ? args : JSON.generate(args.as_json || {}) } }
     end
 
     # Anthropic's API rejects role:"system" messages inline in `messages:`; the
@@ -1010,7 +1061,7 @@ module LlmRbFacade
       estimated = preflight_context!(model_id, window, generation_params,
                                      messages: messages, prompt: prompt)
       bot = LLM::Session.new llm, model: model_id, **generation_params
-      seed_session_messages!(bot, messages)
+      seed_session_messages!(bot, messages, llm: llm)
       messages_ret = with_context_overflow(model_id, window) { bot.chat prompt }
       # No sink on the non-streaming path — the log line is the only signal.
       detect_truncation!(model_id, window, messages_ret, estimated, nil)
@@ -1024,7 +1075,7 @@ module LlmRbFacade
       estimated = preflight_context!(model_id, window, generation_params,
                                      messages: messages, prompt: prompt, tools: tools)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
-      seed_session_messages!(session, messages)
+      seed_session_messages!(session, messages, llm: llm)
       response = with_context_overflow(model_id, window) { session.chat prompt }
       detect_truncation!(model_id, window, response, estimated, nil)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
@@ -1203,7 +1254,7 @@ module LlmRbFacade
                                      messages: messages, prompt: prompt,
                                      tools: tools, sink: sink)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
-      seed_session_messages!(session, messages)
+      seed_session_messages!(session, messages, llm: llm)
       response = with_context_overflow(model_id, window) do
         session.chat prompt, stream: false # turn 1: explicitly non-streamed
       end
