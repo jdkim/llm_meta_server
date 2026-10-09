@@ -215,15 +215,17 @@ ollama:
     api_id: medgemma1.5:4b
     display_name: medgemma1.5:4b
     supports_vision: true
+    free_access: true
     defaults:
       options:
         num_ctx: 32768
         num_predict: 8192
   qwen3-8-27b:
     api_id: qwen3.8:27b
-    display_name: qwen3.8:27b
+    display_name: qwen3.8:27b (experimental)
     supports_vision: true
     supports_tools: true
+    free_access: true
     defaults:
       options:
         num_ctx: 262144
@@ -232,12 +234,26 @@ ollama:
   # Same Ollama model as qwen3-8-27b, with thinking disabled. `think` is a per-request flag, not a load-time option, so both entries share one loaded instance — provided their options stay identical.
   qwen3-8-27b-fast:
     api_id: qwen3.8:27b
-    display_name: qwen3.8:27b-fast
+    display_name: qwen3.8:27b-nothink (experimental)
     supports_vision: true
     supports_tools: true
+    free_access: true
     defaults:
       think: false
       options:
         num_ctx: 262144
         num_predict: 32768
         repeat_penalty: 1.10
+
+bedrock:
+  # Bedrock ap-northeast-1. Text-only (inputModalities: TEXT). Tool use verified 2026-10-08 via Converse (stopReason: tool_use); the OpenAI-compatible Chat Completions path AIbranch uses is not separately verified.
+  gpt-oss-120b:
+    api_id: openai.gpt-oss-120b-1:0
+    display_name: gpt-oss-120b
+    supports_tools: true
+    free_access: true
+    pricing:
+      input: 0.18
+      output: 0.73
+      reviewed_at: 2026-10-08
+      source: aws pricing api (standard tier)
