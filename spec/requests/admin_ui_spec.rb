@@ -705,4 +705,143 @@ RSpec.describe "Admin service-management UI", type: :request do
       expect(response.body).to include("someone-elses").and include(other.email)
     end
   end
+
+  describe "adding a provider family" do
+    it "creates a servable family that has no row yet" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "bedrock" } }
+        .to change { Llm.exists?(family: "bedrock") }.from(false).to(true)
+
+      # Same naming the seeder would give it, so the two paths agree.
+      expect(Llm.find_by(family: "bedrock").name).to eq("Bedrock")
+      expect(response).to redirect_to(admin_models_path)
+    end
+
+    it "refuses a provider the server has no client for" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "deepinfra" } }
+        .not_to change(Llm, :count)
+      expect(flash[:alert]).to be_present
+    end
+
+    it "refuses a family that already exists, rather than duplicating it" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "openai" } }
+        .not_to change(Llm, :count)
+      # Refused by the guard, not by the uniqueness validation raising: the
+      # operator gets a message, not a 500.
+      expect(response).to redirect_to(admin_models_path)
+      expect(flash[:alert]).to be_present
+    end
+
+    it "refuses a blank provider" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "" } }.not_to change(Llm, :count)
+      expect(response).to redirect_to(admin_models_path)
+      expect(flash[:alert]).to be_present
+    end
+
+    it "404s for a signed-in non-super-user" do
+      allow(User).to receive(:super_user_emails).and_return([])
+      sign_in other
+
+      expect { post admin_families_path, params: { family: "bedrock" } }
+        .not_to change(Llm, :count)
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it "stops offering a family once it has a row" do
+      expect(Llm.addable_families).to include("bedrock")
+
+      Llm.create!(family: "bedrock", name: "Bedrock")
+
+      expect(Llm.addable_families).not_to include("bedrock")
+    end
+
+    it "offers ollama, which needs no API key and so is absent from LLM_SERVICES" do
+      Llm.find_by(family: "ollama").destroy!
+
+      expect(Llm.addable_families).to include("ollama")
+    end
+
+    it "never offers a provider the server has no client for" do
+      expect(Llm.addable_families).not_to include("deepinfra")
+    end
+
+    it "normalises the submitted provider, so stray case or whitespace still match" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "  BEDROCK  " } }
+        .to change { Llm.exists?(family: "bedrock") }.from(false).to(true)
+    end
+
+    it "names the new provider in the confirmation, since it starts empty" do
+      as_super_user
+
+      post admin_families_path, params: { family: "bedrock" }
+
+      # The exact wording is deliberately not pinned; that it names the
+      # provider is what tells the operator which card to fill next.
+      expect(flash[:notice]).to include("bedrock")
+    end
+
+    it "click-path: add provider -> its own Add model link -> a live model under it" do
+      as_super_user
+
+      post admin_families_path, params: { family: "bedrock" }
+
+      get admin_models_path
+      expect(response.body).to include(new_admin_model_path(provider: "bedrock"))
+
+      bedrock = Llm.find_by(family: "bedrock")
+      expect {
+        post admin_models_path, params: { llm_model: {
+          llm_id: bedrock.id, name: "gpt-oss-120b", api_id: "openai.gpt-oss-120b-1:0",
+          display_name: "gpt-oss-120b", supports_tools: "1", active: "1",
+          # Bedrock bills, so chargeable_models_must_be_priced applies — an
+          # empty price would be refused. Ollama models are the free case.
+          pricing_json: '{"input":0.18,"output":0.73,"reviewed_at":"2026-10-08"}',
+          defaults_json: "{}"
+        } }
+      }.to change { bedrock.llm_models.count }.by(1)
+
+      # The whole point of the feature: a provider added in the UI is usable
+      # without a reseed and without a restart.
+      expect(LlmModelMap.catalog.dig("bedrock", "gpt-oss-120b", :api_id))
+        .to eq("openai.gpt-oss-120b-1:0")
+    end
+
+    it "offers only providers that can be added, never one already present" do
+      as_super_user
+
+      get admin_models_path
+
+      # Scoped to this form: the page has other selects, so a body-wide match
+      # would pass on one of those instead.
+      options = Nokogiri::HTML(response.body)
+                        .css(%(form[action="#{admin_families_path}"] select option))
+                        .map { |o| o["value"] }
+
+      expect(options).to include("bedrock")
+      Llm.pluck(:family).each do |existing|
+        expect(options).not_to(include(existing), "offers #{existing}, which create would refuse")
+      end
+    end
+
+    it "renders the form only while something is addable" do
+      as_super_user
+
+      get admin_models_path
+      expect(response.body).to include("Add provider")
+
+      Llm.addable_families.each { |f| Llm.create!(family: f, name: f.capitalize) }
+
+      get admin_models_path
+      expect(response.body).not_to include("Add provider")
+    end
+  end
 end

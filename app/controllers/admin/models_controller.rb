@@ -8,6 +8,7 @@ module Admin
 
     def index
       @families = Llm.order(:family).includes(:llm_models)
+      @addable_families = Llm.addable_families
       @validation = ModelCatalogValidator.validate
       @pricing_due = ModelPricingReview.due
       @checks = ModelCatalogCheck.latest_per_provider

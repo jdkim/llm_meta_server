@@ -148,6 +148,19 @@
     </div>
   <% end %>
 
+  <% if @addable_families.any? %>
+    <div class="bg-white shadow-sm border border-gray-200 rounded-md p-4 mb-4">
+      <%= form_with url: admin_families_path, method: :post, class: "flex items-center gap-2" do |f| %>
+        <%= f.label :family, "Add provider", class: "text-sm font-semibold text-gray-700" %>
+        <%= f.select :family, @addable_families, {}, class: "text-sm border-gray-300 rounded-md" %>
+        <%= f.submit "Add", class: "text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 cursor-pointer" %>
+      <% end %>
+      <p class="text-xs text-gray-500 mt-2">
+        Only providers this server has a client for. A new provider starts empty — add its models next.
+      </p>
+    </div>
+  <% end %>
+
   <% @families.each do |llm| %>
     <div class="bg-white shadow-sm border border-gray-200 rounded-md p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
