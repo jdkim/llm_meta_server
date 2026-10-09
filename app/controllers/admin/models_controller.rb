@@ -4,7 +4,7 @@ module Admin
   # Catalog management. The catalog lives in llm_models now, so edits here take
   # effect on the next request — no file edit, no deploy, no restart.
   class ModelsController < BaseController
-    before_action :set_model, only: %i[edit update destroy toggle_active mark_reviewed apply_reference_price]
+    before_action :set_model, only: %i[edit update destroy toggle_active toggle_free_access mark_reviewed apply_reference_price]
 
     def index
       @families = Llm.order(:family).includes(:llm_models)
@@ -117,6 +117,16 @@ module Admin
       LlmModelMap.reload!
       redirect_to admin_models_path,
                   notice: "#{@model.display_name} is now #{@model.active? ? 'available' : 'hidden'}"
+    end
+
+    # Mirrors toggle_active. free_access was previously reachable only through
+    # the edit form, which made it easy to tick and never save — the flag has
+    # no presence in the list, unlike `active` with its Hide/Show button.
+    def toggle_free_access
+      @model.update!(free_access: !@model.free_access?)
+      LlmModelMap.reload!
+      redirect_to admin_models_path,
+                  notice: "#{@model.display_name} is #{@model.free_access? ? 'now free to keyless callers' : 'no longer free'}"
     end
 
     def mark_reviewed

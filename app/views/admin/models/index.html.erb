@@ -205,6 +205,10 @@
                   <i class="fa-solid fa-screwdriver-wrench text-gray-300"
                      title="Supports tool calling, but this server cannot route tools to it (Responses-only model)"></i>
                 <% end %>
+                <% if m.free_access? %>
+                  <i class="fa-solid fa-unlock text-green-600 ml-1.5"
+                     title="Free access — served from the house key to callers with no API key"></i>
+                <% end %>
               </td>
               <td class="py-1.5 pr-3 text-gray-600 text-xs">
                 <% if m.image? %>
@@ -227,6 +231,9 @@
               <td class="py-1.5 text-right whitespace-nowrap">
                 <%= link_to "Edit", edit_admin_model_path(m), class: "text-xs text-blue-700 hover:underline mr-2" %>
                 <%= button_to (m.active? ? "Hide" : "Show"), toggle_active_admin_model_path(m),
+                      method: :patch, class: "text-xs text-gray-600 hover:underline inline mr-2" %>
+                <%= button_to (m.free_access? ? "Remove free" : "Make free"),
+                      toggle_free_access_admin_model_path(m),
                       method: :patch, class: "text-xs text-gray-600 hover:underline inline mr-2" %>
                 <%= button_to "Delete", admin_model_path(m), method: :delete,
                       form: { data: { turbo_confirm: "Delete #{m.display_name} permanently? Hiding it keeps the entry and its pricing, and can be undone. Note that \"Reset from YAML\" would restore this model unless it is removed from config/llm_models.yml too." } },

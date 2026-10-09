@@ -709,6 +709,88 @@ RSpec.describe "Admin service-management UI", type: :request do
   describe "marking a model free for keyless callers" do
     let(:openai) { Llm.find_by(family: "openai") }
 
+    it "toggles the flag on from the list, with no form to submit" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      patch toggle_free_access_admin_model_path(model)
+
+      expect(model.reload.free_access).to be(true)
+      expect(response).to redirect_to(admin_models_path)
+    end
+
+    it "toggles the flag back off" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        free_access: true, pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      patch toggle_free_access_admin_model_path(model)
+
+      expect(model.reload.free_access).to be(false)
+    end
+
+    it "makes the change live in the catalog at once, like the active toggle" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+      LlmModelMap.reload!
+      expect(LlmModelMap.catalog.dig("openai", "togglable", :free_access)).to be(false)
+
+      patch toggle_free_access_admin_model_path(model)
+
+      expect(LlmModelMap.catalog.dig("openai", "togglable", :free_access)).to be(true)
+    end
+
+    it "marks a free model in the list, so the flag needs no form to see" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        free_access: true, pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      get admin_models_path
+      # Scoped to this model's row: a page-wide match would pass on another
+      # model's marker.
+      row = Nokogiri::HTML(response.body).css("tr").find { |tr| tr.text.include?("Togglable") }
+      expect(row.css("i.fa-unlock")).not_to be_empty
+
+      model.update!(free_access: false)
+
+      get admin_models_path
+      row = Nokogiri::HTML(response.body).css("tr").find { |tr| tr.text.include?("Togglable") }
+      expect(row.css("i.fa-unlock")).to be_empty
+    end
+
+    it "offers the toggle in the list, so the flag is not edit-form-only" do
+      as_super_user
+      openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      get admin_models_path
+
+      forms = Nokogiri::HTML(response.body).css("form").map { |f| f["action"] }.compact
+      expect(forms).to include(a_string_matching(%r{/toggle_free_access}))
+    end
+
+    it "404s for a non-super-user" do
+      allow(User).to receive(:super_user_emails).and_return([])
+      sign_in other
+      model = Llm.find_by(family: "openai").llm_models.first
+
+      expect { patch toggle_free_access_admin_model_path(model) }
+        .not_to change { model.reload.free_access }
+      expect(response).to have_http_status(:not_found)
+    end
+
     it "offers the checkbox on the form" do
       as_super_user
 

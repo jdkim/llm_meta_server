@@ -33,6 +33,7 @@ Rails.application.routes.draw do
     resources :models, only: [ :index, :new, :create, :edit, :update, :destroy ] do
       member do
         patch :toggle_active
+        patch :toggle_free_access
         patch :mark_reviewed
       end
       member do
