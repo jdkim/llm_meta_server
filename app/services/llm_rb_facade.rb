@@ -178,7 +178,7 @@ module LlmRbFacade
             # Native-only (e.g. Gemini grounding / url_context): provider-side
             # tools, no function round-trip — stream the grounded answer directly.
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
-            window    = context_window(chat_params)
+            window    = context_window(model_id, chat_params)
             estimated = preflight_context!(model_id, window, chat_params,
                                            messages: messages, prompt: effective_prompt,
                                            tools: native, sink: sink)
@@ -193,7 +193,7 @@ module LlmRbFacade
             InlineReasoning.strip(response.choices[-1]&.content || "", model_id)
           else
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
-            window    = context_window(chat_params)
+            window    = context_window(model_id, chat_params)
             estimated = preflight_context!(model_id, window, chat_params,
                                            messages: messages, prompt: effective_prompt,
                                            sink: sink)
@@ -506,16 +506,27 @@ module LlmRbFacade
       response.choices[-1]&.content.to_s.strip.empty?
     end
 
-    # num_ctx as configured for this turn, or 0 when the provider has no such
-    # notion (the hosted APIs manage their own window).
-    def context_window(generation_params)
+    # The window to size this turn against: Ollama's `num_ctx` as configured
+    # for the request, else the model's own context window from the catalog.
+    #
+    # num_ctx comes first because it is what Ollama was actually told to use,
+    # which may be smaller than the model could manage. For a hosted model
+    # there is no such option, and this used to return 0 — which switched off
+    # the pre-flight check, the truncation detection AND the overflow message
+    # below, so a visitor saw the provider's own words instead. 0 still means
+    # "unknown", and everything keyed to it still stands down.
+    def context_window(model_id, generation_params)
       opts = (generation_params || {})[:options] || (generation_params || {})["options"] || {}
-      (opts[:num_ctx] || opts["num_ctx"]).to_i
+      configured = (opts[:num_ctx] || opts["num_ctx"]).to_i
+      return configured if configured.positive?
+
+      LlmModelMap.max_input_tokens_for(model_id).to_i
     end
 
     def context_overflow_message(model_id, window, needed: nil)
       about = needed ? " (about #{needed} needed)" : ""
-      "The conversation and tool results no longer fit in #{model_id}'s context " \
+      shown = LlmModelMap.display_id_for(model_id)
+      "The conversation and tool results no longer fit in #{shown}'s context " \
       "window of #{window} tokens#{about}. Select fewer tools, start a new chat, " \
       "or choose a model with a larger window."
     end
@@ -1077,7 +1088,7 @@ module LlmRbFacade
 
     def execute_chat!(llm, model_id, prompt, generation_params, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
-      window    = context_window(generation_params)
+      window    = context_window(model_id, generation_params)
       estimated = preflight_context!(model_id, window, generation_params,
                                      messages: messages, prompt: prompt)
       bot = LLM::Session.new llm, model: model_id, **generation_params
@@ -1091,7 +1102,7 @@ module LlmRbFacade
 
     def execute_chat_with_tools!(llm, model_id, prompt, tools, generation_params, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
-      window    = context_window(generation_params)
+      window    = context_window(model_id, generation_params)
       estimated = preflight_context!(model_id, window, generation_params,
                                      messages: messages, prompt: prompt, tools: tools)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
@@ -1223,7 +1234,21 @@ module LlmRbFacade
     # front-truncation never reaches. Overflow is normally silent (HTTP 200,
     # done_reason "stop"); `preflight_context!` and `detect_truncation!` are
     # what actually catch it.
-    CONTEXT_OVERFLOW_SIGNATURE = /no user query found in messages/i
+    # Ollama's symptom and the hosted providers'. Ollama trims the oldest
+    # messages to fit num_ctx and then rejects its own trimmed array, which
+    # reads as a broken request rather than a sizing one. A hosted API says so
+    # directly instead — Bedrock answered "Input length (157358) exceeds
+    # model's maximum context length (131072)" — and that phrasing was not
+    # matched here, so the raw provider text reached the visitor.
+    CONTEXT_OVERFLOW_SIGNATURE = Regexp.union(
+      /no user query found in messages/i,
+      /exceeds[^.]*maximum context length/i,
+      /maximum context length/i,
+      /context[ _]length[^.]*exceeded/i,
+      /too many (?:input )?tokens/i,
+      /input is too long/i,
+      /prompt is too long/i
+    )
 
     # Warn once the prompt alone occupies this much of the window: there is
     # little room left for tool results or an answer.
@@ -1266,7 +1291,7 @@ module LlmRbFacade
 
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
-      window  = context_window(generation_params)
+      window  = context_window(model_id, generation_params)
       # Turn 1 carries the whole seeded history plus every tool schema, and
       # until now nothing sized it — `guard_context!` only ran from round 2.
       # This is the turn a long conversation actually overflows on.

@@ -16,6 +16,12 @@ RSpec.describe CatalogExporter do
       name: "zeta-1", api_id: "zeta.1", display_name: "Zeta One",
       supports_vision: true, supports_tools: true, responses_only: true, free_access: true,
       endpoint: "responses", released_on: Date.new(2026, 7, 9),
+      # Set so the every-column comparison below actually exercises it. That
+      # comparison is only as good as this fixture: with no window here, a
+      # column the exporter drops or the seeder ignores reads as nil == nil and
+      # the round trip "passes". That is how max_input_tokens could be added to
+      # neither and break nothing (2026-10-16).
+      max_input_tokens: 128_000,
       defaults: { "reasoning" => { "summary" => "auto" } },
       pricing: { "input" => 4.0, "output" => 20.0, "reviewed_at" => "2026-09-04", "verified" => false },
       notes: "Why this model is configured this way.\nSecond line.", position: 0

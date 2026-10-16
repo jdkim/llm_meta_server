@@ -196,6 +196,10 @@ class LlmModel < ApplicationRecord
       kind: kind.presence&.to_sym,
       endpoint: endpoint.presence,
       released_on: released_on,
+      # The model's context window, when known. A local model carries its own in
+      # `defaults.options.num_ctx`; a hosted one has no such option, so the figure
+      # is stored on its own and read by LlmRbFacade's pre-flight check.
+      max_input_tokens: max_input_tokens,
       # `.presence` so an empty jsonb column reads as absent, exactly as a
       # missing YAML key used to — CostCalculator distinguishes nil (unpriced,
       # e.g. Ollama) from a pricing hash and would KeyError on {}.

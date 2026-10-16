@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_08_122507) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_16_103012) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -52,6 +52,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_122507) do
     t.boolean "free_access", default: false, null: false
     t.text "kind"
     t.bigint "llm_id"
+    t.integer "max_input_tokens"
     t.text "name"
     t.text "notes"
     t.integer "position", default: 0, null: false

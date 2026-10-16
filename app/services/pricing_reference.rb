@@ -25,7 +25,8 @@ class PricingReference
 
   class FetchError < StandardError; end
 
-  Quote = Struct.new(:input, :output, :per_image, :released_on, :sources, :agree, keyword_init: true) do
+  Quote = Struct.new(:input, :output, :per_image, :released_on, :sources, :agree,
+                       :max_input_tokens, keyword_init: true) do
     def image? = per_image.present?
 
     # Image models bill per generated image, not per token, so they carry a
@@ -59,7 +60,8 @@ class PricingReference
       released = h[:released_on]
       released = (Date.parse(released) rescue nil) if released.is_a?(String)
       Quote.new(input: h[:input], output: h[:output], per_image: h[:per_image],
-                released_on: released, sources: Array(h[:sources]), agree: h[:agree] == true)
+                released_on: released, sources: Array(h[:sources]), agree: h[:agree] == true,
+                          max_input_tokens: h[:max_input_tokens])
     end
 
     # Compares the live catalog against the reference.
@@ -115,6 +117,30 @@ class PricingReference
         m.update_column(:released_on, q.released_on)
         filled += 1
       end
+
+      filled
+    end
+
+    # Same shape as the release-date backfill above, for the same reason: the
+    # column arrived after the models did, and a window is only read from the
+    # reference when a model is saved. Without this, every model already in
+    # the catalog keeps a nil window — and a nil window is what switched the
+    # pre-flight check off in the first place.
+    #
+    # `where(max_input_tokens: nil)` so an operator's own figure is never
+    # replaced. Note the reference can be slightly conservative: LiteLLM
+    # reports 128000 for a model whose provider rejected a request at 131072.
+    # Erring low is the safe direction for a pre-flight check.
+    def backfill_max_input_tokens!
+      filled = 0
+      ref = raw_table
+      LlmModel.where(max_input_tokens: nil).includes(:llm).find_each do |m|
+        q = quote_from(ref[m.api_id])
+        next if q&.max_input_tokens.to_i.zero?
+
+        m.update_column(:max_input_tokens, q.max_input_tokens)
+        filled += 1
+      end
       filled
     end
 
@@ -132,7 +158,11 @@ class PricingReference
         [ id, { "input" => primary[:input], "output" => primary[:output],
                 "per_image" => primary[:per_image],
                 "released_on" => released&.iso8601,
-                "sources" => sources, "agree" => agree.present? } ]
+                "sources" => sources, "agree" => agree.present?,
+                # Only LiteLLM publishes a window today. Named explicitly like every
+                # other key here — an extracted field that is not listed in this hash
+                # never reaches the cache, which is why this took two edits.
+                "max_input_tokens" => (l || {})[:max_input_tokens] || (o || {})[:max_input_tokens] } ]
       end
     rescue StandardError => e
       raise FetchError, "#{e.class}: #{e.message}"
@@ -152,6 +182,13 @@ class PricingReference
         elsif m["input_cost_per_token"] && m["output_cost_per_token"]
           acc[id] = { input: (m["input_cost_per_token"].to_f * 1_000_000).round(4),
                       output: (m["output_cost_per_token"].to_f * 1_000_000).round(4) }
+        end
+
+        # The same file carries each model's context window, and the hub had no
+        # other source for a hosted model's — so it read 0 and every protection
+        # keyed to the window stood down. Kept whether or not the entry priced.
+        if m["max_input_tokens"].to_i.positive?
+          (acc[id] ||= {})[:max_input_tokens] = m["max_input_tokens"].to_i
         end
       end
     end

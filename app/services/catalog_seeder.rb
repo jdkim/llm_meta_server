@@ -48,6 +48,7 @@ class CatalogSeeder
           defaults: attrs["defaults"] || {},
           pricing: stringify_dates(attrs["pricing"] || {}),
           released_on: attrs["released_on"],
+          max_input_tokens: attrs["max_input_tokens"],
           notes: notes[[ family, meta_id ]],
           position: index,
           active: true

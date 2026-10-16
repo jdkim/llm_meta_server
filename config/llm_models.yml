@@ -21,6 +21,7 @@
 #     kind:           <string>   # `image` for image-generation models.
 #     endpoint:       <string>   # `responses` routes OpenAI through llm.responses.create.
 #     released_on:    <date>     # Provider's release date, when known.
+#     max_input_tokens: <int>   # Context window, when known.
 #     defaults:       <hash>     # Per-request kwargs merged UNDER user params.
 #     pricing:                   # REQUIRED for chargeable models (not ollama, not kind: image).
 #       input:      <float>      # USD per 1M input tokens.
@@ -38,6 +39,7 @@ openai:
     supports_tools: true
     endpoint: responses
     released_on: 2026-07-09
+    max_input_tokens: 922000
     defaults:
       reasoning:
         summary: detailed
@@ -54,6 +56,7 @@ openai:
     supports_tools: true
     endpoint: responses
     released_on: 2026-07-09
+    max_input_tokens: 922000
     defaults:
       reasoning:
         summary: detailed
@@ -70,6 +73,7 @@ openai:
     supports_tools: true
     endpoint: responses
     released_on: 2026-07-09
+    max_input_tokens: 922000
     defaults:
       reasoning:
         summary: detailed
@@ -96,6 +100,7 @@ anthropic:
     display_name: Claude Fable 5.1
     supports_vision: true
     supports_tools: true
+    max_input_tokens: 1000000
     pricing:
       input: 10.00
       output: 50.00
@@ -108,6 +113,7 @@ anthropic:
     supports_vision: true
     supports_tools: true
     released_on: 2026-07-24
+    max_input_tokens: 1000000
     pricing:
       input: 5.00
       output: 25.00
@@ -121,6 +127,7 @@ anthropic:
     display_name: Claude Sonnet 5
     supports_vision: true
     supports_tools: true
+    max_input_tokens: 1000000
     defaults:
       thinking:
         type: adaptive
@@ -139,6 +146,7 @@ anthropic:
     display_name: Claude Haiku 4.5
     supports_vision: true
     supports_tools: true
+    max_input_tokens: 200000
     pricing:
       input: 1.00
       output: 5.00
@@ -151,6 +159,7 @@ google:
     display_name: Gemini 3.1 Pro
     supports_vision: true
     supports_tools: true
+    max_input_tokens: 1048576
     pricing:
       input: 2.00
       output: 12.00
@@ -160,6 +169,7 @@ google:
     display_name: Gemini 3.5 Flash
     supports_vision: true
     supports_tools: true
+    max_input_tokens: 1048576
     pricing:
       input: 1.50
       output: 9.00
@@ -169,6 +179,7 @@ google:
     display_name: Gemini 3.1 Flash-Lite
     supports_vision: true
     supports_tools: true
+    max_input_tokens: 1048576
     pricing:
       input: 0.25
       output: 1.50
@@ -179,6 +190,7 @@ google:
     display_name: Gemini 3 Pro Image (Nano Banana Pro)
     supports_vision: true
     kind: image
+    max_input_tokens: 65536
     pricing:
       per_image: 0.134
       reviewed_at: 2026-07-21
@@ -190,6 +202,7 @@ google:
     display_name: Gemini 3.1 Flash Image (Nano Banana 2)
     supports_vision: true
     kind: image
+    max_input_tokens: 65536
     pricing:
       per_image: 0.067
       reviewed_at: 2026-07-21
@@ -199,6 +212,7 @@ google:
     supports_vision: true
     kind: image
     released_on: 2026-06-30
+    max_input_tokens: 65536
     pricing:
       per_image: 0.0336
       reviewed_at: 2026-09-04
@@ -252,6 +266,7 @@ bedrock:
     display_name: gpt-oss-120b
     supports_tools: true
     free_access: true
+    max_input_tokens: 128000
     pricing:
       input: 0.18
       output: 0.73

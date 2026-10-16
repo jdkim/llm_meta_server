@@ -449,4 +449,61 @@ RSpec.describe LlmModelMap do
       expect(described_class.fetch!("qwen3-6-35b")).to eq(LlmModelMap.catalog["ollama"]["qwen3-6-35b"][:api_id])
     end
   end
+  # The hub knew a LOCAL model's window (the catalog's options.num_ctx) and
+  # nothing about a hosted one, so LlmRbFacade#context_window returned 0 — and
+  # with a zero window the pre-flight check, the truncation detection and the
+  # overflow message all stood down. A visitor saw the provider's own words
+  # instead: "Input length (157358) exceeds model's maximum context length
+  # (131072)". Reported from a TogoMCP session on 2026-10-16.
+  describe ".max_input_tokens_for" do
+    let(:hosted) { LlmModel.active.joins(:llm).where.not(llms: { family: "ollama" }).first }
+
+    before { described_class.reload! }
+
+    it "answers by api_id, which is what the facade holds" do
+      hosted.update!(max_input_tokens: 128_000)
+      described_class.reload!
+
+      expect(described_class.max_input_tokens_for(hosted.api_id)).to eq(128_000)
+    end
+
+    it "does not answer by meta_id, which the facade never passes" do
+      hosted.update!(max_input_tokens: 128_000)
+      described_class.reload!
+
+      # The controller resolves name -> api_id before the facade is called, so a
+      # lookup keyed on the meta_id would silently never match.
+      expect(described_class.max_input_tokens_for(hosted.name)).to be_nil if hosted.name != hosted.api_id
+    end
+
+    it "is nil when the catalog does not know the window" do
+      hosted.update!(max_input_tokens: nil)
+      described_class.reload!
+
+      expect(described_class.max_input_tokens_for(hosted.api_id)).to be_nil
+    end
+
+    it "treats a zero as unknown rather than as a real window" do
+      hosted.update!(max_input_tokens: 0)
+      described_class.reload!
+
+      expect(described_class.max_input_tokens_for(hosted.api_id)).to be_nil
+    end
+  end
+
+  # The overflow notice is read by a visitor, so it names the model the picker
+  # shows rather than the provider's internal id.
+  describe ".display_id_for" do
+    let(:hosted) { LlmModel.active.joins(:llm).where.not(llms: { family: "ollama" }).first }
+
+    before { described_class.reload! }
+
+    it "gives the meta_id for a provider api_id" do
+      expect(described_class.display_id_for(hosted.api_id)).to eq(hosted.name)
+    end
+
+    it "falls back to what it was given, rather than an empty space in a sentence" do
+      expect(described_class.display_id_for("not-in-the-catalog")).to eq("not-in-the-catalog")
+    end
+  end
 end

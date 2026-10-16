@@ -195,4 +195,75 @@ RSpec.describe PricingReference do
       expect(model.reload.released_on).to eq(Date.new(2020, 1, 1))
     end
   end
+  # The hub already downloaded every model's context window — LiteLLM's file is
+  # called model_prices_and_context_window.json — and kept only the prices. The
+  # field had to be added in THREE places before it reached a model: the
+  # extraction, the row built for the cache, and the Quote built on read. Each
+  # of those enumerates its keys, so a field missing from any one of them is
+  # dropped in silence.
+  describe "a model's context window" do
+    let(:litellm_body) do
+      {
+        "some-hosted-model" => { "input_cost_per_token" => 0.000001,
+                                 "output_cost_per_token" => 0.000002,
+                                 "max_input_tokens" => 128_000 },
+        "window-but-no-price" => { "max_input_tokens" => 200_000 }
+      }.to_json
+    end
+
+    before do
+      allow(described_class).to receive(:get).with(described_class::LITELLM_URL).and_return(litellm_body)
+      allow(described_class).to receive(:fetch_openrouter).and_return({})
+      Rails.cache.delete(described_class::CACHE_KEY)
+    end
+
+    it "carries the window all the way through to a quote" do
+      quote = described_class.for("some-hosted-model", refresh: true)
+
+      expect(quote.max_input_tokens).to eq(128_000)
+    end
+
+    it "keeps a window for a model the file does not price" do
+      # Otherwise a free or unlisted hosted model stays windowless, which is
+      # the state that switched the pre-flight check off.
+      quote = described_class.for("window-but-no-price", refresh: true)
+
+      expect(quote&.max_input_tokens).to eq(200_000)
+    end
+
+    it "leaves the window nil when the reference has none" do
+      allow(described_class).to receive(:get).and_return({ "plain" => { "input_cost_per_token" => 1.0e-06,
+                                                                        "output_cost_per_token" => 2.0e-06 } }.to_json)
+
+      expect(described_class.for("plain", refresh: true).max_input_tokens).to be_nil
+    end
+  end
+
+  describe ".backfill_max_input_tokens!" do
+    let(:model) { LlmModel.active.joins(:llm).where.not(llms: { family: "ollama" }).first }
+
+    before do
+      allow(described_class).to receive(:get).and_return(
+        { model.api_id => { "input_cost_per_token" => 1.0e-06, "output_cost_per_token" => 2.0e-06,
+                            "max_input_tokens" => 128_000 } }.to_json
+      )
+      allow(described_class).to receive(:fetch_openrouter).and_return({})
+      Rails.cache.delete(described_class::CACHE_KEY)
+      described_class.raw_table(refresh: true)
+    end
+
+    it "fills a model that has no window" do
+      model.update!(max_input_tokens: nil)
+
+      expect { described_class.backfill_max_input_tokens! }
+        .to change { model.reload.max_input_tokens }.from(nil).to(128_000)
+    end
+
+    it "never overwrites a window an operator set" do
+      model.update!(max_input_tokens: 64_000)
+
+      expect { described_class.backfill_max_input_tokens! }
+        .not_to change { model.reload.max_input_tokens }
+    end
+  end
 end

@@ -1595,4 +1595,98 @@ RSpec.describe LlmRbFacade do
       expect(session).to have_received(:chat).with("hi", stream: sink)
     end
   end
+  # Everything that keeps a turn inside the model's window is keyed to
+  # #context_window, and for a hosted model it used to return 0 — so the
+  # pre-flight check, the truncation detection and the overflow message were
+  # all switched off on the path that most needed them. A TogoMCP session
+  # reached 157,358 tokens against a 131,072-token model and the visitor was
+  # shown the provider's own error text (2026-10-16).
+  describe "sizing a turn against the model's window" do
+    let(:hosted) { LlmModel.active.joins(:llm).where.not(llms: { family: "ollama" }).first }
+
+    before do
+      hosted.update!(max_input_tokens: 128_000)
+      LlmModelMap.reload!
+    end
+
+    it "prefers the num_ctx configured for this request" do
+      # What Ollama was actually told to use, which may be smaller than the
+      # model could manage.
+      window = described_class.send(:context_window, hosted.api_id, { options: { num_ctx: 32_768 } })
+
+      expect(window).to eq(32_768)
+    end
+
+    it "falls back to the catalog's window when there is no num_ctx" do
+      expect(described_class.send(:context_window, hosted.api_id, {})).to eq(128_000)
+    end
+
+    it "still reports zero for a model whose window nobody knows" do
+      hosted.update!(max_input_tokens: nil)
+      LlmModelMap.reload!
+
+      expect(described_class.send(:context_window, hosted.api_id, {})).to eq(0)
+    end
+
+    it "refuses a turn that cannot fit, before the provider is called" do
+      huge = [ { role: "tool", content: "x" * 600_000 } ]
+
+      expect {
+        described_class.send(:preflight_context!, hosted.api_id, 128_000, {},
+                             messages: huge, prompt: "and now answer")
+      }.to raise_error(LlmRbFacade::ContextOverflowError, /no longer fit/)
+    end
+
+    it "names the model the picker shows, not the provider's internal id" do
+      huge = [ { role: "tool", content: "x" * 600_000 } ]
+
+      expect {
+        described_class.send(:preflight_context!, hosted.api_id, 128_000, {},
+                             messages: huge, prompt: "answer")
+      }.to raise_error(/#{Regexp.escape(hosted.name)}/)
+    end
+
+    it "lets a turn that fits through untouched" do
+      small = [ { role: "user", content: "hello" } ]
+
+      expect {
+        described_class.send(:preflight_context!, hosted.api_id, 128_000, {},
+                             messages: small, prompt: "hello")
+      }.not_to raise_error
+    end
+  end
+
+  # The signature is how a provider's own wording gets translated into the
+  # message above. It knew Ollama's symptom only, so Bedrock's phrasing passed
+  # straight through to the visitor.
+  describe "recognising a provider's overflow" do
+    # Drives the translation itself rather than the pattern behind it: what
+    # matters is that a provider's wording becomes our message, and the
+    # constant lives in the singleton class where a spec has no business
+    # reaching.
+    def matches?(text)
+      described_class.send(:with_context_overflow, "any-model", 128_000) { raise LLM::Error, text }
+      false
+    rescue LlmRbFacade::ContextOverflowError
+      true
+    rescue LLM::Error
+      false
+    end
+
+    it "recognises what Bedrock actually said" do
+      expect(matches?(%q{message: "Input length (157358) exceeds model's maximum context length (131072)."})).to be(true)
+    end
+
+    it "still recognises Ollama's symptom" do
+      # Ollama trims the oldest messages to fit num_ctx, then rejects its own
+      # trimmed array — which reads as a broken request, not a sizing one.
+      expect(matches?("no user query found in messages")).to be(true)
+    end
+
+    it "does not mistake unrelated failures for an overflow" do
+      expect(matches?("rate limit exceeded")).to be(false)
+      expect(matches?("Bad gateway (ES)")).to be(false)
+      expect(matches?("upstream connect error")).to be(false)
+    end
+  end
 end

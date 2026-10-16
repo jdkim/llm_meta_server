@@ -36,6 +36,7 @@ class CatalogExporter
     #     kind:           <string>   # `image` for image-generation models.
     #     endpoint:       <string>   # `responses` routes OpenAI through llm.responses.create.
     #     released_on:    <date>     # Provider's release date, when known.
+    #     max_input_tokens: <int>   # Context window, when known.
     #     defaults:       <hash>     # Per-request kwargs merged UNDER user params.
     #     pricing:                   # REQUIRED for chargeable models (not ollama, not kind: image).
     #       input:      <float>      # USD per 1M input tokens.
@@ -107,6 +108,10 @@ class CatalogExporter
     lines << "    kind: #{scalar(model.kind)}"             if model.kind.present?
     lines << "    endpoint: #{scalar(model.endpoint)}"     if model.endpoint.present?
     lines << "    released_on: #{model.released_on.iso8601}" if model.released_on.present?
+    # The window the pre-flight check sizes a turn against. Exported because a
+    # catalog that loses it reseeds a model with no window, which is exactly
+    # the state that let an overflow reach a visitor as a provider error.
+    lines << "    max_input_tokens: #{model.max_input_tokens}" if model.max_input_tokens.present?
 
     if model.defaults.present?
       lines << "    defaults:"

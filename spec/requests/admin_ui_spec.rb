@@ -52,6 +52,45 @@ RSpec.describe "Admin service-management UI", type: :request do
       expect(LlmModelMap.catalog.dig("openai", "gpt-9-test", :api_id)).to eq("gpt-9-test")
     end
 
+    # A hosted model with no window leaves LlmRbFacade#context_window at 0, which
+    # switches off the pre-flight check, the truncation detection and the overflow
+    # message — so an overflow reaches the visitor as the provider's own error
+    # text. The reference already knows the number, so a model saved here takes it.
+    it "pre-fills the context window from the public reference" do
+      as_super_user
+      Rails.cache.clear
+      stub_request(:get, PricingReference::LITELLM_URL).to_return(status: 200, body: {
+        "gpt-9-window" => { "input_cost_per_token" => 1.0e-06, "output_cost_per_token" => 2.0e-06,
+                            "max_input_tokens" => 128_000 }
+      }.to_json)
+      stub_request(:get, PricingReference::OPENROUTER_URL).to_return(status: 200, body: { "data" => [] }.to_json)
+
+      # The form is where the figure enters: `new` pre-fills from the reference
+      # and the operator only confirms it. Nothing fills it on create, so an
+      # existing model needs PricingReference.backfill_max_input_tokens!.
+      get new_admin_model_path(provider: "openai", api_id: "gpt-9-window")
+
+      expect(response.body).to include("128000")
+    end
+
+    it "leaves a window an operator typed in alone" do
+      as_super_user
+      Rails.cache.clear
+      stub_request(:get, PricingReference::LITELLM_URL).to_return(status: 200, body: {
+        "gpt-9-mine" => { "input_cost_per_token" => 1.0e-06, "output_cost_per_token" => 2.0e-06,
+                          "max_input_tokens" => 128_000 }
+      }.to_json)
+      stub_request(:get, PricingReference::OPENROUTER_URL).to_return(status: 200, body: { "data" => [] }.to_json)
+
+      post admin_models_path, params: { llm_model: {
+        llm_id: llm.id, name: "gpt-9-mine", api_id: "gpt-9-mine", display_name: "GPT 9 Mine",
+        supports_tools: "1", active: "1", max_input_tokens: "64000",
+        pricing_json: '{"input":1.0,"output":2.0,"reviewed_at":"2026-09-02"}', defaults_json: "{}"
+      } }
+
+      expect(LlmModel.find_by(api_id: "gpt-9-mine").max_input_tokens).to eq(64_000)
+    end
+
     it "rejects a meta_id that is not URL-safe rather than corrupting routes" do
       as_super_user
 

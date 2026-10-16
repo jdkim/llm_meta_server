@@ -138,6 +138,36 @@ class LlmModelMap
     catalog.fetch("ollama", {}).each_value.any? { |m| m[:api_id] == model_id }
   end
 
+  # The name a person chose this model by, given the provider's own id. For
+  # messages a visitor reads: an overflow notice naming
+  # "openai.gpt-oss-120b-1:0" tells them nothing, while "gpt-oss-120b" is
+  # what the picker calls it. Falls back to the api_id, which is better than
+  # an empty space in a sentence.
+  def self.display_id_for(model_id)
+    catalog.each_value do |family|
+      family.each do |meta_id, m|
+        return meta_id if m[:api_id] == model_id
+      end
+    end
+    model_id
+  end
+
+  # The model's context window in tokens, or nil when the catalog does not
+  # know it. Matched on api_id, like the predicates below, because the facade
+  # works with the provider's own identifier rather than the meta_id.
+  #
+  # A local model's window lives in `defaults.options.num_ctx` instead, and
+  # the facade prefers that when present: it is what Ollama was actually told
+  # to use for this request, rather than what the model could do.
+  def self.max_input_tokens_for(model_id)
+    catalog.each_value do |family|
+      family.each_value do |m|
+        return m[:max_input_tokens] if m[:api_id] == model_id && m[:max_input_tokens].to_i.positive?
+      end
+    end
+    nil
+  end
+
   # May this model be called WITHOUT a user-supplied API key?
   #
   # Deliberately NOT the same question as ollama_model?, which is about where
