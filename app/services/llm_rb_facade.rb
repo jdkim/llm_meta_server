@@ -584,13 +584,28 @@ module LlmRbFacade
     # answer invented from the surviving tail. Nothing downstream can detect
     # that after the fact, so the only real defence is counting first.
 
+    # Three classes, because one ratio cannot describe both prose and a tool
+    # result. Letters and spaces tokenize at roughly 3.5 characters each;
+    # digits, punctuation and symbols tokenize far denser, and a JSON tool
+    # result is mostly those.
+    #
+    # Measured against a real refusal (2026-10-17): a 289,101-character request
+    # that the provider counted as 135,291 tokens was 33% letters, 16% digits
+    # and 45% punctuation. Treating all of it as prose estimated 82,664 tokens
+    # — 61% of the truth — so the request sailed through the pre-flight check
+    # and the provider refused it instead, which is the failure this check
+    # exists to prevent. The classes below put that same request at 106% of its
+    # real size: high, which is the safe direction for a budget.
     def estimate_tokens(text)
       return 0 if text.nil?
 
       str   = text.to_s
       cjk   = str.count(CJK_RANGES)
-      latin = str.length - cjk
-      (cjk / CJK_CHARS_PER_TOKEN + latin / ESTIMATE_CHARS_PER_TOKEN).ceil
+      prose = str.count("A-Za-z \n\t")
+      dense = str.length - cjk - prose
+      (cjk / CJK_CHARS_PER_TOKEN +
+        prose / ESTIMATE_CHARS_PER_TOKEN +
+        dense / DENSE_CHARS_PER_TOKEN).ceil
     end
 
     def estimate_messages_tokens(messages)
@@ -1267,6 +1282,11 @@ module LlmRbFacade
     # Counting Japanese at the Latin rate under-counts by ~2.6x — the one
     # direction that matters, because it waves an overflowing prompt through.
     # 1.0 keeps the estimate conservative on the measured 1.34.
+    # Digits, punctuation and symbols — what a JSON tool result is made of.
+    # Erring high here is deliberate: underestimating hands the refusal to the
+    # provider, where the visitor sees its raw 400 instead of our message.
+    DENSE_CHARS_PER_TOKEN = 1.6
+
     CJK_CHARS_PER_TOKEN = 1.0
 
     # Hiragana, katakana, CJK punctuation, unified ideographs (+ ext A),

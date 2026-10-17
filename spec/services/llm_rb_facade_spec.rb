@@ -1,6 +1,44 @@
 require 'rails_helper'
 
 RSpec.describe LlmRbFacade do
+  # The pre-flight check is only as good as the count behind it. A real
+  # refusal (2026-10-17) went straight past it: 289,101 characters the
+  # provider counted as 135,291 tokens, estimated at 82,664 because every
+  # character was priced as prose. The visitor saw the provider's raw 400
+  # instead of our message.
+  describe "estimate_tokens" do
+    # 33% letters, 6% spaces, 16% digits, 45% punctuation — that request's
+    # measured composition, in a 100-character unit.
+    def sample_of(length)
+      unit = ("a" * 33) + (" " * 6) + ("0" * 16) + ('{"":,}[]()<>-_.:;/|@#$%^&*+=~?!' + "'" + '\\`{}[](),.:;"')
+      raise "unit is #{unit.length} chars, not 100" unless unit.length == 100
+      (unit * ((length / 100.0).ceil))[0, length]
+    end
+
+    it "does not underestimate a request made of tool results" do
+      estimate = LlmRbFacade.send(:estimate_tokens, sample_of(289_101))
+
+      expect(estimate).to be >= 135_291
+      expect(estimate).to be <= (135_291 * 1.3)
+    end
+
+    it "prices a tool result far denser than prose" do
+      prose = "the quick brown fox jumps over the lazy dog " * 100
+      json  = '{"rsID":"rs28929474","pos":94378610,"ref":"C","alt":"T"},' * 80
+
+      prose_ratio = prose.length.to_f / LlmRbFacade.send(:estimate_tokens, prose)
+      json_ratio  = json.length.to_f / LlmRbFacade.send(:estimate_tokens, json)
+
+      expect(prose_ratio).to be > 3
+      expect(json_ratio).to be < 2.2
+    end
+
+    it "still counts CJK at about one token per character" do
+      text = "変異" * 500
+
+      expect(LlmRbFacade.send(:estimate_tokens, text)).to be_within(100).of(1000)
+    end
+  end
   let(:llm_client) { instance_double("LLM::Provider") }
   let(:session) { instance_double("LLM::Session") }
   let(:messages) { instance_double("Messages", choices: [ choice ], body: nil) }
