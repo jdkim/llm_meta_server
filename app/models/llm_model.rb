@@ -165,7 +165,11 @@ class LlmModel < ApplicationRecord
       supports_tools: tool_capable?,
       kind: kind.to_s.presence,
       active: active?,
-      free_access: free_access?
+      free_access: free_access?,
+      # So a client can size a turn against the real window instead of a fixed
+      # guess. nil when unknown, which a client must read as "no budget to work
+      # with" rather than as zero.
+      max_input_tokens: max_input_tokens
     }
   end
 

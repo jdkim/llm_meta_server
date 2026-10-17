@@ -88,6 +88,12 @@ class LlmModelMap
         "free_access" => value[:free_access] == true,
         "supports_vision" => value[:supports_vision] == true,
         "supports_tools" => tool_capable?(value),
+        # The window, for a client that sizes its own request. A local model has
+        # no column for it — its window is whatever num_ctx the catalog asks
+        # Ollama for — and that is the case where the window is SMALLEST and
+        # overflows first, so report it rather than leaving the client blind.
+        # Compacted away below when neither is known.
+        "max_input_tokens" => value[:max_input_tokens] || num_ctx_for(value),
         # `kind` is only emitted for image-gen models — the frontend
         # treats its absence as "regular chat model".
         "kind" => value[:kind].to_s.presence,
@@ -150,6 +156,14 @@ class LlmModelMap
       end
     end
     model_id
+  end
+
+  # What num_ctx the catalog asks Ollama for, which IS a local model's
+  # window. Nil for a hosted model, whose defaults carry no num_ctx.
+  def self.num_ctx_for(entry)
+    options = (entry[:defaults] || {})[:options] || (entry[:defaults] || {})["options"] || {}
+    value = options[:num_ctx] || options["num_ctx"]
+    value.to_i.positive? ? value.to_i : nil
   end
 
   # The model's context window in tokens, or nil when the catalog does not
