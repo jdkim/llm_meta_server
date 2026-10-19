@@ -164,7 +164,12 @@ class LlmModel < ApplicationRecord
       supports_vision: supports_vision?,
       supports_tools: tool_capable?,
       kind: kind.to_s.presence,
-      active: active?
+      active: active?,
+      free_access: free_access?,
+      # So a client can size a turn against the real window instead of a fixed
+      # guess. nil when unknown, which a client must read as "no budget to work
+      # with" rather than as zero.
+      max_input_tokens: max_input_tokens
     }
   end
 
@@ -191,9 +196,14 @@ class LlmModel < ApplicationRecord
       supports_vision: supports_vision?,
       supports_tools: supports_tools?,
       responses_only: responses_only?,
+      free_access: free_access?,
       kind: kind.presence&.to_sym,
       endpoint: endpoint.presence,
       released_on: released_on,
+      # The model's context window, when known. A local model carries its own in
+      # `defaults.options.num_ctx`; a hosted one has no such option, so the figure
+      # is stored on its own and read by LlmRbFacade's pre-flight check.
+      max_input_tokens: max_input_tokens,
       # `.presence` so an empty jsonb column reads as absent, exactly as a
       # missing YAML key used to — CostCalculator distinguishes nil (unpriced,
       # e.g. Ollama) from a pricing hash and would KeyError on {}.

@@ -29,9 +29,11 @@ Rails.application.routes.draw do
 
   # Service management for super_users. See Admin::BaseController.
   namespace :admin do
+    resources :families, only: [ :create ]
     resources :models, only: [ :index, :new, :create, :edit, :update, :destroy ] do
       member do
         patch :toggle_active
+        patch :toggle_free_access
         patch :mark_reviewed
       end
       member do

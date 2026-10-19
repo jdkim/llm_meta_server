@@ -52,6 +52,45 @@ RSpec.describe "Admin service-management UI", type: :request do
       expect(LlmModelMap.catalog.dig("openai", "gpt-9-test", :api_id)).to eq("gpt-9-test")
     end
 
+    # A hosted model with no window leaves LlmRbFacade#context_window at 0, which
+    # switches off the pre-flight check, the truncation detection and the overflow
+    # message — so an overflow reaches the visitor as the provider's own error
+    # text. The reference already knows the number, so a model saved here takes it.
+    it "pre-fills the context window from the public reference" do
+      as_super_user
+      Rails.cache.clear
+      stub_request(:get, PricingReference::LITELLM_URL).to_return(status: 200, body: {
+        "gpt-9-window" => { "input_cost_per_token" => 1.0e-06, "output_cost_per_token" => 2.0e-06,
+                            "max_input_tokens" => 128_000 }
+      }.to_json)
+      stub_request(:get, PricingReference::OPENROUTER_URL).to_return(status: 200, body: { "data" => [] }.to_json)
+
+      # The form is where the figure enters: `new` pre-fills from the reference
+      # and the operator only confirms it. Nothing fills it on create, so an
+      # existing model needs PricingReference.backfill_max_input_tokens!.
+      get new_admin_model_path(provider: "openai", api_id: "gpt-9-window")
+
+      expect(response.body).to include("128000")
+    end
+
+    it "leaves a window an operator typed in alone" do
+      as_super_user
+      Rails.cache.clear
+      stub_request(:get, PricingReference::LITELLM_URL).to_return(status: 200, body: {
+        "gpt-9-mine" => { "input_cost_per_token" => 1.0e-06, "output_cost_per_token" => 2.0e-06,
+                          "max_input_tokens" => 128_000 }
+      }.to_json)
+      stub_request(:get, PricingReference::OPENROUTER_URL).to_return(status: 200, body: { "data" => [] }.to_json)
+
+      post admin_models_path, params: { llm_model: {
+        llm_id: llm.id, name: "gpt-9-mine", api_id: "gpt-9-mine", display_name: "GPT 9 Mine",
+        supports_tools: "1", active: "1", max_input_tokens: "64000",
+        pricing_json: '{"input":1.0,"output":2.0,"reviewed_at":"2026-09-02"}', defaults_json: "{}"
+      } }
+
+      expect(LlmModel.find_by(api_id: "gpt-9-mine").max_input_tokens).to eq(64_000)
+    end
+
     it "rejects a meta_id that is not URL-safe rather than corrupting routes" do
       as_super_user
 
@@ -703,6 +742,269 @@ RSpec.describe "Admin service-management UI", type: :request do
       get admin_mcp_servers_path
 
       expect(response.body).to include("someone-elses").and include(other.email)
+    end
+  end
+
+  describe "marking a model free for keyless callers" do
+    let(:openai) { Llm.find_by(family: "openai") }
+
+    it "toggles the flag on from the list, with no form to submit" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      patch toggle_free_access_admin_model_path(model)
+
+      expect(model.reload.free_access).to be(true)
+      expect(response).to redirect_to(admin_models_path)
+    end
+
+    it "toggles the flag back off" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        free_access: true, pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      patch toggle_free_access_admin_model_path(model)
+
+      expect(model.reload.free_access).to be(false)
+    end
+
+    it "makes the change live in the catalog at once, like the active toggle" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+      LlmModelMap.reload!
+      expect(LlmModelMap.catalog.dig("openai", "togglable", :free_access)).to be(false)
+
+      patch toggle_free_access_admin_model_path(model)
+
+      expect(LlmModelMap.catalog.dig("openai", "togglable", :free_access)).to be(true)
+    end
+
+    it "marks a free model in the list, so the flag needs no form to see" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        free_access: true, pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      get admin_models_path
+      # Scoped to this model's row: a page-wide match would pass on another
+      # model's marker.
+      row = Nokogiri::HTML(response.body).css("tr").find { |tr| tr.text.include?("Togglable") }
+      expect(row.css("i.fa-unlock")).not_to be_empty
+
+      model.update!(free_access: false)
+
+      get admin_models_path
+      row = Nokogiri::HTML(response.body).css("tr").find { |tr| tr.text.include?("Togglable") }
+      expect(row.css("i.fa-unlock")).to be_empty
+    end
+
+    it "offers the toggle in the list, so the flag is not edit-form-only" do
+      as_super_user
+      openai.llm_models.create!(
+        name: "togglable", api_id: "openai.togglable", display_name: "Togglable",
+        pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      get admin_models_path
+
+      forms = Nokogiri::HTML(response.body).css("form").map { |f| f["action"] }.compact
+      expect(forms).to include(a_string_matching(%r{/toggle_free_access}))
+    end
+
+    it "404s for a non-super-user" do
+      allow(User).to receive(:super_user_emails).and_return([])
+      sign_in other
+      model = Llm.find_by(family: "openai").llm_models.first
+
+      expect { patch toggle_free_access_admin_model_path(model) }
+        .not_to change { model.reload.free_access }
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it "offers the checkbox on the form" do
+      as_super_user
+
+      get new_admin_model_path(provider: "openai")
+
+      field = Nokogiri::HTML(response.body).css(%(input[name="llm_model[free_access]"]))
+      expect(field).not_to be_empty
+    end
+
+    it "flags a chargeable model as free, and the catalog says so" do
+      as_super_user
+
+      post admin_models_path, params: { llm_model: {
+        llm_id: openai.id, name: "free-one", api_id: "openai.free-one",
+        display_name: "Free One", active: "1", free_access: "1",
+        pricing_json: %({"input":1.0,"output":2.0}), defaults_json: "{}"
+      } }
+
+      created = openai.llm_models.find_by(name: "free-one")
+      expect(created.free_access).to be(true)
+      # What the keyless path reads to decide whether to use the house key.
+      expect(LlmModelMap.catalog.dig("openai", "free-one", :free_access)).to be(true)
+    end
+
+    it "clears the flag when the box is unticked" do
+      as_super_user
+      model = openai.llm_models.create!(
+        name: "was-free", api_id: "openai.was-free", display_name: "Was Free",
+        free_access: true, pricing: { "input" => 1.0, "output" => 2.0 }
+      )
+
+      patch admin_model_path(model), params: { llm_model: { free_access: "0" } }
+
+      expect(model.reload.free_access).to be(false)
+      # A partial update must not wipe the price it did not submit.
+      expect(model.pricing["input"]).to eq(1.0)
+    end
+  end
+
+  describe "adding a provider family" do
+    it "creates a servable family that has no row yet" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "bedrock" } }
+        .to change { Llm.exists?(family: "bedrock") }.from(false).to(true)
+
+      # Same naming the seeder would give it, so the two paths agree.
+      expect(Llm.find_by(family: "bedrock").name).to eq("Bedrock")
+      expect(response).to redirect_to(admin_models_path)
+    end
+
+    it "refuses a provider the server has no client for" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "deepinfra" } }
+        .not_to change(Llm, :count)
+      expect(flash[:alert]).to be_present
+    end
+
+    it "refuses a family that already exists, rather than duplicating it" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "openai" } }
+        .not_to change(Llm, :count)
+      # Refused by the guard, not by the uniqueness validation raising: the
+      # operator gets a message, not a 500.
+      expect(response).to redirect_to(admin_models_path)
+      expect(flash[:alert]).to be_present
+    end
+
+    it "refuses a blank provider" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "" } }.not_to change(Llm, :count)
+      expect(response).to redirect_to(admin_models_path)
+      expect(flash[:alert]).to be_present
+    end
+
+    it "404s for a signed-in non-super-user" do
+      allow(User).to receive(:super_user_emails).and_return([])
+      sign_in other
+
+      expect { post admin_families_path, params: { family: "bedrock" } }
+        .not_to change(Llm, :count)
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it "stops offering a family once it has a row" do
+      expect(Llm.addable_families).to include("bedrock")
+
+      Llm.create!(family: "bedrock", name: "Bedrock")
+
+      expect(Llm.addable_families).not_to include("bedrock")
+    end
+
+    it "offers ollama, which needs no API key and so is absent from LLM_SERVICES" do
+      Llm.find_by(family: "ollama").destroy!
+
+      expect(Llm.addable_families).to include("ollama")
+    end
+
+    it "never offers a provider the server has no client for" do
+      expect(Llm.addable_families).not_to include("deepinfra")
+    end
+
+    it "normalises the submitted provider, so stray case or whitespace still match" do
+      as_super_user
+
+      expect { post admin_families_path, params: { family: "  BEDROCK  " } }
+        .to change { Llm.exists?(family: "bedrock") }.from(false).to(true)
+    end
+
+    it "names the new provider in the confirmation, since it starts empty" do
+      as_super_user
+
+      post admin_families_path, params: { family: "bedrock" }
+
+      # The exact wording is deliberately not pinned; that it names the
+      # provider is what tells the operator which card to fill next.
+      expect(flash[:notice]).to include("bedrock")
+    end
+
+    it "click-path: add provider -> its own Add model link -> a live model under it" do
+      as_super_user
+
+      post admin_families_path, params: { family: "bedrock" }
+
+      get admin_models_path
+      expect(response.body).to include(new_admin_model_path(provider: "bedrock"))
+
+      bedrock = Llm.find_by(family: "bedrock")
+      expect {
+        post admin_models_path, params: { llm_model: {
+          llm_id: bedrock.id, name: "gpt-oss-120b", api_id: "openai.gpt-oss-120b-1:0",
+          display_name: "gpt-oss-120b", supports_tools: "1", active: "1",
+          # Bedrock bills, so chargeable_models_must_be_priced applies — an
+          # empty price would be refused. Ollama models are the free case.
+          pricing_json: '{"input":0.18,"output":0.73,"reviewed_at":"2026-10-08"}',
+          defaults_json: "{}"
+        } }
+      }.to change { bedrock.llm_models.count }.by(1)
+
+      # The whole point of the feature: a provider added in the UI is usable
+      # without a reseed and without a restart.
+      expect(LlmModelMap.catalog.dig("bedrock", "gpt-oss-120b", :api_id))
+        .to eq("openai.gpt-oss-120b-1:0")
+    end
+
+    it "offers only providers that can be added, never one already present" do
+      as_super_user
+
+      get admin_models_path
+
+      # Scoped to this form: the page has other selects, so a body-wide match
+      # would pass on one of those instead.
+      options = Nokogiri::HTML(response.body)
+                        .css(%(form[action="#{admin_families_path}"] select option))
+                        .map { |o| o["value"] }
+
+      expect(options).to include("bedrock")
+      Llm.pluck(:family).each do |existing|
+        expect(options).not_to(include(existing), "offers #{existing}, which create would refuse")
+      end
+    end
+
+    it "renders the form only while something is addable" do
+      as_super_user
+
+      get admin_models_path
+      expect(response.body).to include("Add provider")
+
+      Llm.addable_families.each { |f| Llm.create!(family: f, name: f.capitalize) }
+
+      get admin_models_path
+      expect(response.body).not_to include("Add provider")
     end
   end
 end

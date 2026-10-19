@@ -2,6 +2,10 @@
 require "rubygems"
 require "bundler/setup"
 
-ARGV.unshift("--ensure-latest")
+# Rails generates this binstub with `ARGV.unshift("--ensure-latest")`, which
+# makes Brakeman exit 5 — failing CI — whenever it publishes a release, with
+# no bearing on this code. Known gem vulnerabilities are bundler-audit's job,
+# and that step runs after this one in the same CI job, so a staleness failure
+# here silently skipped the scan that actually matters.
 
 load Gem.bin_path("brakeman", "brakeman")

@@ -23,6 +23,21 @@ class Llm < ApplicationRecord
   end
 
   class << self
+    # Families this server can actually serve: those LlmApiKey knows how to
+    # build a client for, plus Ollama, which needs no key. Derived rather than
+    # listed so that wiring up a new provider in code makes it appear in the
+    # admin UI, with no second list to remember.
+    def servable_families
+      (LlmApiKey::LLM_SERVICES.keys + [ "ollama" ]).uniq.sort
+    end
+
+    # Servable families with no row yet — the only ones worth offering. A name
+    # outside this set would save fine and then fail at request time, when the
+    # facade has no client to build for it.
+    def addable_families
+      servable_families - pluck(:family)
+    end
+
     def all_services_with_ollama(user: nil)
       # Get all registered LLM services except Ollama (handled separately below)
       registered_llms = Llm.includes(:llm_models).where.not(family: "ollama").map(&:as_json)

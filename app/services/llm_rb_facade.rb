@@ -95,6 +95,7 @@ module LlmRbFacade
     def stream!(model_id, prompt, sink:, llm_api_key: nil, tools: [], generation_params: {}, on_tool_calls: nil, on_phase_change: nil, image: nil, images: nil, document: nil, messages: nil, endpoint: "chat_completions")
       validate_arguments! model_id, prompt, llm_api_key
       sink = TurnBudgetSink.new(sink, seconds: turn_budget_for(model_id)) unless sink.is_a?(TurnBudgetSink)
+      sink = InlineReasoning.wrap(sink, model_id)
       generation_params = apply_provider_defaults(generation_params, llm_api_key)
 
       llm = create_llm_client llm_api_key, model_id
@@ -106,6 +107,8 @@ module LlmRbFacade
                              tools:, generation_params:, on_tool_calls:, on_phase_change:,
                              messages:, endpoint:)
       ensure
+        # A partial tag held back by the splitter would otherwise never appear.
+        sink.flush! if sink.respond_to?(:flush!)
         # Logged whatever happened — a turn that raised is exactly when you
         # want to know how far it got.
         Rails.logger.info(
@@ -175,27 +178,27 @@ module LlmRbFacade
             # Native-only (e.g. Gemini grounding / url_context): provider-side
             # tools, no function round-trip — stream the grounded answer directly.
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
-            window    = context_window(chat_params)
+            window    = context_window(model_id, chat_params)
             estimated = preflight_context!(model_id, window, chat_params,
                                            messages: messages, prompt: effective_prompt,
                                            tools: native, sink: sink)
             session = LLM::Session.new llm, model: model_id, tools: native, **chat_params
-            seed_session_messages!(session, messages)
+            seed_session_messages!(session, messages, llm: llm)
             response = with_context_overflow(model_id, window) do
               session.chat effective_prompt, stream: sink
             end
             detect_truncation!(model_id, window, response, estimated, sink)
             log_finish_diagnostics(response, "native")
             emit_length_cap_notice(response, sink)
-            response.choices[-1]&.content || ""
+            InlineReasoning.strip(response.choices[-1]&.content || "", model_id)
           else
             chat_params, messages = apply_anthropic_system!(chat_params, messages, llm)
-            window    = context_window(chat_params)
+            window    = context_window(model_id, chat_params)
             estimated = preflight_context!(model_id, window, chat_params,
                                            messages: messages, prompt: effective_prompt,
                                            sink: sink)
             session = LLM::Session.new llm, model: model_id, **chat_params
-            seed_session_messages!(session, messages)
+            seed_session_messages!(session, messages, llm: llm)
             # Controller already emitted "thinking" at the top. The model may
             # still think for a while before emitting content; the client flips
             # the indicator to "streaming" on the first content delta.
@@ -204,7 +207,7 @@ module LlmRbFacade
             end
             detect_truncation!(model_id, window, response, estimated, sink)
             emit_length_cap_notice(response, sink)
-            response.choices[-1]&.content || ""
+            InlineReasoning.strip(response.choices[-1]&.content || "", model_id)
           end
         end
       end
@@ -374,7 +377,7 @@ module LlmRbFacade
     def single_llm_turn!(model_id:, messages:, llm_api_key: nil, tools: [], generation_params: {}, sink: nil, on_phase_change: nil)
       raise ArgumentError, "model_id is required" if model_id.blank?
       raise ArgumentError, "messages must contain at least one message" if messages.nil? || messages.empty?
-      if llm_api_key.nil? && !LlmModelMap.ollama_model?(model_id)
+      if llm_api_key.nil? && !LlmModelMap.free_access_model?(model_id)
         raise LlmApiKeyRequiredError, model_id
       end
 
@@ -392,7 +395,7 @@ module LlmRbFacade
       history_msgs, input_msgs = split_history_from_current_input(messages)
 
       session = LLM::Session.new(llm, model: model_id, tools: tools, **generation_params)
-      seed_session_messages!(session, history_msgs) if history_msgs.any?
+      seed_session_messages!(session, history_msgs, llm: llm) if history_msgs.any?
       # Calls already present in the seeded history — the browser has run
       # them. extract_tool_calls walks every assistant message in the session
       # (in order, oldest first), so without this the next turn reported them
@@ -402,11 +405,13 @@ module LlmRbFacade
       input = messages_to_session_input(input_msgs)
 
       on_phase_change&.call("thinking")
+      sink = InlineReasoning.wrap(sink, model_id)
       response = session.chat(input, stream: sink)
+      sink.flush! if sink.respond_to?(:flush!)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
 
       {
-        content: response.choices[-1]&.content || "",
+        content: InlineReasoning.strip(response.choices[-1]&.content || "", model_id),
         tool_calls: session.extract_tool_calls.drop(calls_in_history),
         finish_reason: extract_finish_reason(response)
       }
@@ -501,16 +506,27 @@ module LlmRbFacade
       response.choices[-1]&.content.to_s.strip.empty?
     end
 
-    # num_ctx as configured for this turn, or 0 when the provider has no such
-    # notion (the hosted APIs manage their own window).
-    def context_window(generation_params)
+    # The window to size this turn against: Ollama's `num_ctx` as configured
+    # for the request, else the model's own context window from the catalog.
+    #
+    # num_ctx comes first because it is what Ollama was actually told to use,
+    # which may be smaller than the model could manage. For a hosted model
+    # there is no such option, and this used to return 0 — which switched off
+    # the pre-flight check, the truncation detection AND the overflow message
+    # below, so a visitor saw the provider's own words instead. 0 still means
+    # "unknown", and everything keyed to it still stands down.
+    def context_window(model_id, generation_params)
       opts = (generation_params || {})[:options] || (generation_params || {})["options"] || {}
-      (opts[:num_ctx] || opts["num_ctx"]).to_i
+      configured = (opts[:num_ctx] || opts["num_ctx"]).to_i
+      return configured if configured.positive?
+
+      LlmModelMap.max_input_tokens_for(model_id).to_i
     end
 
     def context_overflow_message(model_id, window, needed: nil)
       about = needed ? " (about #{needed} needed)" : ""
-      "The conversation and tool results no longer fit in #{model_id}'s context " \
+      shown = LlmModelMap.display_id_for(model_id)
+      "The conversation and tool results no longer fit in #{shown}'s context " \
       "window of #{window} tokens#{about}. Select fewer tools, start a new chat, " \
       "or choose a model with a larger window."
     end
@@ -568,13 +584,28 @@ module LlmRbFacade
     # answer invented from the surviving tail. Nothing downstream can detect
     # that after the fact, so the only real defence is counting first.
 
+    # Three classes, because one ratio cannot describe both prose and a tool
+    # result. Letters and spaces tokenize at roughly 3.5 characters each;
+    # digits, punctuation and symbols tokenize far denser, and a JSON tool
+    # result is mostly those.
+    #
+    # Measured against a real refusal (2026-10-17): a 289,101-character request
+    # that the provider counted as 135,291 tokens was 33% letters, 16% digits
+    # and 45% punctuation. Treating all of it as prose estimated 82,664 tokens
+    # — 61% of the truth — so the request sailed through the pre-flight check
+    # and the provider refused it instead, which is the failure this check
+    # exists to prevent. The classes below put that same request at 106% of its
+    # real size: high, which is the safe direction for a budget.
     def estimate_tokens(text)
       return 0 if text.nil?
 
       str   = text.to_s
       cjk   = str.count(CJK_RANGES)
-      latin = str.length - cjk
-      (cjk / CJK_CHARS_PER_TOKEN + latin / ESTIMATE_CHARS_PER_TOKEN).ceil
+      prose = str.count("A-Za-z \n\t")
+      dense = str.length - cjk - prose
+      (cjk / CJK_CHARS_PER_TOKEN +
+        prose / ESTIMATE_CHARS_PER_TOKEN +
+        dense / DENSE_CHARS_PER_TOKEN).ceil
     end
 
     def estimate_messages_tokens(messages)
@@ -697,8 +728,8 @@ module LlmRbFacade
     # role-tagged conversation history — instead of the historical
     # "concatenate everything into one user string" packaging that made
     # models re-execute the previous prompt's task instead of the new one.
-    def seed_session_messages!(session, messages)
-      objs = messages_to_llm_objects(messages)
+    def seed_session_messages!(session, messages, llm: nil)
+      objs = messages_to_llm_objects(messages, llm: llm)
       return if objs.empty?
       session.messages.concat objs
     end
@@ -713,7 +744,7 @@ module LlmRbFacade
     # own record of what it just requested and confuses the follow-up.
     # tool_calls ride in the LLM::Message `extra` bag under `:tool_calls`,
     # which is where llm.rb's Session#extract_tool_calls looks for them.
-    def messages_to_llm_objects(messages)
+    def messages_to_llm_objects(messages, llm: nil)
       return [] if messages.nil? || (messages.respond_to?(:empty?) && messages.empty?)
       Array(messages).filter_map do |m|
         h = m.respond_to?(:to_h) ? m.to_h : m
@@ -725,9 +756,80 @@ module LlmRbFacade
         # drop all other empty-content messages as noise.
         next if content.empty? && !(role == "assistant" && tool_calls.is_a?(Array) && tool_calls.any?)
 
-        extra = tool_calls.is_a?(Array) && tool_calls.any? ? { tool_calls: tool_calls } : {}
+        # A tool result sitting in the MIDDLE of history (the trailing one is
+        # the current input and goes through messages_to_session_input). Every
+        # provider adapter renders a tool result from an LLM::Function::Return
+        # carried as the message CONTENT, and OpenAI requires its
+        # tool_call_id. Seeded as a plain string the id is simply absent and
+        # the provider rejects the whole request:
+        #   Invalid 'messages': missing field `tool_call_id`
+        # This stayed hidden while a bug upstream made the model loop, because
+        # a tool result was then always the last message, never history.
+        if role == "tool"
+          tool_call_id = (h[:tool_call_id] || h["tool_call_id"]).presence
+          # No id means no representable pair. Inventing one would match
+          # nothing, so fall through to the old plain-message behaviour and
+          # let the provider say so rather than lose the result silently.
+          if tool_call_id
+            name = (h[:name] || h["name"]).to_s
+            next LLM::Message.new(role, LLM::Function::Return.new(tool_call_id, name, content), {})
+          end
+        end
+
+        extra = if tool_calls.is_a?(Array) && tool_calls.any?
+                  { tool_calls: tool_calls,
+                    original_tool_calls: native_tool_calls(tool_calls, llm) }.compact
+        else
+                  {}
+        end
         LLM::Message.new(role, content, extra)
       end
+    end
+
+    # llm.rb re-sends a PRIOR tool call from extra[:original_tool_calls], and
+    # each provider's request adapter expects its OWN native shape there:
+    # OpenAI sends it as `tool_calls:`, Anthropic as `content:`, Gemini as
+    # `parts:`. `extra[:tool_calls]` is llm.rb's normalised form and is only
+    # read back out by our own code, never sent.
+    #
+    # We seed history from the client's wire shape, so this key has to be
+    # synthesised. Without it the OpenAI adapter still takes the tool-call
+    # branch — Message#tool_call? reads the normalised key — and emits
+    # `content: nil, tool_calls: nil`: an EMPTY assistant turn. The model then
+    # sees a tool result it has no record of requesting and calls the tool
+    # again, round after round, until the budget runs out. Seen on Bedrock with
+    # gpt-oss on 2026-10-10; qwen on Ollama tolerated the same history because
+    # only the OpenAI family reads this key.
+    #
+    # Only the OpenAI family is synthesised here, since that is the one a
+    # client-orchestrated round-trip runs on. Anthropic and Gemini would each
+    # need their own shape before this flow is pointed at them.
+    def native_tool_calls(calls, llm)
+      return nil unless openai_shaped?(llm)
+
+      native = Array(calls).filter_map { |c| openai_tool_call(c) }
+      native.presence
+    end
+
+    def openai_shaped?(llm)
+      llm.is_a?(LLM::OpenAI)
+    end
+
+    # OpenAI's wire shape, where `arguments` is a JSON STRING, not an object.
+    # Returns nil when the call carries no id: the matching tool result is sent
+    # with that same id as `tool_call_id`, and a pair the provider cannot match
+    # is rejected outright. Better to leave the key unset — the old behaviour —
+    # than to invent an id that lines up with nothing.
+    def openai_tool_call(call)
+      h    = call.respond_to?(:to_h) ? call.to_h : call
+      id   = (h[:id]   || h["id"]).presence
+      name = (h[:name] || h["name"]).to_s
+      return nil if id.nil? || name.empty?
+
+      args = h[:arguments] || h["arguments"]
+      { "id" => id, "type" => "function",
+        "function" => { "name" => name,
+                        "arguments" => args.is_a?(String) ? args : JSON.generate(args.as_json || {}) } }
     end
 
     # Anthropic's API rejects role:"system" messages inline in `messages:`; the
@@ -883,7 +985,7 @@ module LlmRbFacade
       raise ArgumentError, "prompt is required" if prompt.blank?
 
       # API key is required for non-Ollama models
-      if llm_api_key.nil? && !LlmModelMap.ollama_model?(model_id)
+      if llm_api_key.nil? && !LlmModelMap.free_access_model?(model_id)
         raise LlmApiKeyRequiredError, model_id
       end
     end
@@ -961,10 +1063,24 @@ module LlmRbFacade
       if LlmModelMap.ollama_model?(model_id)
         LLM.ollama(**ollama_options)
       else
+        # An anonymous caller reaching here has already passed the free_access
+        # gate, so the server pays with its own key. Without this the nil key
+        # raised NoMethodError here — the gate opened and execution could not
+        # follow.
+        llm_api_key ||= LlmApiKey.house_key if LlmModelMap.free_access_model?(model_id)
+        raise LlmApiKeyRequiredError, model_id if llm_api_key.nil?
+
         llm_rb_method = llm_api_key.llm_rb_method
-        LLM.public_send llm_rb_method,
-          key: llm_api_key.encryptable_api_key.plain_api_key,
-          timeout: provider_read_timeout_for(model_id)
+        key = llm_api_key.encryptable_api_key.plain_api_key
+        timeout = provider_read_timeout_for(model_id)
+
+        # Bedrock has no LLM.bedrock factory: it is our own LLM::OpenAI subclass
+        # with the region host and the /openai/v1 path.
+        if llm_rb_method == :bedrock
+          BedrockClient.new(key: key, timeout: timeout)
+        else
+          LLM.public_send llm_rb_method, key: key, timeout: timeout
+        end
       end
     end
 
@@ -987,11 +1103,11 @@ module LlmRbFacade
 
     def execute_chat!(llm, model_id, prompt, generation_params, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
-      window    = context_window(generation_params)
+      window    = context_window(model_id, generation_params)
       estimated = preflight_context!(model_id, window, generation_params,
                                      messages: messages, prompt: prompt)
       bot = LLM::Session.new llm, model: model_id, **generation_params
-      seed_session_messages!(bot, messages)
+      seed_session_messages!(bot, messages, llm: llm)
       messages_ret = with_context_overflow(model_id, window) { bot.chat prompt }
       # No sink on the non-streaming path — the log line is the only signal.
       detect_truncation!(model_id, window, messages_ret, estimated, nil)
@@ -1001,11 +1117,11 @@ module LlmRbFacade
 
     def execute_chat_with_tools!(llm, model_id, prompt, tools, generation_params, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
-      window    = context_window(generation_params)
+      window    = context_window(model_id, generation_params)
       estimated = preflight_context!(model_id, window, generation_params,
                                      messages: messages, prompt: prompt, tools: tools)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
-      seed_session_messages!(session, messages)
+      seed_session_messages!(session, messages, llm: llm)
       response = with_context_overflow(model_id, window) { session.chat prompt }
       detect_truncation!(model_id, window, response, estimated, nil)
       rehydrate_anthropic_tool_response!(session, response) if session.functions.empty?
@@ -1024,7 +1140,7 @@ module LlmRbFacade
         Rails.logger.info "[LlmRbFacade] after_tools_content=#{response.choices[-1]&.content.inspect}"
       end
 
-      build_response_with_tools(response, session)
+      build_response_with_tools(response, session, model_id)
     end
 
     # Split client-sent messages into (prior-history, current-input). Bundles
@@ -1133,7 +1249,21 @@ module LlmRbFacade
     # front-truncation never reaches. Overflow is normally silent (HTTP 200,
     # done_reason "stop"); `preflight_context!` and `detect_truncation!` are
     # what actually catch it.
-    CONTEXT_OVERFLOW_SIGNATURE = /no user query found in messages/i
+    # Ollama's symptom and the hosted providers'. Ollama trims the oldest
+    # messages to fit num_ctx and then rejects its own trimmed array, which
+    # reads as a broken request rather than a sizing one. A hosted API says so
+    # directly instead — Bedrock answered "Input length (157358) exceeds
+    # model's maximum context length (131072)" — and that phrasing was not
+    # matched here, so the raw provider text reached the visitor.
+    CONTEXT_OVERFLOW_SIGNATURE = Regexp.union(
+      /no user query found in messages/i,
+      /exceeds[^.]*maximum context length/i,
+      /maximum context length/i,
+      /context[ _]length[^.]*exceeded/i,
+      /too many (?:input )?tokens/i,
+      /input is too long/i,
+      /prompt is too long/i
+    )
 
     # Warn once the prompt alone occupies this much of the window: there is
     # little room left for tool results or an answer.
@@ -1152,6 +1282,11 @@ module LlmRbFacade
     # Counting Japanese at the Latin rate under-counts by ~2.6x — the one
     # direction that matters, because it waves an overflowing prompt through.
     # 1.0 keeps the estimate conservative on the measured 1.34.
+    # Digits, punctuation and symbols — what a JSON tool result is made of.
+    # Erring high here is deliberate: underestimating hands the refusal to the
+    # provider, where the visitor sees its raw 400 instead of our message.
+    DENSE_CHARS_PER_TOKEN = 1.6
+
     CJK_CHARS_PER_TOKEN = 1.0
 
     # Hiragana, katakana, CJK punctuation, unified ideographs (+ ext A),
@@ -1176,7 +1311,7 @@ module LlmRbFacade
 
     def stream_chat_with_tools!(llm, model_id, prompt, tools, generation_params, sink, on_tool_calls, on_phase_change, messages: nil)
       generation_params, messages = apply_anthropic_system!(generation_params, messages, llm)
-      window  = context_window(generation_params)
+      window  = context_window(model_id, generation_params)
       # Turn 1 carries the whole seeded history plus every tool schema, and
       # until now nothing sized it — `guard_context!` only ran from round 2.
       # This is the turn a long conversation actually overflows on.
@@ -1184,7 +1319,7 @@ module LlmRbFacade
                                      messages: messages, prompt: prompt,
                                      tools: tools, sink: sink)
       session = LLM::Session.new llm, model: model_id, tools: tools, **generation_params
-      seed_session_messages!(session, messages)
+      seed_session_messages!(session, messages, llm: llm)
       response = with_context_overflow(model_id, window) do
         session.chat prompt, stream: false # turn 1: explicitly non-streamed
       end
@@ -1258,7 +1393,7 @@ module LlmRbFacade
       end
       emit_length_cap_notice(response, sink)
 
-      build_response_with_tools(response, session)
+      build_response_with_tools(response, session, model_id)
     end
 
     # Ollama stops at `options.num_predict` and reports `done_reason: "length"`.
@@ -1429,8 +1564,9 @@ module LlmRbFacade
       obj.public_send(key) if obj.respond_to?(key)
     end
 
-    def build_response_with_tools(response, session)
-      content = response.choices[-1]&.content || ""
+    def build_response_with_tools(response, session, model_id)
+      # gpt-oss on Bedrock inlines its reasoning in the content here too.
+      content = InlineReasoning.strip(response.choices[-1]&.content || "", model_id)
       tool_calls = session.extract_tool_calls
 
       if tool_calls.any?

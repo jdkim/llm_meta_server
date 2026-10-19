@@ -34,6 +34,10 @@
       <span class="text-xs text-gray-500 font-normal">— filled from the references where known</span></span>
       <%= f.date_field :released_on, class: "mt-1 w-full border-gray-300 rounded-md text-sm" %></label>
 
+      <label class="block"><span class="text-sm font-medium text-gray-700">Context window
+        <span class="text-xs text-gray-500 font-normal">— tokens; filled from the references where known. Leave blank for a local model, which carries its own in defaults.options.num_ctx</span></span>
+        <%= f.number_field :max_input_tokens, class: "mt-1 w-full border-gray-300 rounded-md text-sm" %></label>
+
     <label class="block"><span class="text-sm font-medium text-gray-700">Kind</span>
       <%= f.select :kind, [["chat (default)", ""], ["image", "image"]],
             {}, class: "mt-1 w-full border-gray-300 rounded-md text-sm" %></label>
@@ -45,6 +49,8 @@
     <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :responses_only %>
       responses_only <span class="text-xs text-gray-500">(Responses API only — tools cannot be routed)</span></label>
     <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :active %> available to users</label>
+    <label class="inline-flex items-center gap-2 text-sm"><%= f.check_box :free_access %>
+      free access <span class="text-xs text-gray-500">(served from the house key to callers with no API key — Ollama models are always free)</span></label>
   </div>
 
   <div class="grid grid-cols-2 gap-4 mt-4">

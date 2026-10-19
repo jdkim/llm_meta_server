@@ -57,6 +57,8 @@ class Api::SingleLlmCallsController < ApiController
     safe_emit_error(sink, e.is_a?(AnonymousUsagePolicy::DeadlineExceeded) ? "execution_timeout" : "stopped", e.message)
   rescue ActionController::Live::ClientDisconnected
     Rails.logger.info "[SingleLlmCalls] client disconnected mid-stream"
+  rescue FreeModelThrottle::Exceeded => e
+    safe_emit_error(sink, "rate_limit", e.message)
   rescue LLM::RateLimitError => e
     safe_emit_error(sink, "rate_limit", e.message)
   rescue LlmApiKeyRequiredError => e

@@ -112,6 +112,87 @@ RSpec.describe LlmModelMap do
     end
   end
 
+  # The access question, split out from ollama_model? so that "runs on our box"
+  # and "callable without a user key" can diverge. They used to be the same
+  # thing only because Ollama happens to need no credential.
+  # fetch! assumed "no key means Ollama", which predates free hosted models.
+  # The security property: relaxing it must let through ONLY models the
+  # catalog gives away.
+  describe ".fetch! for a keyless caller" do
+    def stub_catalog
+      allow(described_class).to receive(:catalog).and_return(
+        "ollama"  => {},
+        "bedrock" => {
+          "gpt-oss-120b" => { api_id: "openai.gpt-oss-120b-1:0", free_access: true },
+          "big-paid"     => { api_id: "vendor.big-paid",         free_access: false }
+        }
+      )
+    end
+
+    it "resolves a free model in its own family" do
+      stub_catalog
+      expect(described_class.fetch!("gpt-oss-120b", llm_type: nil)).to eq("openai.gpt-oss-120b-1:0")
+    end
+
+    it "still refuses a paid model — this is the wallet boundary" do
+      stub_catalog
+      expect { described_class.fetch!("big-paid", llm_type: nil) }
+        .to raise_error(ModelUnavailableError)
+    end
+
+    it "does not relax anything when a key IS supplied" do
+      stub_catalog
+      expect { described_class.fetch!("gpt-oss-120b", llm_type: "openai") }
+        .to raise_error(ModelUnavailableError)
+    end
+  end
+
+  describe ".free_access_model?" do
+    def stub_catalog(bedrock)
+      allow(described_class).to receive(:catalog).and_return("ollama" => {}, "bedrock" => bedrock)
+    end
+
+    it "is true for every ollama model — no credential exists to require" do
+      LlmModelMap.catalog.fetch("ollama").values.map { |m| m[:api_id] }.each do |id|
+        expect(described_class.free_access_model?(id)).to be(true), "#{id} should be free-access"
+      end
+    end
+
+    it "is false for a hosted model that is not flagged" do
+      expect(described_class.free_access_model?("gpt-5")).to be(false)
+      expect(described_class.free_access_model?("claude-opus-4-7")).to be(false)
+    end
+
+    it "is true for a hosted model flagged free_access" do
+      stub_catalog("gpt-oss-120b" => { api_id: "openai.gpt-oss-120b-1:0", free_access: true })
+      expect(described_class.free_access_model?("openai.gpt-oss-120b-1:0")).to be(true)
+    end
+
+    it "is false for an unflagged sibling in the same family" do
+      stub_catalog(
+        "gpt-oss-120b" => { api_id: "openai.gpt-oss-120b-1:0", free_access: true },
+        "qwen3-32b"    => { api_id: "qwen.qwen3-32b-v1:0",     free_access: false }
+      )
+      expect(described_class.free_access_model?("qwen.qwen3-32b-v1:0")).to be(false)
+    end
+
+    it "is false for nil and for unknown ids" do
+      expect(described_class.free_access_model?(nil)).to be(false)
+      expect(described_class.free_access_model?("totally-fake")).to be(false)
+    end
+
+    # THE INVARIANT THE SPLIT EXISTS FOR. A free-access hosted model must not
+    # start looking local: ollama_model? still drives the turn budget, the read
+    # timeout and client construction. Collapsing these two back into one
+    # predicate would hand Bedrock a 30-minute leash and build it as an Ollama
+    # client.
+    it "does not make a flagged hosted model look local" do
+      stub_catalog("gpt-oss-120b" => { api_id: "openai.gpt-oss-120b-1:0", free_access: true })
+      expect(described_class.free_access_model?("openai.gpt-oss-120b-1:0")).to be(true)
+      expect(described_class.ollama_model?("openai.gpt-oss-120b-1:0")).to be(false)
+    end
+  end
+
   describe ".image_model?" do
     it "is true when the model has kind: :image" do
       expect(described_class.image_model?("gemini-3-pro-image", llm_type: "google")).to be(true)
@@ -366,6 +447,63 @@ RSpec.describe LlmModelMap do
 
     it "leaves the ollama default working for anonymous local models" do
       expect(described_class.fetch!("qwen3-6-35b")).to eq(LlmModelMap.catalog["ollama"]["qwen3-6-35b"][:api_id])
+    end
+  end
+  # The hub knew a LOCAL model's window (the catalog's options.num_ctx) and
+  # nothing about a hosted one, so LlmRbFacade#context_window returned 0 — and
+  # with a zero window the pre-flight check, the truncation detection and the
+  # overflow message all stood down. A visitor saw the provider's own words
+  # instead: "Input length (157358) exceeds model's maximum context length
+  # (131072)". Reported from a TogoMCP session on 2026-10-16.
+  describe ".max_input_tokens_for" do
+    let(:hosted) { LlmModel.active.joins(:llm).where.not(llms: { family: "ollama" }).first }
+
+    before { described_class.reload! }
+
+    it "answers by api_id, which is what the facade holds" do
+      hosted.update!(max_input_tokens: 128_000)
+      described_class.reload!
+
+      expect(described_class.max_input_tokens_for(hosted.api_id)).to eq(128_000)
+    end
+
+    it "does not answer by meta_id, which the facade never passes" do
+      hosted.update!(max_input_tokens: 128_000)
+      described_class.reload!
+
+      # The controller resolves name -> api_id before the facade is called, so a
+      # lookup keyed on the meta_id would silently never match.
+      expect(described_class.max_input_tokens_for(hosted.name)).to be_nil if hosted.name != hosted.api_id
+    end
+
+    it "is nil when the catalog does not know the window" do
+      hosted.update!(max_input_tokens: nil)
+      described_class.reload!
+
+      expect(described_class.max_input_tokens_for(hosted.api_id)).to be_nil
+    end
+
+    it "treats a zero as unknown rather than as a real window" do
+      hosted.update!(max_input_tokens: 0)
+      described_class.reload!
+
+      expect(described_class.max_input_tokens_for(hosted.api_id)).to be_nil
+    end
+  end
+
+  # The overflow notice is read by a visitor, so it names the model the picker
+  # shows rather than the provider's internal id.
+  describe ".display_id_for" do
+    let(:hosted) { LlmModel.active.joins(:llm).where.not(llms: { family: "ollama" }).first }
+
+    before { described_class.reload! }
+
+    it "gives the meta_id for a provider api_id" do
+      expect(described_class.display_id_for(hosted.api_id)).to eq(hosted.name)
+    end
+
+    it "falls back to what it was given, rather than an empty space in a sentence" do
+      expect(described_class.display_id_for("not-in-the-catalog")).to eq("not-in-the-catalog")
     end
   end
 end

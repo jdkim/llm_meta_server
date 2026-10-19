@@ -42,11 +42,13 @@ class CatalogSeeder
           supports_vision: attrs["supports_vision"] == true,
           supports_tools: attrs["supports_tools"] == true,
           responses_only: attrs["responses_only"] == true,
+          free_access: attrs["free_access"] == true,
           kind: attrs["kind"].presence,
           endpoint: attrs["endpoint"].presence,
           defaults: attrs["defaults"] || {},
           pricing: stringify_dates(attrs["pricing"] || {}),
           released_on: attrs["released_on"],
+          max_input_tokens: attrs["max_input_tokens"],
           notes: notes[[ family, meta_id ]],
           position: index,
           active: true

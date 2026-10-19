@@ -49,7 +49,17 @@ class LlmModelMap
     return model_data[:api_id] if model_data
 
     owning_family = catalog.find { |_family, models| models.key?(meta_id) }&.first
-    raise ModelUnavailableError.new(meta_id, owning_family) if owning_family
+    if owning_family
+      # `family = llm_type || "ollama"` above encodes an assumption that
+      # predates free hosted models: that a caller with no key must mean
+      # Ollama. A model the catalog gives away is reachable without a key
+      # whoever hosts it, so resolve it in its own family instead of
+      # reporting it unavailable.
+      owning = catalog.dig(owning_family, meta_id)
+      return owning[:api_id] if llm_type.nil? && owning[:free_access] == true
+
+      raise ModelUnavailableError.new(meta_id, owning_family)
+    end
 
     raise ModelNotFoundError, meta_id
   end
@@ -75,8 +85,15 @@ class LlmModelMap
       {
         "label" => value[:display_name], # Display name: official model name
         "value" => key,                   # Internal ID: meta_id (without dots)
+        "free_access" => value[:free_access] == true,
         "supports_vision" => value[:supports_vision] == true,
         "supports_tools" => tool_capable?(value),
+        # The window, for a client that sizes its own request. A local model has
+        # no column for it — its window is whatever num_ctx the catalog asks
+        # Ollama for — and that is the case where the window is SMALLEST and
+        # overflows first, so report it rather than leaving the client blind.
+        # Compacted away below when neither is known.
+        "max_input_tokens" => value[:max_input_tokens] || num_ctx_for(value),
         # `kind` is only emitted for image-gen models — the frontend
         # treats its absence as "regular chat model".
         "kind" => value[:kind].to_s.presence,
@@ -125,6 +142,60 @@ class LlmModelMap
 
   def self.ollama_model?(model_id)
     catalog.fetch("ollama", {}).each_value.any? { |m| m[:api_id] == model_id }
+  end
+
+  # The name a person chose this model by, given the provider's own id. For
+  # messages a visitor reads: an overflow notice naming
+  # "openai.gpt-oss-120b-1:0" tells them nothing, while "gpt-oss-120b" is
+  # what the picker calls it. Falls back to the api_id, which is better than
+  # an empty space in a sentence.
+  def self.display_id_for(model_id)
+    catalog.each_value do |family|
+      family.each do |meta_id, m|
+        return meta_id if m[:api_id] == model_id
+      end
+    end
+    model_id
+  end
+
+  # What num_ctx the catalog asks Ollama for, which IS a local model's
+  # window. Nil for a hosted model, whose defaults carry no num_ctx.
+  def self.num_ctx_for(entry)
+    options = (entry[:defaults] || {})[:options] || (entry[:defaults] || {})["options"] || {}
+    value = options[:num_ctx] || options["num_ctx"]
+    value.to_i.positive? ? value.to_i : nil
+  end
+
+  # The model's context window in tokens, or nil when the catalog does not
+  # know it. Matched on api_id, like the predicates below, because the facade
+  # works with the provider's own identifier rather than the meta_id.
+  #
+  # A local model's window lives in `defaults.options.num_ctx` instead, and
+  # the facade prefers that when present: it is what Ollama was actually told
+  # to use for this request, rather than what the model could do.
+  def self.max_input_tokens_for(model_id)
+    catalog.each_value do |family|
+      family.each_value do |m|
+        return m[:max_input_tokens] if m[:api_id] == model_id && m[:max_input_tokens].to_i.positive?
+      end
+    end
+    nil
+  end
+
+  # May this model be called WITHOUT a user-supplied API key?
+  #
+  # Deliberately NOT the same question as ollama_model?, which is about where
+  # the model runs. That distinction matters: a free-access hosted model still
+  # needs the hosted read timeout and turn budget, and must not be built as an
+  # Ollama client. Ollama is free-access by construction (it needs no
+  # credential); anything else has to be flagged in the catalog, and is paid
+  # for by a server-owned key.
+  def self.free_access_model?(model_id)
+    return true if ollama_model?(model_id)
+
+    catalog.each_value.any? do |family|
+      family.any? { |_meta_id, m| m[:api_id] == model_id && m[:free_access] == true }
+    end
   end
 
   def self.image_model?(meta_id, llm_type: nil)
