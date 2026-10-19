@@ -12,6 +12,12 @@ require "rails_helper"
 #   - closing `event: done\ndata: {"content":"...","finish_reason":"..."}\n\n`
 #   - `event: error\ndata: {...}\n\n` on failure (no `done`)
 RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)", type: :request do
+  # These HTTP/LLM examples do not exercise KMS or require AWS credentials.
+  before do
+    allow(ApiKeyEncrypter).to receive(:new).and_return(instance_double(ApiKeyEncrypter, encrypt: "test-ciphertext"))
+    allow(ApiKeyDecrypter).to receive(:new).and_return(instance_double(ApiKeyDecrypter, decrypt: "sk-test"))
+  end
+
   let(:user) { User.create!(email: "u@example.com", google_id: "g-single") }
   let(:good_token) { "tok" }
   let(:auth_headers) { { "Authorization" => "Bearer #{good_token}" } }
@@ -188,14 +194,14 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
     expect(body).not_to include("event: done")
   end
 
-  it "emits a model_not_found error event when the model_name isn't in the catalog" do
+  it "returns model_not_found before starting SSE when the model is unknown" do
     post "/api/llm_api_keys/#{openai_key.uuid}/models/not-a-real-model/single_llm_calls",
          params: { messages: [ { role: "user", content: "hi" } ] }.to_json,
          headers: auth_headers.merge("Content-Type" => "application/json")
 
     body = response.body
-    err = JSON.parse(body[/^event: error\ndata: (\{.*\})/, 1])
-    expect(err["code"]).to eq("model_not_found")
+    expect(response).to have_http_status(:not_found)
+    expect(JSON.parse(body)["error"]).to eq("model_not_found")
     expect(body).not_to include("event: done")
     expect(WebMock).not_to have_requested(:post, /openai\.com/)
   end
@@ -252,6 +258,9 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
     end
 
     before do
+      # Viewer selection is independent of deployment-specific model limits.
+      # Full admission behavior is covered in anonymous_usage_protection_spec.
+      allow_any_instance_of(AnonymousUsagePolicy).to receive(:validate_llm!).and_return({})
       allow(LlmRbFacade).to receive(:single_llm_turn!)
         .and_return(content: "ok", finish_reason: "stop", tool_calls: [])
     end
@@ -260,7 +269,7 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
       expect(McpTool).to receive(:lookup).with(anything, viewer: nil).and_call_original
 
       post "/api/llm_api_keys/ollama-local/models/#{ollama_model}/single_llm_calls",
-           params: { messages: [ { role: "user", content: "hi" } ], tool_ids: [ anon_tool.id ] }
+           params: { messages: [ { role: "user", content: "hi" } ], tool_ids: [ anon_tool.id ] }, as: :json
 
       expect(response.body).not_to include("Token is missing")
     end
@@ -281,53 +290,19 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/single_llm_calls (E2E)
   # method, and a misplaced rescue would still throttle — it would just report
   # "internal_error" instead of telling the caller they hit the free limit and
   # can supply their own key. Every unit test stays green through that.
-  describe "free-model throttling" do
-    let(:free_model_id) { "openai.gpt-oss-120b-1:0" }
 
-    around do |example|
-      was = Rails.cache
-      Rails.cache = ActiveSupport::Cache::MemoryStore.new   # test env is :null_store
-      example.run
-      Rails.cache = was
-    end
-
-    before do
-      allow(LlmModelMap).to receive(:fetch!).and_return(free_model_id)
-      allow(LlmModelMap).to receive(:free_access_model?).and_return(true)
-      allow(LlmModelMap).to receive(:ollama_model?).and_return(true)   # keeps execution local/cheap
-    end
-
-    def post_free_turn
-      post "/api/llm_api_keys/free-models/models/gpt-oss-120b/single_llm_calls",
-           params: { messages: [ { role: "user", content: "hi" } ] }.to_json,
-           headers: { "Content-Type" => "application/json", "Origin" => "https://demo.example" }
-    end
-
-    it "reports the limit as a rate_limit error event, not internal_error" do
-      allow(FreeModelThrottle).to receive(:check!)
-        .and_raise(FreeModelThrottle::Exceeded, "Free-model limit reached (#{FreeModelThrottle::LIMIT} requests per #{FreeModelThrottle::WINDOW / 60} minutes). " \
-                                                "Add your own API key to continue.")
-
-      post_free_turn
-
-      expect(response.body).to include("event: error")
-      expect(response.body).not_to include("event: done")
-      payload = response.body[/^event: error\ndata: (\{.*\})$/, 1]
-      expect(payload).to be_present
-      parsed = JSON.parse(payload)
-      expect(parsed["code"]).to eq("rate_limit")
-      expect(parsed["message"]).to include("Add your own API key")
-    end
-
-    it "consults the throttle with the request's origin and the resolved model" do
-      expect(FreeModelThrottle).to receive(:check!)
-        .with(hash_including(model_id: free_model_id, llm_api_key: nil,
-                             origin: "https://demo.example"))
-        .and_raise(FreeModelThrottle::Exceeded, "nope")
-
-      post_free_turn
-
-      expect(response.body).to include("rate_limit")
+  describe "signed-in house-model admission" do
+    it "rejects before SSE and provider execution when the shared quota is exhausted" do
+      allow(user).to receive(:find_llm_api_key).and_return(nil)
+      allow_any_instance_of(Api::SingleLlmCallsController).to receive(:current_user).and_return(user)
+      allow(FreeModelThrottle).to receive(:check!).and_raise(FreeModelThrottle::Exceeded.new("quota exhausted"))
+      expect(LlmRbFacade).not_to receive(:single_llm_turn!)
+      post "/api/llm_api_keys/free-models/models/qwen3-6-35b-fast/single_llm_calls",
+        params: { messages: [{ role: "user", content: "hi" }] }.to_json,
+        headers: auth_headers.merge("Content-Type" => "application/json")
+      expect(response).to have_http_status(:too_many_requests)
+      expect(response.headers["Retry-After"]).to be_present
+      expect(JSON.parse(response.body)["error"]).to eq("rate_limit")
     end
   end
 end

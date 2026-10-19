@@ -1,6 +1,8 @@
 require_relative "../services/google_id_token_verifier"
 
 class ApiController < ActionController::API
+  before_action :validate_supplied_authorization
+
   # Base controller for API endpoints
   # CSRF protection is not required (using Google ID Token authentication)
   # CORS is handled by Rack::Cors middleware (see config/initializers/cors.rb)
@@ -33,6 +35,15 @@ class ApiController < ActionController::API
   end
 
   private
+
+  def validate_supplied_authorization
+    return if request.headers["Authorization"].nil?
+    unless bearer_token
+      render json: { error: "Invalid authorization header" }, status: :unauthorized
+      return
+    end
+    current_user
+  end
 
   def google_provider_id
     payload = verify_google_id_token bearer_token

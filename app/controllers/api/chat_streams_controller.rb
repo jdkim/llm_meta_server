@@ -1,6 +1,8 @@
 class Api::ChatStreamsController < ApiController
   include ActionController::Live
 
+  before_action :require_authenticated_legacy_chat
+
   wrap_parameters false
 
   def create
@@ -34,7 +36,7 @@ class Api::ChatStreamsController < ApiController
       FreeModelThrottle.check!(
         model_id: model_id, llm_api_key: llm_api_key,
         user: current_user,
-        origin: request.headers["Origin"], ip: request.remote_ip
+        origin: request.headers["Origin"], ip: AdmissionClientIp.call(request)
       )
       if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
         raise ArgumentError, "Selected model doesn't support image or document input"
@@ -69,7 +71,7 @@ class Api::ChatStreamsController < ApiController
       FreeModelThrottle.check!(
         model_id: model_id, llm_api_key: nil,
         user: nil,
-        origin: request.headers["Origin"], ip: request.remote_ip
+        origin: request.headers["Origin"], ip: AdmissionClientIp.call(request)
       )
       if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: nil)
         raise ArgumentError, "Selected model doesn't support image or document input"
@@ -184,6 +186,13 @@ class Api::ChatStreamsController < ApiController
 
   private
 
+  # Anonymous inference uses the bounded, client-orchestrated endpoint.
+  def require_authenticated_legacy_chat
+    if bearer_token.blank?
+      render json: { error: "anonymous_endpoint_disabled", message: "Use single_llm_calls for anonymous inference" }, status: :forbidden
+    end
+  end
+
   def safe_emit_error(sink, code, message)
     sink.event("error", { code: code, message: message })
   rescue IOError, ActionController::Live::ClientDisconnected
@@ -220,7 +229,7 @@ class Api::ChatStreamsController < ApiController
     # which routes McpTool.lookup through McpServer.visible_to(nil) and
     # correctly restricts to public_to_anonymous servers.
     viewer = bearer_token.present? ? current_user : nil
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: request.remote_ip)
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: AdmissionClientIp.call(request))
   end
 
   # Pass-through: caller sends `generation_settings: {…}` (any keys/values).
