@@ -18,13 +18,14 @@ class AnonymousUsagePolicy
   class Stopped < Cancelled; end
 
   DEFAULTS = {
-    "body_bytes" => 262144, "messages" => 20, "message_bytes" => 131072,
+    "body_bytes" => 1048576, "messages" => 80, "message_bytes" => 131072,
     "tools" => 40, "local_tools" => 16, "schema_bytes" => 65536,
     "argument_bytes" => 32768, "num_ctx" => 65536, "num_predict" => 4096,
-    "llm_rate" => 6, "mcp_rate" => 20,
+    "llm_rate" => 30, "mcp_rate" => 60,
     "llm_global" => 2, "llm_per_ip" => 1,
     "mcp_global" => 8, "mcp_per_ip" => 2,
     "llm_seconds" => 600, "mcp_seconds" => 30,
+    "global_daily_seconds" => 7200, "llm_daily_calls" => 200, "mcp_daily_calls" => 10000,
     "daily_seconds" => 1800, "result_bytes" => 262144,
     "tracked_ips" => 10000
   }.freeze
@@ -38,6 +39,7 @@ class AnonymousUsagePolicy
       raise ArgumentError, "ANONYMOUS_#{key.upcase} must be positive" unless @limits[key].positive?
     end
     @limits.merge!(limits.stringify_keys)
+    raise ArgumentError, "Limits must be positive numbers" unless @limits.values.all? { |v| v.is_a?(Numeric) && v.positive? && v.finite? }
     @clock = clock
   end
 
@@ -46,7 +48,7 @@ class AnonymousUsagePolicy
   end
 
   def validate_llm!(params, model:, generation:)
-    allowed = ENV.fetch("ANONYMOUS_MODELS", "glm-4-7-flash").split(",").map(&:strip)
+    allowed = ENV.fetch("ANONYMOUS_MODELS", "qwen3-8-27b-fast").split(",").map(&:strip)
     invalid!("Model is not available for anonymous use") unless allowed.include?(model)
     messages = params[:messages]
     invalid!("messages must be a non-empty array") unless messages.is_a?(Array) && messages.any?
@@ -131,7 +133,20 @@ class AnonymousUsagePolicy
         end
         tool_times << now
       end
+      day = Time.at(now).utc.strftime("%Y-%m-%d")
+      global_key = "#{day}:#{kind}"
+      global_daily = state["global_daily"][global_key] ||= { "calls" => 0, "seconds" => 0 }
+      if global_daily["calls"] >= limits["#{kind}_daily_calls"]
+        raise Rejected.new("global_daily_budget", "Global anonymous daily request budget exhausted", status: 503, retry_after: 60)
+      end
       seconds = kind == "mcp" ? rules["seconds"] : limits["llm_seconds"]
+      if kind == "llm"
+        total = global_daily["seconds"] + leases.select { |l| l["global_budget"] == global_key }.sum { |l| l["reserved"] }
+        seconds = [ seconds, limits["global_daily_seconds"] - total ].min
+        if seconds < 1
+          raise Rejected.new("global_daily_budget", "Global anonymous daily inference budget exhausted", status: 503, retry_after: 60)
+        end
+      end
       budget_key = "#{Time.at(now).utc.strftime('%Y-%m-%d')}:#{key}"
       if kind == "llm"
         used = state["daily"].fetch(budget_key, 0)
@@ -146,11 +161,13 @@ class AnonymousUsagePolicy
         raise Rejected.new("capacity", "Anonymous daily accounting capacity reached", status: 503, retry_after: 60)
       end
       state["daily"][budget_key] ||= 0 if kind == "llm"
+      global_daily["calls"] += 1
       timestamps << now
       id = SecureRandom.uuid
       lease = { "kind" => kind, "subject" => key, "tool" => tool_key, "started" => now,
                 "deadline" => now + seconds, "reserved" => seconds,
-                "budget" => kind == "llm" ? budget_key : nil }
+                "budget" => kind == "llm" ? budget_key : nil,
+                "global_budget" => kind == "llm" ? global_key : nil }
       state["leases"][id] = lease
       { id: id, seconds: seconds, kind: kind, result_bytes: rules["result_bytes"] }
     end
@@ -166,11 +183,21 @@ class AnonymousUsagePolicy
     return unless permit && !permit[:released]
     now = @clock.call
     settled = AnonymousUsageState.update_atomically do |state|
-      lease = state.fetch("leases", {}).delete(permit[:id])
+      lease = state.fetch("leases", {})[permit[:id]]
       next unless lease
+      # Closing our socket does not prove upstream generation stopped. Hold
+      # uncertain work until an operator verifies upstream termination.
+      if permit[:uncertain]
+        lease["uncertain"] = true
+        next
+      end
+      state["leases"].delete(permit[:id])
       if lease["budget"]
         charge = [ [ now - lease["started"], 0 ].max, lease["reserved"] ].min
         state["daily"][lease["budget"]] = state["daily"].fetch(lease["budget"], 0) + charge
+        if lease["global_budget"]
+          state["global_daily"][lease["global_budget"]]["seconds"] += charge
+        end
       end
       { event: "anonymous_settled", id: permit[:id], kind: lease["kind"], subject: lease["subject"],
         elapsed_seconds: [ now - lease["started"], 0 ].max, charged_seconds: charge }
@@ -179,7 +206,7 @@ class AnonymousUsagePolicy
     permit[:released] = true
   rescue ActiveRecord::ActiveRecordError => e
     # Do not mask the original result. The reserved budget remains charged
-    # and the bounded lease expires if settlement cannot be persisted.
+    # and the reservation remains occupied if settlement cannot be persisted.
     Rails.logger.error "[AnonymousUsage] settlement failed: #{e.class}"
   end
 
@@ -210,6 +237,9 @@ class AnonymousUsagePolicy
           ActiveRecord::Base.connection_pool.release_connection
         end
         Thread.handle_interrupt(Cancelled => :immediate) { yield }
+      rescue Exception
+        permit[:uncertain] = true
+        raise
       ensure
         monitor&.kill
         monitor&.join
@@ -238,23 +268,45 @@ class AnonymousUsagePolicy
     Rails.logger.warn({ event: "anonymous_switch", kind: kind, enabled: enabled, actor: actor, reason: reason }.to_json)
   end
 
+  # Operator-only recovery after checking the provider/remote worker stopped.
+  # Charge the full reserved time and retain an audit event in shared storage.
+  def self.reconcile!(id, actor:, reason:)
+    raise ArgumentError, "actor and reason are required" if actor.blank? || reason.blank?
+    event = AnonymousUsageState.update_atomically do |state|
+      lease = state.fetch("leases", {})[id]
+      raise ArgumentError, "Only an uncertain reservation can be reconciled" unless lease && (lease["uncertain"] || lease["deadline"] + 5 < Time.now.to_f)
+      if lease["budget"]
+        state["daily"][lease["budget"]] = state["daily"].fetch(lease["budget"], 0) + lease["reserved"]
+        if lease["global_budget"]
+          state["global_daily"][lease["global_budget"]]["seconds"] += lease["reserved"]
+        end
+      end
+      state["leases"].delete(id)
+      event = { "event" => "anonymous_reconciled", "id" => id, "actor" => actor, "reason" => reason, "at" => Time.now.utc.iso8601 }
+      state["changes"] = ((state["changes"] || []) + [ event ]).last(100)
+      event
+    end
+    Rails.logger.warn(event.to_json)
+  end
+
   private
 
   def prepare!(state, now)
     state["rates"] ||= {}
     state["daily"] ||= {}
     state["leases"] ||= {}
+    state["global_daily"] ||= {}
     state["rates"].each_value { |times| times.reject! { |time| time <= now - 60 } }
     state["rates"].delete_if { |_, times| times.empty? }
-    state["leases"].delete_if do |_, lease|
-      expired = lease["deadline"] + 5 < now
-      if expired && lease["budget"]
-        state["daily"][lease["budget"]] = state["daily"].fetch(lease["budget"], 0) + lease["reserved"]
-      end
-      expired
+    # Never assume an expired HTTP lease proves the GPU/remote tool stopped.
+    # Quarantine abandoned work until an operator verifies upstream termination.
+    state["leases"].each_value do |lease|
+      lease["uncertain"] = true if lease["deadline"] + 5 < now
     end
     oldest = Time.at(now - 172800).utc.strftime("%Y-%m-%d")
-    state["daily"].delete_if { |key, _| key.split(":", 2).first < oldest }
+    reserved = state["leases"].values
+    state["global_daily"].delete_if { |key, _| key.split(":", 2).first < oldest && reserved.none? { |l| l["global_budget"] == key } }
+    state["daily"].delete_if { |key, _| key.split(":", 2).first < oldest && reserved.none? { |l| l["budget"] == key } }
   end
 
   def reject_stopped!(state, kind)

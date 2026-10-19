@@ -38,15 +38,15 @@ RSpec.describe "Anonymous admission across workers" do
     end
     expect { policy.run(permit) { sleep 10 } }.to raise_error(AnonymousUsagePolicy::Stopped)
     stopper.join
-    expect(AnonymousUsageState.first.state["leases"]).to be_empty
+    expect(AnonymousUsageState.first.state["leases"]).not_to be_empty
   end
 
-  it "interrupts work on client disconnect and releases its reservation" do
+  it "interrupts work on client disconnect and retains its reservation until verified operator recovery" do
     policy = AnonymousUsagePolicy.new
     permit = policy.acquire!(kind: "mcp", ip: "worker")
     expect { policy.run(permit, disconnected: -> { true }) { sleep 10 } }
       .to raise_error(AnonymousUsagePolicy::Cancelled)
-    expect(AnonymousUsageState.first.state["leases"]).to be_empty
+    expect(AnonymousUsageState.first.state["leases"]).not_to be_empty
   end
   it "closes the HTTP socket when a stalled upstream operation is interrupted" do
     require "socket"
@@ -72,10 +72,42 @@ RSpec.describe "Anonymous admission across workers" do
     }.to raise_error(AnonymousUsagePolicy::DeadlineExceeded)
     expect(peer_thread.join(2)).not_to be_nil
     expect(eof.pop).to eq("")
-    expect(AnonymousUsageState.first.state["leases"]).to be_empty
+    expect(AnonymousUsageState.first.state["leases"]).not_to be_empty
   ensure
     peer_thread&.kill
     server&.close
     WebMock.disable_net_connect!
+  end
+end
+
+RSpec.describe "Anonymous admission in separate OS processes" do
+  self.use_transactional_tests = false
+  before { AnonymousUsageState.delete_all }
+  after { AnonymousUsageState.delete_all }
+
+  it "shares the global slot limit between real worker processes" do
+    ActiveRecord::Base.connection_pool.disconnect!
+    readers = []
+    pids = 4.times.map do |i|
+      reader, writer = IO.pipe
+      readers << reader
+      fork do
+        reader.close
+        begin
+          AnonymousUsagePolicy.new.acquire!(kind: "llm", ip: "process-#{i}")
+          writer.write("admitted")
+        rescue AnonymousUsagePolicy::Rejected => e
+          writer.write(e.code)
+        ensure
+          writer.close
+          ActiveRecord::Base.connection_pool.disconnect!
+        end
+        exit! 0
+      end.tap { writer.close }
+    end
+    results = readers.map { |r| r.read.tap { r.close } }
+    pids.each { |pid| Process.wait(pid); expect($?.success?).to be(true) }
+    expect(results.count("admitted")).to eq(2)
+    expect(results.count("capacity")).to eq(2)
   end
 end

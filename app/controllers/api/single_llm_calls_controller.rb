@@ -22,8 +22,18 @@ class Api::SingleLlmCallsController < ApiController
     end
     generation = effective_generation_params(model_name, llm_api_key&.llm_type)
     unless bearer_token
+      unless LlmModelMap.ollama_model?(model_id)
+        raise AnonymousUsagePolicy::Rejected.new("model_not_allowed", "Anonymous inference is limited to configured local models", status: 403)
+      end
       generation = usage_policy.validate_llm!(params, model: model_name, generation: generation)
-      permit = usage_policy.acquire!(kind: "llm", ip: request.remote_ip)
+      permit = usage_policy.acquire!(kind: "llm", ip: AdmissionClientIp.call(request))
+    end
+
+    model_id ||= LlmModelMap.fetch!(model_name, llm_type: llm_api_key&.llm_type)
+    # Anonymous requests already use the shared admission gate above.
+    if bearer_token
+      FreeModelThrottle.check!(model_id: model_id, llm_api_key: llm_api_key,
+        user: current_user, ip: AdmissionClientIp.call(request))
     end
 
     response.headers["Content-Type"] = "text/event-stream"
@@ -35,8 +45,6 @@ class Api::SingleLlmCallsController < ApiController
 
     sink.phase("thinking")
     heartbeat = start_heartbeat(sink)
-
-    model_id ||= LlmModelMap.fetch!(model_name, llm_type: llm_api_key&.llm_type)
 
     operation = -> { LlmRbFacade.single_llm_turn!(
       llm_api_key: llm_api_key,
@@ -58,7 +66,12 @@ class Api::SingleLlmCallsController < ApiController
   rescue ActionController::Live::ClientDisconnected
     Rails.logger.info "[SingleLlmCalls] client disconnected mid-stream"
   rescue FreeModelThrottle::Exceeded => e
-    safe_emit_error(sink, "rate_limit", e.message)
+    if sink
+      safe_emit_error(sink, "rate_limit", e.message)
+    else
+      response.headers["Retry-After"] = e.retry_after.to_s
+      render json: { error: "rate_limit", message: e.message }, status: e.status
+    end
   rescue LLM::RateLimitError => e
     safe_emit_error(sink, "rate_limit", e.message)
   rescue LlmApiKeyRequiredError => e
@@ -82,7 +95,8 @@ class Api::SingleLlmCallsController < ApiController
     if sink
       sink.event("error", { code: code, message: message })
     else
-      render json: { error: code, message: message }, status: :bad_request
+      status = { "model_not_found" => 404, "internal_error" => 500, "api_key_required" => 403, "rate_limit" => 429 }.fetch(code, 400)
+      render json: { error: code, message: message }, status: status
     end
   rescue IOError, ActionController::Live::ClientDisconnected
     # Stream already closed; nothing to do.
@@ -121,7 +135,7 @@ class Api::SingleLlmCallsController < ApiController
     # an anonymous caller could chat, but only until it selected a hub tool:
     # the blank-tool_ids early return above was hiding the breakage.
     viewer = bearer_token.present? ? current_user : nil
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: request.remote_ip)
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: AdmissionClientIp.call(request))
   end
 
   # Inline tool schemas the client declares — for page-embedded local actions
@@ -161,7 +175,19 @@ class Api::SingleLlmCallsController < ApiController
   end
 
   def effective_generation_params(model_name, llm_type)
-    LlmModelMap.defaults_for(model_name, llm_type: llm_type).deep_merge(generation_params)
+    defaults = LlmModelMap.defaults_for(model_name, llm_type: llm_type).deep_dup
+    unless bearer_token
+      # Catalog defaults may target a larger trusted workload. Bound these
+      # before merging overrides; explicit out-of-range overrides still fail.
+      options = defaults[:options]
+      if options.is_a?(Hash)
+        { num_ctx: "num_ctx", num_predict: "num_predict" }.each do |key, limit|
+          value = options[key]
+          options[key] = [ value, usage_policy.limits[limit] ].min if value.is_a?(Integer) && value.positive?
+        end
+      end
+    end
+    defaults.deep_merge(generation_params)
   end
 
   # Role-tagged conversation history. Assistant messages that emitted

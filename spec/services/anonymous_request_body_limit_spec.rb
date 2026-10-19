@@ -12,8 +12,8 @@ RSpec.describe AnonymousRequestBodyLimit do
 
   it "rejects Content-Length and chunked/undeclared bodies before the app" do
     expect(app).not_to receive(:call)
-    expect(middleware.call(env.merge("CONTENT_LENGTH" => "262145"))[0]).to eq(413)
-    expect(middleware.call(env.merge("rack.input" => StringIO.new("x" * 262145)))[0]).to eq(413)
+    expect(middleware.call(env.merge("CONTENT_LENGTH" => "1048577"))[0]).to eq(413)
+    expect(middleware.call(env.merge("rack.input" => StringIO.new("x" * 1048577)))[0]).to eq(413)
   end
 
   it "leaves discovery and unrelated routes unchanged" do

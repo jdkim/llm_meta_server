@@ -9,15 +9,15 @@ RSpec.describe Api::ChatsController, type: :controller do
   before do
     allow(controller).to receive(:authenticate_user!).and_return(true)
     allow(controller).to receive(:current_user).and_return(user)
-    allow(controller).to receive(:bearer_token).and_return(nil)
-    allow(LlmModelMap).to receive(:fetch!).with(model_name).and_return(model_id)
+    allow(controller).to receive(:bearer_token).and_return("stub-bearer")
+    allow(LlmModelMap).to receive(:fetch!).with(model_name, llm_type: nil).and_return(model_id)
   end
 
   describe "POST #create" do
     context "without generation params" do
       it "calls LlmRbFacade without generation_params" do
         allow(LlmRbFacade).to receive(:call!)
-          .with(model_id, "Hello", generation_params: {}, endpoint: "chat_completions")
+          .with(model_id, "Hello", llm_api_key: nil, tools: [], generation_params: {}, endpoint: "chat_completions")
           .and_return("Hi!")
 
         post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hello" }
@@ -61,7 +61,7 @@ RSpec.describe Api::ChatsController, type: :controller do
         }
 
         expect(LlmRbFacade).to have_received(:call!)
-          .with(model_id, "Hello", generation_params: {}, endpoint: "chat_completions")
+          .with(model_id, "Hello", llm_api_key: nil, tools: [], generation_params: {}, endpoint: "chat_completions")
       end
     end
   end

@@ -223,4 +223,55 @@ RSpec.describe "POST /api/mcp_tools/:tool_id/call (E2E)", type: :request do
       expect(WebMock).not_to have_requested(:post, mcp_url)
     end
   end
+  it "serves anonymous discovery from cached tools without remote refresh" do
+    tool = create_tool!(public: true, public_to_anonymous: true)
+    expect(McpToolFetcher).not_to receive(:new)
+    get "/api/mcp_servers/#{tool.mcp_server.uuid}/tools"
+    expect(response).to have_http_status(:ok)
+    expect(JSON.parse(response.body)["tools"].map { |t| t["name"] }).to include(tool.name)
+    expect(WebMock).not_to have_requested(:post, mcp_url)
+  end
+
+  it "rejects direct anonymous MCP calls when the IP execution slots are full" do
+    AnonymousUsageState.delete_all
+    tool = create_tool!(public: true, public_to_anonymous: true)
+    policy = AnonymousUsagePolicy.new
+    2.times { policy.acquire!(kind: "mcp", ip: "127.0.0.1", tool: tool) }
+    post "/api/mcp_tools/#{tool.id}/call", params: "{}", headers: {"Content-Type" => "application/json"}
+    expect(response).to have_http_status(:too_many_requests)
+    expect(WebMock).not_to have_requested(:post, mcp_url)
+  end
+
+  it "completes a ten-turn anonymous request chain including remote tool results" do
+    AnonymousUsageState.delete_all
+    tool = create_tool!(public: true, public_to_anonymous: true, name: "TogoMCP_Usage_Guide")
+    stub_mcp(tool_result_text: "guide " * 19500)
+    allow(LlmModelMap).to receive(:fetch!).and_return("glm-4.7-flash")
+    allow(LlmModelMap).to receive(:ollama_model?).and_return(true)
+    allow(LlmModelMap).to receive(:defaults_for).and_return({})
+    path = "/api/llm_api_keys/anonymous/models/qwen3-8-27b-fast/single_llm_calls"
+    headers = {"Content-Type" => "application/json"}
+    messages = [{role: "user", content: "Use the guide"}]
+    call = {id: "guide-call", name: tool.name, arguments: {}}
+    expect(LlmRbFacade).to receive(:single_llm_turn!).ordered.and_return(content: "Calling guide", tool_calls: [call], finish_reason: "tool_calls")
+    post path, params: {messages: messages, tool_ids: [tool.id.to_s]}.to_json, headers: headers
+    expect(response.body).to include("event: tool_call")
+    post "/api/mcp_tools/#{tool.id}/call", params: "{}", headers: headers
+    expect(response).to have_http_status(:ok)
+    result = JSON.parse(response.body)["result"]
+    messages << {role: "assistant", content: "Calling guide", tool_calls: [call]}
+    messages << {role: "tool", tool_call_id: "guide-call", name: tool.name, content: result.to_json}
+    9.times do
+      expect(LlmRbFacade).to receive(:single_llm_turn!).ordered do |**args|
+        expect(args[:messages].last[:role]).to eq("tool")
+        expect(args[:messages].last[:content]).to include("guide ")
+        {content: "answer", tool_calls: [], finish_reason: "stop"}
+      end
+      post path, params: {messages: messages, tool_ids: [tool.id.to_s]}.to_json, headers: headers
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include("event: done")
+    end
+    expect(AnonymousUsageState.find_by!(scope: "admission").state["leases"]).to be_empty
+  end
+
 end

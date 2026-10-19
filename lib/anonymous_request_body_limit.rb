@@ -11,7 +11,7 @@ class AnonymousRequestBodyLimit
 
   def call(env)
     return @app.call(env) unless env["REQUEST_METHOD"] == "POST" && PATH.match?(env["PATH_INFO"].to_s)
-    max = Integer(ENV.fetch("ANONYMOUS_BODY_BYTES", 262144))
+    max = Integer(ENV.fetch("ANONYMOUS_BODY_BYTES", 1048576))
     raise ArgumentError, "ANONYMOUS_BODY_BYTES must be positive" unless max.positive?
     return rejected if env["CONTENT_LENGTH"].to_i > max
     input = env["rack.input"]

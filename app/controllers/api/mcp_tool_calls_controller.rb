@@ -25,12 +25,12 @@ class Api::McpToolCallsController < ApiController
 
     unless viewer
       usage_policy.validate_arguments!(params[:arguments])
-      permit = usage_policy.acquire!(kind: "mcp", ip: request.remote_ip, tool: tool)
+      permit = usage_policy.acquire!(kind: "mcp", ip: AdmissionClientIp.call(request), tool: tool)
     end
     arguments = arguments_param
     operation = -> {
       server = tool.mcp_server
-      client = McpClient.new(server.url, auth_token: server.auth_token, caller_ip: request.remote_ip,
+      client = McpClient.new(server.url, auth_token: server.auth_token, caller_ip: AdmissionClientIp.call(request),
         max_response_bytes: permit && permit[:result_bytes])
       client.initialize_connection!
       client.call_tool!(tool.name, arguments)

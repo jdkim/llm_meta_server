@@ -1,4 +1,11 @@
-# PR案: Enforce shared resource limits for anonymous LLM and MCP requests
+> Implementation status: latest main f3f7af4 has been merged into this PR.
+> See anonymous-abuse-protection.md for implemented limits and compatibility
+> changes. Monetary budgets for anonymous house-paid providers are deferred;
+> those providers are denied anonymously. Uncertain upstream work is quarantined
+> until audited operator reconciliation, rather than automatically reclaimed.
+> The following text records the original proposal, not the current runbook.
+
+# Historical implementation proposal: Enforce shared resource limits for anonymous LLM and MCP requests
 
 ## 対象と位置付け
 

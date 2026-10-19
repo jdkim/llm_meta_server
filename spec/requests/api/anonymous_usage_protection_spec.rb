@@ -2,12 +2,13 @@ require "rails_helper"
 
 RSpec.describe "Anonymous API admission", type: :request do
   let(:headers) { { "Content-Type" => "application/json" } }
-  let(:path) { "/api/llm_api_keys/anonymous/models/glm-4-7-flash/single_llm_calls" }
+  let(:path) { "/api/llm_api_keys/anonymous/models/qwen3-8-27b-fast/single_llm_calls" }
   let(:payload) { { messages: [ { role: "user", content: "hi" } ] } }
 
   before do
     AnonymousUsageState.delete_all
     allow(LlmModelMap).to receive(:fetch!).and_return("glm-4.7-flash")
+    allow(LlmModelMap).to receive(:ollama_model?).and_return(true)
     allow(LlmModelMap).to receive(:defaults_for).and_return({})
   end
 
@@ -61,4 +62,48 @@ RSpec.describe "Anonymous API admission", type: :request do
       expect(AnonymousUsageState.first.state["leases"]).to be_empty
     end
   end
+  it "ignores missing and rotating Origin headers for the same IP quota" do
+    expect(LlmRbFacade).to receive(:single_llm_turn!).exactly(30).times.and_return(content: "ok", tool_calls: [], finish_reason: "stop")
+    30.times do |i|
+      post path, params: payload.to_json, headers: headers.merge("Origin" => "https://site-#{i}.example")
+      expect(response).to have_http_status(:ok)
+    end
+    post path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:too_many_requests)
+  end
+
+  it "rejects anonymous house-paid models before starting inference" do
+    allow(LlmModelMap).to receive(:ollama_model?).and_return(false)
+    expect(LlmRbFacade).not_to receive(:single_llm_turn!)
+    post path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:forbidden)
+  end
+
+  ["Bearer", "Basic abc", "", "Bearer a b"].each do |auth|
+    it "rejects malformed authorization #{auth.inspect} without anonymous fallback" do
+      expect(LlmRbFacade).not_to receive(:single_llm_turn!)
+      post path, params: payload.to_json, headers: headers.merge("Authorization" => auth)
+      expect(response).to have_http_status(:unauthorized)
+    end
+  end
+
+  it "caps large catalog defaults while rejecting explicit excessive overrides" do
+    allow(LlmModelMap).to receive(:defaults_for).and_return(options: { num_ctx: 262144, num_predict: 32768 })
+    expect(LlmRbFacade).to receive(:single_llm_turn!) do |**args|
+      expect(args[:generation_params][:options]).to include(num_ctx: 65536, num_predict: 4096)
+      { content: "ok", tool_calls: [], finish_reason: "stop" }
+    end
+    post path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:ok)
+    post path, params: payload.merge(generation_settings: {options: {num_predict: 32768}}).to_json, headers: headers
+    expect(response).to have_http_status(:bad_request)
+  end
+
+  it "authenticates a supplied invalid bearer instead of falling back to anonymous" do
+    allow(GoogleIdTokenVerifier).to receive(:verify_all).with("invalid").and_raise(JWT::DecodeError, "bad token")
+    expect(LlmRbFacade).not_to receive(:single_llm_turn!)
+    post path, params: payload.to_json, headers: headers.merge("Authorization" => "Bearer invalid")
+    expect(response).to have_http_status(:unauthorized)
+  end
+
 end

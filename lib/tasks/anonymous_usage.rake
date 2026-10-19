@@ -7,4 +7,10 @@ namespace :anonymous_usage do
       actor: ENV.fetch("ACTOR"), reason: ENV.fetch("REASON"))
     puts "Anonymous #{ENV.fetch('KIND')} enabled=#{enabled}"
   end
+  desc "Release an uncertain reservation AFTER verifying upstream stopped: ID=... CONFIRMED_STOPPED=true ACTOR=... REASON=..."
+  task reconcile: :environment do
+    abort "Verify upstream termination and set CONFIRMED_STOPPED=true" unless ENV["CONFIRMED_STOPPED"] == "true"
+    AnonymousUsagePolicy.reconcile!(ENV.fetch("ID"), actor: ENV.fetch("ACTOR"), reason: ENV.fetch("REASON"))
+    puts "Reconciled anonymous reservation #{ENV.fetch('ID')}"
+  end
 end

@@ -179,11 +179,9 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams (E2E)", t
                    "Free-model limit reached (#{FreeModelThrottle::LIMIT} requests per #{FreeModelThrottle::WINDOW / 60} minutes). Add your own API key to continue.")
     end
 
-    it "reports the limit on the anonymous branch" do
-      post "/api/llm_api_keys/free-models/models/#{ollama_meta}/chat_streams",
-           params: { prompt: "hi" }
-
-      expect_rate_limit_event
+    it "blocks anonymous legacy streaming before inference" do
+      post "/api/llm_api_keys/free-models/models/#{ollama_meta}/chat_streams", params: { prompt: "hi" }
+      expect(response).to have_http_status(:forbidden)
     end
 
     it "reports the limit on the signed-in branch too" do
