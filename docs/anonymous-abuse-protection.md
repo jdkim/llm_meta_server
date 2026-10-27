@@ -19,9 +19,10 @@ an IP budget. Raw IPs, prompts and credentials are not stored in admission state
 (`REMOTE_ADDR`) belongs to an explicitly configured trusted ingress. Otherwise
 it uses the TCP peer, regardless of X-Forwarded-For. When
 `ANONYMOUS_TRUSTED_PROXIES` is unset, production trusts loopback only and logs
-that it did so: an empty trust list would account for every visitor behind a
-local nginx as 127.0.0.1, which merges the whole internet into one quota
-bucket, and the symptom reads as a bug rather than a missing variable. At ingress,
+that it did so. An empty trust list is worse than it looks. Every visitor
+behind a local nginx is then accounted for as 127.0.0.1, so the whole internet
+shares one quota bucket. The symptom reads as a bug, not as a missing
+variable. At ingress,
 overwrite incoming forwarding headers; keep Rails and Ollama off the public
 network so there is no bypass. All workers must share the Rails secret and DB.
 
