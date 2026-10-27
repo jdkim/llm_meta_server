@@ -7,18 +7,8 @@ RSpec.describe FreeModelThrottle do
   let(:free_model) { "openai.gpt-oss-120b-1:0" }
   let(:paid_model) { "anthropic.claude-opus-4-7" }
 
-  # The test env uses :null_store, which cannot count — with it, this guard
-  # silently never fires. Swap in a real store so these examples measure the
-  # throttle rather than the cache.
-  around do |example|
-    was = Rails.cache
-    Rails.cache = ActiveSupport::Cache::MemoryStore.new
-    example.run
-    Rails.cache = was
-  end
-
   before do
-    Rails.cache.clear
+    AnonymousUsageState.delete_all
     allow(LlmModelMap).to receive(:free_access_model?).with(free_model).and_return(true)
     allow(LlmModelMap).to receive(:free_access_model?).with(paid_model).and_return(false)
   end
@@ -63,9 +53,9 @@ RSpec.describe FreeModelThrottle do
   end
 
   describe "who shares a budget" do
-    it "separates one origin from another" do
+    it "does not reset the quota when Origin changes" do
       described_class::LIMIT.times { call(origin: "https://a.example") }
-      expect { call(origin: "https://b.example") }.not_to raise_error
+      expect { call(origin: "https://b.example") }.to raise_error(described_class::Exceeded)
     end
 
     it "gives a signed-in user their own budget, so a busy site cannot exhaust it" do
@@ -81,20 +71,16 @@ RSpec.describe FreeModelThrottle do
     end
   end
 
-  # The guard standing in front of a paid endpoint must never fail silently.
-  describe "when the cache cannot count" do
-    around do |example|
-      was = Rails.cache
-      Rails.cache = ActiveSupport::Cache::NullStore.new
-      example.run
-      Rails.cache = was
-    end
 
-    it "keeps serving but logs an error naming the store" do
-      expect(Rails.logger).to receive(:error).at_least(:once) do |msg|
-        expect(msg).to include("NullStore", "NOT being throttled")
-      end
-      expect { call }.not_to raise_error
-    end
+  it "fails closed when shared admission storage is unavailable" do
+    allow(AnonymousUsageState).to receive(:update_atomically).and_raise(ActiveRecord::ConnectionNotEstablished)
+    expect { call }.to raise_error(described_class::Exceeded) { |e| expect(e.status).to eq(503) }
+  end
+
+  it "enforces a global rate across different caller IPs" do
+    stub_const("FreeModelThrottle::GLOBAL_LIMIT", 2)
+    call(ip: "a")
+    call(ip: "b")
+    expect { call(ip: "c") }.to raise_error(described_class::Exceeded)
   end
 end
