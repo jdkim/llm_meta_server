@@ -8,8 +8,8 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
 
   before do
     allow(controller).to receive(:current_user).and_return(user)
-    allow(controller).to receive(:bearer_token).and_return(nil)
-    allow(LlmModelMap).to receive(:fetch!).with(model_name).and_return(model_id)
+    allow(controller).to receive(:bearer_token).and_return("stub-bearer")
+    allow(LlmModelMap).to receive(:fetch!).with(model_name, llm_type: nil).and_return(model_id)
   end
 
   describe "POST #create" do
@@ -128,7 +128,7 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
       # isn't in the catalog, so pin a real Ollama meta_id here to hit the
       # catalog-defaults path.
       ollama_meta = "qwen3-6-35b-fast" # named, not ".first": this asserts qwen's defaults and catalog order is not this spec's concern
-      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
+      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta, llm_type: nil).and_return(ollama_meta)
 
       post :create, params: { llm_api_key_uuid: uuid, model_name: ollama_meta, prompt: "Hi" }
 
@@ -140,7 +140,7 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
     it "deep-merges: user overrides options.temperature but the catalog's options.num_ctx survives" do
       allow(LlmRbFacade).to receive(:stream!).and_return("ok")
       ollama_meta = "qwen3-6-35b-fast" # named, not ".first": this asserts qwen's defaults and catalog order is not this spec's concern
-      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
+      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta, llm_type: nil).and_return(ollama_meta)
 
       post :create, params: {
         llm_api_key_uuid: uuid, model_name: ollama_meta, prompt: "Hi",
@@ -158,7 +158,7 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
     it "user override at the deepest key wins: options.num_ctx sent explicitly replaces the catalog default" do
       allow(LlmRbFacade).to receive(:stream!).and_return("ok")
       ollama_meta = "qwen3-6-35b-fast" # named, not ".first": this asserts qwen's defaults and catalog order is not this spec's concern
-      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta).and_return(ollama_meta)
+      allow(LlmModelMap).to receive(:fetch!).with(ollama_meta, llm_type: nil).and_return(ollama_meta)
 
       post :create, params: {
         llm_api_key_uuid: uuid, model_name: ollama_meta, prompt: "Hi",
@@ -281,13 +281,6 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
     end
 
     context "anonymous caller (no bearer token, no current_user)" do
-      # File-level before stubs `current_user` as `user` and `bearer_token`
-      # as nil. Real production behaviour: `current_user` in ApiController
-      # RAISES "Token is missing" when there's no bearer — so the anon
-      # branch must never call `current_user`. Undo the file-level current_user
-      # stub here so a stray call surfaces as an error, and make bearer_token
-      # nil (already the file default, restated for clarity) to steer
-      # selected_tools' bearer-guard onto the anon lookup path.
       before do
         allow(controller).to receive(:current_user).and_raise(
           ActionController::ParameterMissing.new("Token is missing")
@@ -295,23 +288,20 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
         allow(controller).to receive(:bearer_token).and_return(nil)
       end
 
-      it "threads tools through to the facade when tool_ids reference an anon-public MCP server" do
+      it "rejects legacy anonymous inference even with an anon-public tool" do
         owner = User.create!(email: "owner@example.com", google_id: "g-owner")
         server = McpServer.create!(user: owner, name: "anon-mcp", url: "https://ex.com/mcp",
                                     public: true, public_to_anonymous: true, active: true)
         tool = server.mcp_tools.create!(name: "anon_tool", description: "d",
                                          input_schema: { "type" => "object" }, active: true)
-        allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+        expect(LlmRbFacade).not_to receive(:stream!)
 
         post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi", tool_ids: [ tool.id.to_s ] }
 
-        expect(LlmRbFacade).to have_received(:stream!) do |_, _, tools:, **|
-          expect(tools).to be_an(Array)
-          expect(tools.length).to eq(1)
-        end
+        expect(response).to have_http_status(:forbidden)
       end
 
-      it "filters out non-anon-public MCP tools (visibility gate holds)" do
+      it "rejects legacy anonymous inference with a signed-in-only tool" do
         # A merely-public server (visible to signed-in users but NOT flagged
         # public_to_anonymous) must NOT expose its tools to an anonymous
         # caller even if that caller passes the tool's id explicitly.
@@ -320,13 +310,11 @@ RSpec.describe Api::ChatStreamsController, type: :controller do
                                     public: true, public_to_anonymous: false, active: true)
         tool = server.mcp_tools.create!(name: "signed_only", description: "d",
                                          input_schema: { "type" => "object" }, active: true)
-        allow(LlmRbFacade).to receive(:stream!).and_return("ok")
+        expect(LlmRbFacade).not_to receive(:stream!)
 
         post :create, params: { llm_api_key_uuid: uuid, model_name: model_name, prompt: "Hi", tool_ids: [ tool.id.to_s ] }
 
-        expect(LlmRbFacade).to have_received(:stream!) do |_, _, tools:, **|
-          expect(tools).to eq([])
-        end
+        expect(response).to have_http_status(:forbidden)
       end
     end
 

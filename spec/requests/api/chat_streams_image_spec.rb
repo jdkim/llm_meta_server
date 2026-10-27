@@ -127,8 +127,8 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chat_streams", type: :
       post "/api/llm_api_keys/ollama-local/models/#{ollama_meta}/chat_streams",
            params: { prompt: "hi", image: { mime: "image/png", data_b64: "AAA" } }
 
-      expect(response.body).to include("event: error")
-      expect(response.body).to include("Selected model doesn't support image or document input")
+      expect(response).to have_http_status(:forbidden)
+      expect(JSON.parse(response.body)["error"]).to eq("anonymous_endpoint_disabled")
     end
   end
 end

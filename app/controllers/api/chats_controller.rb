@@ -1,9 +1,12 @@
 class Api::ChatsController < ApiController
   # JSON requests already send flat top-level keys; skip resource wrapping
   # so :chat doesn't appear as a duplicated, unpermitted parameter.
+  before_action :require_authenticated_legacy_chat
+
   wrap_parameters false
 
   # Google ID Token authentication required
+  rescue_from FreeModelThrottle::Exceeded, with: :house_rate_limit_error
   rescue_from LLM::UnauthorizedError, with: :provider_unauthorized_error
   rescue_from LLM::RateLimitError, with: :rate_limit_error
   rescue_from LlmApiKeyRequiredError, with: :api_key_required_error
@@ -20,6 +23,7 @@ class Api::ChatsController < ApiController
     if bearer_token
       llm_api_key = current_user.find_llm_api_key uuid
       model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
+      FreeModelThrottle.check!(model_id: model_id, llm_api_key: llm_api_key, user: current_user, ip: AdmissionClientIp.call(request))
       tools = selected_tools
       message = LlmRbFacade.call! model_id, prompt,
         llm_api_key: llm_api_key,
@@ -39,6 +43,18 @@ class Api::ChatsController < ApiController
   end
 
   private
+
+  # Anonymous inference uses the bounded, client-orchestrated endpoint.
+  def require_authenticated_legacy_chat
+    if bearer_token.blank?
+      render json: { error: "anonymous_endpoint_disabled", message: "Use single_llm_calls for anonymous inference" }, status: :forbidden
+    end
+  end
+
+  def house_rate_limit_error(exception)
+    response.headers["Retry-After"] = exception.retry_after.to_s
+    render json: { error: "rate_limit", message: exception.message }, status: exception.status
+  end
 
   def rate_limit_error(exception)
     render json: { error: "LLM API Rate limit exceeded", message: exception.message }, status: :too_many_requests
@@ -99,7 +115,7 @@ class Api::ChatsController < ApiController
     # when the request carries no bearer. Match chat_streams' handling and
     # pass nil on the anon path — routes through McpServer.visible_to(nil).
     viewer = bearer_token.present? ? current_user : nil
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: request.remote_ip)
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: AdmissionClientIp.call(request))
   end
 
   # Pass-through: caller sends `generation_settings: {…}` (any keys/values),
