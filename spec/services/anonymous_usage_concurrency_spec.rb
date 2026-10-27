@@ -6,6 +6,10 @@ RSpec.describe "Anonymous admission across workers" do
   before { AnonymousUsageState.delete_all }
   after { AnonymousUsageState.delete_all }
 
+  # The ceiling is stated rather than taken from the defaults: this asserts that
+  # four callers racing on separate connections cannot exceed it, which is a
+  # claim about atomicity. Tying it to the deployment's current number made it
+  # fail when that number was tuned.
   it "atomically admits at most the global limit on separate connections" do
     gate = Queue.new
     outcomes = Queue.new
@@ -13,7 +17,8 @@ RSpec.describe "Anonymous admission across workers" do
       Thread.new do
         gate.pop
         ActiveRecord::Base.connection_pool.with_connection do
-          outcomes << AnonymousUsagePolicy.new.acquire!(kind: "llm", ip: "worker-#{i}")
+          outcomes << AnonymousUsagePolicy.new(limits: { llm_global: 2 })
+            .acquire!(kind: "llm", ip: "worker-#{i}")
         rescue AnonymousUsagePolicy::Rejected => e
           outcomes << e
         end
@@ -94,7 +99,7 @@ RSpec.describe "Anonymous admission in separate OS processes" do
       fork do
         reader.close
         begin
-          AnonymousUsagePolicy.new.acquire!(kind: "llm", ip: "process-#{i}")
+          AnonymousUsagePolicy.new(limits: { llm_global: 2 }).acquire!(kind: "llm", ip: "process-#{i}")
           writer.write("admitted")
         rescue AnonymousUsagePolicy::Rejected => e
           writer.write(e.code)

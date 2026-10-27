@@ -42,13 +42,18 @@ RSpec.describe AnonymousUsagePolicy do
   end
 
   it "enforces independent per-IP and global slots" do
-    a = policy.acquire!(kind: "llm", ip: "a")
-    b = policy.acquire!(kind: "llm", ip: "b")
-    expect { policy.acquire!(kind: "llm", ip: "a") }.to raise_error(described_class::Rejected) { |e| expect(e.code).to eq("concurrency") }
-    expect { policy.acquire!(kind: "llm", ip: "c") }.to raise_error(described_class::Rejected) { |e| expect(e.status).to eq(503) }
-    policy.release!(a)
-    expect(policy.acquire!(kind: "llm", ip: "c")).to include(kind: "llm")
-    policy.release!(b)
+    # Two global slots and one per IP, stated here: the point is that the two
+    # ceilings are separate — a second request from one IP is refused for
+    # concurrency while a third IP is refused for capacity — not that the
+    # deployment currently allows any particular number.
+    slots = described_class.new(limits: { llm_global: 2, llm_per_ip: 1 }, clock: -> { now })
+    a = slots.acquire!(kind: "llm", ip: "a")
+    b = slots.acquire!(kind: "llm", ip: "b")
+    expect { slots.acquire!(kind: "llm", ip: "a") }.to raise_error(described_class::Rejected) { |e| expect(e.code).to eq("concurrency") }
+    expect { slots.acquire!(kind: "llm", ip: "c") }.to raise_error(described_class::Rejected) { |e| expect(e.status).to eq(503) }
+    slots.release!(a)
+    expect(slots.acquire!(kind: "llm", ip: "c")).to include(kind: "llm")
+    slots.release!(b)
   end
 
   it "keeps rate counters after successful requests and reopens after the window" do

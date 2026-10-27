@@ -32,12 +32,12 @@ network so there is no bypass. All workers must share the Rails secret and DB.
 | --- | --- | --- |
 | LLM calls per IP / rolling minute | 30 | ANONYMOUS_LLM_RATE |
 | MCP calls per IP / rolling minute | 60 | ANONYMOUS_MCP_RATE |
-| LLM slots per IP / globally | 1 / 2 | ANONYMOUS_LLM_PER_IP / ANONYMOUS_LLM_GLOBAL |
+| LLM slots per IP / globally | 1 / 4 | ANONYMOUS_LLM_PER_IP / ANONYMOUS_LLM_GLOBAL |
 | MCP slots per IP / globally | 2 / 8 | ANONYMOUS_MCP_PER_IP / ANONYMOUS_MCP_GLOBAL |
 | LLM / MCP request deadline | 600 / 30 sec | ANONYMOUS_LLM_SECONDS / ANONYMOUS_MCP_SECONDS |
 | Per-IP daily inference time | 1800 sec | ANONYMOUS_DAILY_SECONDS |
 | Global daily inference time | 7200 sec | ANONYMOUS_GLOBAL_DAILY_SECONDS |
-| Global daily LLM / MCP admissions | 200 / 10000 | ANONYMOUS_LLM_DAILY_CALLS / ANONYMOUS_MCP_DAILY_CALLS |
+| Global daily LLM / MCP admissions | 400 / 10000 | ANONYMOUS_LLM_DAILY_CALLS / ANONYMOUS_MCP_DAILY_CALLS |
 | Request body / message count / per-message bytes | 1 MiB / 80 / 256 KiB | ANONYMOUS_BODY_BYTES / ANONYMOUS_MESSAGES / ANONYMOUS_MESSAGE_BYTES |
 | Request body, caller with its own key | 8 MiB | AUTHENTICATED_BODY_BYTES |
 | Abandoned reservation grace | 3600 sec | ANONYMOUS_ABANDONED_GRACE_SECONDS |

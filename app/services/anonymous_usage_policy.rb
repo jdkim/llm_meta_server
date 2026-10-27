@@ -25,10 +25,10 @@ class AnonymousUsagePolicy
     "tools" => 40, "local_tools" => 16, "schema_bytes" => 65536,
     "argument_bytes" => 32768, "num_ctx" => 65536, "num_predict" => 4096,
     "llm_rate" => 30, "mcp_rate" => 60,
-    "llm_global" => 2, "llm_per_ip" => 1,
+    "llm_global" => 4, "llm_per_ip" => 1,
     "mcp_global" => 8, "mcp_per_ip" => 2,
     "llm_seconds" => 600, "mcp_seconds" => 30,
-    "global_daily_seconds" => 7200, "llm_daily_calls" => 200, "mcp_daily_calls" => 10000,
+    "global_daily_seconds" => 7200, "llm_daily_calls" => 400, "mcp_daily_calls" => 10000,
     "daily_seconds" => 1800, "result_bytes" => 262144,
     "tracked_ips" => 10000, "abandoned_grace_seconds" => 3600
   }.freeze
