@@ -65,7 +65,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       get "/api/llm_api_keys", headers: { "Authorization" => "bearer good-tok" }
 
       expect(called).to be(false)
-      expect(response).to have_http_status(:bad_request)
+      expect(response).to have_http_status(:unauthorized)
     end
 
     it "rejects a non-Bearer scheme like 'Token <x>'" do
@@ -75,7 +75,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       get "/api/llm_api_keys", headers: { "Authorization" => "Token good-tok" }
 
       expect(called).to be(false)
-      expect(response).to have_http_status(:bad_request)
+      expect(response).to have_http_status(:unauthorized)
     end
 
     it "rejects a tab separator (start_with?('Bearer ') requires a literal space)" do
@@ -85,7 +85,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       get "/api/llm_api_keys", headers: { "Authorization" => "Bearer\tgood-tok" }
 
       expect(called).to be(false)
-      expect(response).to have_http_status(:bad_request)
+      expect(response).to have_http_status(:unauthorized)
     end
   end
 
@@ -97,7 +97,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       get "/api/llm_api_keys", headers: { "Authorization" => "Bearer " }
 
       expect(called).to be(false)
-      expect(response).to have_http_status(:bad_request)
+      expect(response).to have_http_status(:unauthorized)
     end
 
     it "rejects a multi-word token rather than silently keeping just the last word" do
@@ -107,7 +107,7 @@ RSpec.describe "Authorization header parsing on the JSON API", type: :request do
       get "/api/llm_api_keys", headers: { "Authorization" => "Bearer abc def ghi" }
 
       expect(called).to be(false)
-      expect(response).to have_http_status(:bad_request)
+      expect(response).to have_http_status(:unauthorized)
     end
 
     it "tolerates a trailing newline after the token" do
