@@ -102,6 +102,23 @@ RSpec.describe AnonymousUsagePolicy do
     expect(state["daily"].values.sum).to eq(3)
   end
 
+  it "does not put Ollama options on a hosted model's request" do
+    # LlmRbFacade#context_window returns a present num_ctx INSTEAD of the
+    # model's own window, so injecting one here told the pre-flight check that
+    # gpt-oss-120b holds 65536 tokens rather than 128,000 — and refused turns
+    # that fit. Correct when anonymous meant Ollama only, wrong once free-access
+    # hosted models were admitted.
+    settings = policy.validate_llm!(input, model: "gpt-oss-120b", generation: {}, local: false)
+
+    expect(settings[:options]).to be_nil
+  end
+
+  it "still supplies Ollama options for a locally served model" do
+    settings = policy.validate_llm!(input, model: "qwen3-8-27b-fast", generation: {}, local: true)
+
+    expect(settings[:options]).to include(num_ctx: 65536, num_predict: 4096)
+  end
+
   it "never admits a tool result larger than the message that must carry it back" do
     # 256 KB in and 128 KB out was the shape before: a tool result was accepted
     # on one turn and then rejected as "Message is too large" on the next, so

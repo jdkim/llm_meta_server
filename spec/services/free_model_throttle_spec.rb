@@ -28,7 +28,10 @@ RSpec.describe FreeModelThrottle do
   it "tells the caller the rate it enforces" do
     described_class::LIMIT.times { call }
 
-    expect { call }.to raise_error(described_class::Exceeded, /15 requests per 5 minutes/)
+    # Derived, not hardcoded: the previous literal 15 agreed with LIMIT only by
+    # coincidence, and silently stopped describing the policy when LIMIT moved.
+    expect { call }.to raise_error(described_class::Exceeded,
+      /#{described_class::LIMIT} requests per #{described_class::WINDOW / 60} minutes/)
   end
 
   it "never throttles a caller paying with their own key" do

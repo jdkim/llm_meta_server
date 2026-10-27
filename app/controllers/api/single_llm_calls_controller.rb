@@ -30,7 +30,8 @@ class Api::SingleLlmCallsController < ApiController
       unless LlmModelMap.free_access_model?(model_id)
         raise AnonymousUsagePolicy::Rejected.new("model_not_allowed", "Anonymous inference is limited to models that need no API key", status: 403)
       end
-      generation = usage_policy.validate_llm!(params, model: model_name, generation: generation)
+      generation = usage_policy.validate_llm!(params, model: model_name, generation: generation,
+                                               local: LlmModelMap.ollama_model?(model_id))
       permit = usage_policy.acquire!(kind: "llm", ip: AdmissionClientIp.call(request))
     end
 

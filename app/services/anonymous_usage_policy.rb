@@ -50,7 +50,7 @@ class AnonymousUsagePolicy
     OpenSSL::HMAC.hexdigest("SHA256", Rails.application.secret_key_base, "anonymous:#{ip}")
   end
 
-  def validate_llm!(params, model:, generation:)
+  def validate_llm!(params, model:, generation:, local: true)
     # An OPTIONAL narrowing, empty by default. Defaulting to one model name
     # meant a deployment that never set this served nothing anonymously but
     # that model, which is a policy decision disguised as a default.
@@ -93,7 +93,17 @@ class AnonymousUsagePolicy
     end
     number_range!(options, "repeat_penalty", 0, 2)
     invalid!("think must be boolean") if settings.key?("think") && ![ true, false ].include?(settings["think"])
-    settings["options"] = options.reverse_merge("num_ctx" => limits["num_ctx"], "num_predict" => limits["num_predict"])
+    # Ollama options go only to models Ollama actually serves. num_ctx is not a
+    # harmless extra for a hosted model: LlmRbFacade#context_window treats a
+    # present num_ctx as authoritative and returns it INSTEAD of the model's own
+    # window, so injecting 65536 would tell the pre-flight check that
+    # gpt-oss-120b holds half of its real 128,000 tokens, and turns that fit
+    # would be refused. This is where ollama_model? is the right question —
+    # where the model runs — as against free_access_model? above, which asks
+    # whether a caller key is needed.
+    if local
+      settings["options"] = options.reverse_merge("num_ctx" => limits["num_ctx"], "num_predict" => limits["num_predict"])
+    end
     settings.deep_symbolize_keys
   end
 

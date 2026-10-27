@@ -11,7 +11,12 @@ module FreeModelThrottle
       super(message)
     end
   end
-  LIMIT = Integer(ENV.fetch("FREE_MODEL_RATE_LIMIT", 15))
+  # 30, not the 15 main carried. main counted per Puma worker and said so: "15
+  # here is deliberate: two workers make the intended ~30 per origin per
+  # window." Counting in shared storage makes the number exact, so keeping 15
+  # would have quietly halved what production allowed. This preserves the
+  # effective ceiling; it is the honest spelling of the same policy.
+  LIMIT = Integer(ENV.fetch("FREE_MODEL_RATE_LIMIT", 30))
   WINDOW = Integer(ENV.fetch("FREE_MODEL_RATE_WINDOW_SECONDS", 300))
   GLOBAL_LIMIT = Integer(ENV.fetch("FREE_MODEL_GLOBAL_RATE_LIMIT", 120))
   MAX_BUCKETS = 10000

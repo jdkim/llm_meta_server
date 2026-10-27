@@ -20,22 +20,15 @@ class Api::ChatsController < ApiController
   def create
     uuid, model_name, prompt = expected_params
 
-    if bearer_token
-      llm_api_key = current_user.find_llm_api_key uuid
-      model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
-      FreeModelThrottle.check!(model_id: model_id, llm_api_key: llm_api_key, user: current_user, ip: AdmissionClientIp.call(request))
-      tools = selected_tools
-      message = LlmRbFacade.call! model_id, prompt,
-        llm_api_key: llm_api_key,
-        tools: tools,
-        generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
-        endpoint: LlmModelMap.endpoint_for(model_name, llm_type: llm_api_key&.llm_type)
-    else
-      model_id = LlmModelMap.fetch! model_name
-      message = LlmRbFacade.call! model_id, prompt,
-        generation_params: effective_generation_params(model_name, nil),
-        endpoint: LlmModelMap.endpoint_for(model_name)
-    end
+    llm_api_key = current_user.find_llm_api_key uuid
+    model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
+    FreeModelThrottle.check!(model_id: model_id, llm_api_key: llm_api_key, user: current_user, ip: AdmissionClientIp.call(request))
+    tools = selected_tools
+    message = LlmRbFacade.call! model_id, prompt,
+      llm_api_key: llm_api_key,
+      tools: tools,
+      generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
+      endpoint: LlmModelMap.endpoint_for(model_name, llm_type: llm_api_key&.llm_type)
 
     render json: {
       response: format_response(message)
