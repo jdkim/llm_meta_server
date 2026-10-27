@@ -3,8 +3,12 @@ class Api::McpToolsController < ApiController
   before_action :set_mcp_tool, only: [ :toggle ]
 
   def index
-    fetcher = McpToolFetcher.new(@mcp_server)
-    fetcher.fetch!
+    # Anonymous discovery reads cached schemas only: repeated GETs must not
+    # trigger unmetered remote MCP initialization/list_tools calls.
+    if bearer_token.present?
+      fetcher = McpToolFetcher.new(@mcp_server)
+      fetcher.fetch!
+    end
     render json: { tools: @mcp_server.mcp_tools.reload.map(&:as_json) }
   rescue McpClient::McpConnectionError, McpClient::McpProtocolError => e
     render json: { error: e.message }, status: :bad_gateway
