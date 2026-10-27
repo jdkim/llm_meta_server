@@ -107,6 +107,32 @@ RSpec.describe AnonymousUsagePolicy do
     expect(state["daily"].values.sum).to eq(3)
   end
 
+  it "admits any free-access model when no allowlist is configured" do
+    # This behaviour was covered only INCIDENTALLY: reverting the default to
+    # the single model name it used to carry fails the num_ctx example below,
+    # which happens to name a hosted model — and would stop failing the moment
+    # that example changed its fixture. Verified: with the fixture changed AND
+    # the default reinstated, this example is the only one that fails.
+    #
+    # It matters because the default is what lets pubdictionaries.org serve
+    # gpt-oss-120b to a visitor with no key. The stub matches the CURRENT
+    # default, so a mutation reintroducing a non-empty one falls through to the
+    # real ENV and is caught here.
+    allow(ENV).to receive(:fetch).and_call_original
+    allow(ENV).to receive(:fetch).with("ANONYMOUS_MODELS", "").and_return("")
+
+    expect { policy.validate_llm!(input, model: "gpt-oss-120b", generation: {}, local: false) }
+      .not_to raise_error
+  end
+
+  it "narrows to the allowlist when one is configured" do
+    allow(ENV).to receive(:fetch).and_call_original
+    allow(ENV).to receive(:fetch).with("ANONYMOUS_MODELS", "").and_return("qwen3-8-27b-fast")
+
+    expect { policy.validate_llm!(input, model: "gpt-oss-120b", generation: {}, local: false) }
+      .to raise_error(described_class::Rejected) { |e| expect(e.code).to eq("invalid_input") }
+  end
+
   it "does not put Ollama options on a hosted model's request" do
     # LlmRbFacade#context_window returns a present num_ctx INSTEAD of the
     # model's own window, so injecting one here told the pre-flight check that
