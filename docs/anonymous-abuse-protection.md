@@ -36,7 +36,7 @@ network so there is no bypass. All workers must share the Rails secret and DB.
 | MCP slots per IP / globally | 2 / 8 | ANONYMOUS_MCP_PER_IP / ANONYMOUS_MCP_GLOBAL |
 | LLM / MCP request deadline | 600 / 30 sec | ANONYMOUS_LLM_SECONDS / ANONYMOUS_MCP_SECONDS |
 | Per-IP daily inference time | 1800 sec | ANONYMOUS_DAILY_SECONDS |
-| Global daily inference time | 7200 sec | ANONYMOUS_GLOBAL_DAILY_SECONDS |
+| Global daily inference time | 14400 sec | ANONYMOUS_GLOBAL_DAILY_SECONDS |
 | Global daily LLM / MCP admissions | 400 / 10000 | ANONYMOUS_LLM_DAILY_CALLS / ANONYMOUS_MCP_DAILY_CALLS |
 | Request body / message count / per-message bytes | 1 MiB / 80 / 256 KiB | ANONYMOUS_BODY_BYTES / ANONYMOUS_MESSAGES / ANONYMOUS_MESSAGE_BYTES |
 | Request body, caller with its own key | 8 MiB | AUTHENTICATED_BODY_BYTES |
@@ -47,7 +47,11 @@ network so there is no bypass. All workers must share the Rails secret and DB.
 | Ollama context / output tokens | 65536 / 4096 | ANONYMOUS_NUM_CTX / ANONYMOUS_NUM_PREDICT |
 | Model slug allowlist | none (any free-access model) | ANONYMOUS_MODELS (comma-separated) |
 
-An admitted ten-round question uses ten LLM requests, not one. Four exchanges
+An admitted ten-round question uses ten LLM requests, not one. The daily call and
+daily second budgets bind independently, and which one runs out first depends
+on where the model runs: a hosted turn takes seconds, while a locally served
+turn can take a minute, so 14400 seconds is roughly 240 local turns or far more
+hosted ones. Four exchanges
 can therefore use up to forty LLM calls plus tools. Verify realistic guide,
 schema and tool-result sizes against body/context limits before deployment.
 The guide (~117 KB) fits the per-message limit. Model installation and catalog
