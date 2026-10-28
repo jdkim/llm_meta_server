@@ -48,6 +48,31 @@ RSpec.describe "Anonymous API admission", type: :request do
     expect(JSON.parse(response.body)["error"]).to eq("model_not_allowed")
   end
 
+  # End to end, because the policy specs raise inside policy.run directly and so
+  # cannot see whether the CONTROLLER routes a provider failure through the gate
+  # at all. llm.rb uses plain Net::HTTP with a read timeout and does not rescue
+  # it (persistent connections need a gem that is not installed, and default to
+  # off), so this is the class a real timed-out generation raises.
+  it "quarantines the reservation when the provider call times out" do
+    allow(LlmModelMap).to receive(:free_access_model?).and_return(true)
+    allow(LlmRbFacade).to receive(:single_llm_turn!).and_raise(Net::ReadTimeout)
+
+    post path, params: payload.to_json, headers: headers
+
+    leases = AnonymousUsageState.find_by!(scope: "admission").state["leases"]
+    expect(leases.size).to eq(1), "the slot must not be reused while the model may still be generating"
+    expect(leases.values.first["uncertain"]).to be(true)
+  end
+
+  it "releases the reservation when the provider answers with an error" do
+    allow(LlmModelMap).to receive(:free_access_model?).and_return(true)
+    allow(LlmRbFacade).to receive(:single_llm_turn!).and_raise(LLM::ServerError.new("upstream said 500"))
+
+    post path, params: payload.to_json, headers: headers
+
+    expect(AnonymousUsageState.find_by!(scope: "admission").state["leases"]).to be_empty
+  end
+
   it "rejects unbounded generation before starting the provider or SSE" do
     expect(LlmRbFacade).not_to receive(:single_llm_turn!)
     post path, params: payload.merge(generation_settings: { options: { num_predict: -1 } }).to_json, headers: headers
