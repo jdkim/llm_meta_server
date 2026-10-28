@@ -260,8 +260,18 @@ class AnonymousUsagePolicy
       # result, so the call is over. Quarantining those too meant two provider
       # errors could exhaust site-wide anonymous capacity until an operator ran
       # a rake task, and the state is in Postgres, so a restart did not clear it.
-      rescue Cancelled, SystemExit, Interrupt, SignalException
-        permit[:uncertain] = true
+      # Quarantine whenever we stopped WAITING rather than learned the outcome.
+      # Cancellation and shutdown are those cases, and so is a transport
+      # timeout or a connection lost mid-answer: the provider may still be
+      # generating and the remote tool may still be running. An HTTP 400 is
+      # not, because it arrived. Raised by yayamamo on #192.
+      #
+      # Net::OpenTimeout is the exception to the exception. It is a
+      # Timeout::Error, so it is caught here, but it happens BEFORE the request
+      # is written — nothing upstream started, so the slot is safe to release.
+      rescue Cancelled, SystemExit, Interrupt, SignalException, UpstreamUncertain,
+             Timeout::Error, EOFError, Errno::ECONNRESET, Errno::EPIPE => e
+        permit[:uncertain] = true unless e.is_a?(Net::OpenTimeout)
         raise
       ensure
         monitor&.kill

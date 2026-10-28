@@ -240,6 +240,50 @@ RSpec.describe AnonymousUsagePolicy do
       .to raise_error(described_class::Rejected) { |e| expect(e.code).to eq("capacity") }
   end
 
+  # Raised by yayamamo on #192: an HTTP 400 arrived, so the call is over, but a
+  # read timeout or a lost connection is not a completed upstream operation.
+  # Releasing the slot then admits replacement work on top of a generation that
+  # never stopped — on the DGX1, where local concurrency is 1, the new request
+  # just queues behind the old one.
+  [ Net::ReadTimeout, Timeout::Error, EOFError, Errno::ECONNRESET, Errno::EPIPE ].each do |transport_error|
+    it "quarantines the reservation when the answer never arrived (#{transport_error})" do
+      limited = described_class.new(limits: { llm_global: 1 }, clock: -> { now })
+      permit = limited.acquire!(kind: "llm", ip: "a")
+
+      expect { limited.run(permit) { raise transport_error } }.to raise_error(transport_error)
+
+      state = AnonymousUsageState.find_by!(scope: "admission").state
+      expect(state["leases"][permit[:id]]["uncertain"]).to be(true)
+      expect { limited.acquire!(kind: "llm", ip: "b") }
+        .to raise_error(described_class::Rejected) { |e| expect(e.code).to eq("capacity") }
+    end
+  end
+
+  it "quarantines an error the MCP client wrapped around a post-write timeout" do
+    # The client reports McpUpstreamTimeoutError, which includes
+    # UpstreamUncertain, so the policy does not have to unwrap anybody's chain.
+    limited = described_class.new(limits: { llm_global: 1 }, clock: -> { now })
+    permit = limited.acquire!(kind: "llm", ip: "a")
+
+    expect { limited.run(permit) { raise McpClient::McpUpstreamTimeoutError, "may still be running" } }
+      .to raise_error(McpClient::McpUpstreamTimeoutError)
+
+    state = AnonymousUsageState.find_by!(scope: "admission").state
+    expect(state["leases"][permit[:id]]["uncertain"]).to be(true)
+  end
+
+  it "releases the slot when the connection was never established" do
+    # Net::OpenTimeout is a Timeout::Error, so it is caught with the rest, but
+    # it happens before the request is written: nothing upstream started.
+    limited = described_class.new(limits: { llm_global: 1 }, clock: -> { now })
+    permit = limited.acquire!(kind: "llm", ip: "a")
+
+    expect { limited.run(permit) { raise Net::OpenTimeout } }.to raise_error(Net::OpenTimeout)
+
+    expect(AnonymousUsageState.find_by!(scope: "admission").state["leases"]).to be_empty
+    expect { limited.acquire!(kind: "llm", ip: "b") }.not_to raise_error
+  end
+
   it "does not charge a reconciled reservation twice" do
     permit = policy.acquire!(kind: "llm", ip: "a")
     expect { policy.run(permit) { raise described_class::Stopped, "switched off" } }
