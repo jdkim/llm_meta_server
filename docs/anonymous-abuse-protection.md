@@ -68,11 +68,16 @@ Daily seconds are not a monetary budget, and that gap is real: these limits
 bound CALLS and TIME, not spend. Until provider-aware monetary accounting
 exists, the money controls are the daily call ceilings in the table above and
 the AWS budget alert.
-Signed-in own-key behavior is retained; signed-in callers spending the house
-credential use the shared FreeModelThrottle (15 calls/user per 300 seconds,
-120 globally per 300 seconds; FREE_MODEL_RATE_LIMIT,
-FREE_MODEL_RATE_WINDOW_SECONDS, FREE_MODEL_GLOBAL_RATE_LIMIT). Origin is never
-the quota identity. Storage failures reject new work; there is no cache fallback.
+Own-key behaviour is unchanged: a caller paying with its own key is never
+throttled. A signed-in caller spending the house credential uses the shared
+FreeModelThrottle. Its limits are 30 calls per user per 300 seconds and 120
+globally per 300 seconds (`FREE_MODEL_RATE_LIMIT`,
+`FREE_MODEL_RATE_WINDOW_SECONDS`, `FREE_MODEL_GLOBAL_RATE_LIMIT`). The 30
+preserves what the previous per-worker count of 15 effectively allowed with two
+workers.
+
+Origin is never the quota identity. Storage failures reject new work; there is
+no cache fallback.
 
 Daily budgets use UTC admission days. Time is atomically reserved before an
 LLM call; successful calls settle elapsed time (capped at the reservation).
@@ -109,6 +114,29 @@ ANONYMOUS_TOOL_LIMITS='{"TogoMCP_Usage_Guide":{"concurrency":1,"rate":10,"second
   Content-Length, and also protect authenticated requests on these paths.
 - Active/public_to_anonymous tool and server visibility remains mandatory.
 
+## What these limits bound, and what they do not
+
+They bound CALLS, TIME and INPUT SIZE. They do not bound money directly, and
+there is no provider-aware monetary budget yet.
+
+The daily call ceiling is the closest thing to a cost ceiling, and it is an
+estimate, not a guarantee. The arithmetic behind the figure quoted on PR #192:
+
+- A PubDictionaries conversation cost about $0.005 when measured on 2026-10-14.
+  That measurement assumed gpt-oss-120b on Bedrock and a fixed floor of about
+  2,900 tokens per turn.
+- A conversation of that kind uses about three LLM calls.
+- At 400 calls a day, that is roughly 130 conversations, or about $20 to $25 a
+  month.
+
+Those assumptions are what make the number small. A conversation carrying large
+tool results costs more per call, because cost follows tokens rather than calls.
+The input bounds are therefore part of the cost control, not separate from it:
+`ANONYMOUS_MESSAGE_BYTES`, `ANONYMOUS_BODY_BYTES` and `ANONYMOUS_RESULT_BYTES`
+cap how large a single call can become. Treat the monthly figure as an order of
+magnitude for one deployment's traffic, and keep the provider-side budget alert
+as the control that does not depend on an estimate.
+
 ## Errors and uncertain upstream work
 
 Pre-SSE: invalid input 400, body too large 413, IP rate/slots/budget 429,
@@ -119,23 +147,41 @@ MCP deadline returns 504; oversized upstream response is a bounded 502 failure.
 Clients must show errors and stop orchestration, not automatically retry.
 
 The monitor interrupts the local operation and closes its HTTP socket on timeout,
-disconnect or stop. **A socket close does not prove the upstream GPU/tool stopped.**
-A reservation cancelled that way is therefore quarantined, as is the expired
-reservation of a crashed worker, rather than admitting replacement GPU work on
-the strength of an expired timer. No promise of remote job termination is made:
+disconnect or stop. **A socket close does not prove the upstream GPU or tool stopped.** A
+reservation cancelled that way is quarantined. So is the expired reservation of
+a crashed worker. The alternative would admit replacement GPU work on the
+strength of an expired timer. No promise of remote job termination is made:
 configure provider-side limits and monitor Ollama separately.
 
-An ordinary failure is treated differently. A provider error, a malformed
-response or a bug in our own code ARRIVED as a result, so the call is over: the
-slot is released and the elapsed time charged. Quarantining those as well meant
-two provider errors could occupy both global LLM slots and answer every
-anonymous visitor with 503 until an operator intervened — and because the state
-is in Postgres, restarting the server did not clear it.
+**The rule is whether the outcome arrived, not whether the call failed.** A
+provider error, a malformed response or a bug in our own code arrived as a
+result. The call is over, so the slot is released and the elapsed time charged.
+Quarantining those as well meant two provider errors could occupy both global
+LLM slots and answer every anonymous visitor with 503 until an operator
+intervened. The state is in Postgres, so restarting the server did not clear it.
 
-A quarantined reservation is also released automatically once
-`ANONYMOUS_ABANDONED_GRACE_SECONDS` (default one hour) has passed beyond its
-deadline, charging the whole reservation, with a warning logged. An operator who
-never reads the log must not be the reason a public page stops answering.
+A transport failure is the opposite case and is quarantined:
+
+| failure | upstream state | slot |
+|---|---|---|
+| HTTP 4xx or 5xx response | the provider answered | released |
+| Read or write timeout | may still be generating | quarantined |
+| Connection lost mid-answer (`ECONNRESET`, `EPIPE`, `EOFError`) | may still be generating | quarantined |
+| Deadline, client disconnect, operator stop | may still be generating | quarantined |
+| Connect timeout, DNS failure, connection refused | never started | released |
+
+`McpClient` reports a post-write timeout as `McpUpstreamTimeoutError`, which
+carries the `UpstreamUncertain` marker, so a wrapped transport failure takes the
+quarantine path as well. A connect timeout is a `Timeout::Error` too, but it
+happens before the request is written, so it releases the slot.
+
+**The grace release is recovery WITHOUT confirmation that upstream stopped.**
+A quarantined reservation releases itself once it is
+`ANONYMOUS_ABANDONED_GRACE_SECONDS` past its deadline. The default is 3600. The whole reservation is charged and a warning is logged with the
+reservation id, kind, subject and charged seconds. This is an availability
+trade-off, not a verification: nothing has established that the GPU or the
+remote tool finished. Set the variable higher, or to a very large value, if your
+deployment prefers to wait for an operator instead.
 
 After verifying the upstream job has stopped, use the operator-only command:
 
