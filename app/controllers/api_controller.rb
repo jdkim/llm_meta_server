@@ -1,6 +1,18 @@
 require_relative "../services/google_id_token_verifier"
 
 class ApiController < ActionController::API
+  # Declared here, before Rack::ETag sees the response, so Rack does not add its
+  # "max-age=0, private, must-revalidate" default. An action that needs
+  # something else sets it afterwards: the SSE endpoints use "no-cache".
+  #
+  # The matching ETag strip is in ApiNoStore, which has to run outside
+  # Rack::ETag to undo what it adds. Both exist because a conditional request
+  # that reaches us is answered 304 with no body, and a client gating on
+  # fetch's `response.ok` reads that as an empty payload. Our widget lost the
+  # model's context window and the hub tool list that way on every repeat
+  # visit.
+  before_action { response.headers["Cache-Control"] = "no-store" }
+
   before_action :validate_supplied_authorization
 
   # Base controller for API endpoints

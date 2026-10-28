@@ -1,5 +1,6 @@
 require_relative "boot"
 require_relative "../lib/anonymous_request_body_limit"
+require_relative "../lib/api_no_store"
 
 require "rails"
 # Pick the frameworks you want:
@@ -23,6 +24,9 @@ module LlmApiCallMetaServer
     # Initialize configuration defaults for originally generated Rails version.
     config.load_defaults 8.0
     config.middleware.insert_before 0, AnonymousRequestBodyLimit
+    # Outside Rack::ETag so the ETag it adds is gone before
+    # Rack::ConditionalGet can turn a revalidation into a bodyless 304.
+    config.middleware.insert_before Rack::ETag, ApiNoStore
 
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
