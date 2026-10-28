@@ -1,79 +1,55 @@
 # frozen_string_literal: true
 
-# Bounds how often one caller can spend the SERVER's credential.
-#
-# A free model is free to the visitor, not to us: gpt-oss on Bedrock bills the
-# house key on every call, from an endpoint that is reachable anonymously. An
-# unmetered public endpoint backed by a paid key is an open-ended invoice, so
-# this is a blunt guard that lands with the first free hosted model — distinct
-# from metering (accounting for what was spent), which can follow later.
-#
-# ONE BUCKET PER CALLER ACROSS ALL FREE MODELS, not per model: the thing being
-# protected is a shared wallet, so splitting the budget by model would multiply
-# the ceiling by the size of the catalog.
-#
-# Callers paying with their own key are never throttled — they are not spending
-# ours. Ollama models count toward the bucket too: they cost nothing, but one
-# caller monopolising the DGX1 queue is its own kind of denial.
+require "openssl"
+
+# Shared house-credential admission. Origin is never a quota identity.
 module FreeModelThrottle
-  Exceeded = Class.new(StandardError)
-
-  # COUNTED PER PUMA WORKER, NOT PER SERVER. Production runs :memory_store,
-  # which lives inside one process, so every worker keeps its own bucket and
-  # the real ceiling is LIMIT x worker count. 15 here is deliberate: two
-  # workers make the intended ~30 per origin per window.
-  #
-  # So the effective limit moves if the worker count changes — four workers
-  # would quietly allow 60. A shared store (solid_cache, or a counter table)
-  # would make LIMIT mean exactly what it says; that is the fix if the number
-  # ever has to be exact.
-  #
-  # `bump` below notices a store that CANNOT count and logs loudly. It cannot
-  # notice a store that counts per process, which fails just as quietly.
-  LIMIT  = Integer(ENV.fetch("FREE_MODEL_RATE_LIMIT", 15))
-  WINDOW = Integer(ENV.fetch("FREE_MODEL_RATE_WINDOW_SECONDS", 300))
-
-  # Raises Exceeded when this caller has used up the window.
-  def self.check!(model_id:, llm_api_key:, user: nil, origin: nil, ip: nil)
-    return if llm_api_key                                   # paying their own way
-    return unless LlmModelMap.free_access_model?(model_id)
-
-    bucket = bucket_for(user:, origin:, ip:)
-    count  = bump(bucket)
-    return if count <= LIMIT
-
-    raise Exceeded, "Free-model limit reached (#{LIMIT} requests per " \
-                    "#{WINDOW / 60} minutes). Add your own API key to continue."
-  end
-
-  # A signed-in user gets their own budget so one busy embedding site cannot
-  # exhaust everyone's; anonymous callers are grouped by the embedding origin,
-  # falling back to IP when a request carries none (curl, same-origin).
-  def self.bucket_for(user:, origin:, ip:)
-    return "user:#{user.id}" if user
-
-    "origin:#{origin.presence || ip.presence || 'unknown'}"
-  end
-
-  def self.bump(bucket)
-    key = "free_model_throttle:#{bucket}"
-    count = Rails.cache.increment(key, 1, expires_in: WINDOW)
-    return count if count
-
-    # Missing key: seed it, then READ BACK. A store that cannot count (the
-    # null store, a broken backend) would otherwise make this method return 1
-    # forever and the guard would silently protect nothing — the worst failure
-    # mode for something standing in front of a paid endpoint. Availability
-    # still wins, but never quietly.
-    Rails.cache.write(key, 1, expires_in: WINDOW, raw: true)
-    if Rails.cache.read(key, raw: true).to_i.zero?
-      Rails.logger.error(
-        "[FreeModelThrottle] cache store #{Rails.cache.class} cannot count — " \
-        "free-model requests are NOT being throttled"
-      )
-      return 0
+  class Exceeded < StandardError
+    attr_reader :status, :retry_after
+    def initialize(message, status: 429, retry_after: WINDOW)
+      @status, @retry_after = status, retry_after
+      super(message)
     end
+  end
+  # 30, not the 15 main carried. main counted per Puma worker and said so: "15
+  # here is deliberate: two workers make the intended ~30 per origin per
+  # window." Counting in shared storage makes the number exact, so keeping 15
+  # would have quietly halved what production allowed. This preserves the
+  # effective ceiling; it is the honest spelling of the same policy.
+  LIMIT = Integer(ENV.fetch("FREE_MODEL_RATE_LIMIT", 30))
+  WINDOW = Integer(ENV.fetch("FREE_MODEL_RATE_WINDOW_SECONDS", 300))
+  GLOBAL_LIMIT = Integer(ENV.fetch("FREE_MODEL_GLOBAL_RATE_LIMIT", 120))
+  MAX_BUCKETS = 10000
+  raise ArgumentError, "Free model limits must be positive" unless [ LIMIT, WINDOW, GLOBAL_LIMIT ].all?(&:positive?)
 
-    1
+  def self.check!(model_id:, llm_api_key:, user: nil, origin: nil, ip: nil)
+    return if llm_api_key
+    return unless LlmModelMap.free_access_model?(model_id)
+    now = Time.now.to_f
+    bucket = bucket_for(user: user, origin: origin, ip: ip)
+    AnonymousUsageState.update_atomically(scope: "house_throttle") do |state|
+      rates = state["rates"] ||= {}
+      rates.each_value { |times| times.reject! { |t| t <= now - WINDOW } }
+      rates.delete_if { |_, times| times.empty? }
+      if !rates.key?(bucket) && rates.size >= MAX_BUCKETS
+        raise Exceeded.new("House-model admission capacity reached", status: 503)
+      end
+      global = rates["global"] ||= []
+      times = rates[bucket] ||= []
+      if times.size >= LIMIT || global.size >= GLOBAL_LIMIT
+        retry_after = [ ((times.size >= LIMIT ? times : global).first + WINDOW - now).ceil, 1 ].max
+        raise Exceeded.new("Free-model limit reached (#{LIMIT} requests per #{WINDOW / 60} minutes). Add your own API key to continue.", retry_after: retry_after)
+      end
+      times << now
+      global << now
+    end
+  rescue ActiveRecord::ActiveRecordError => e
+    Rails.logger.error "[FreeModelThrottle] admission store unavailable: #{e.class}"
+    raise Exceeded.new("House-model admission unavailable", status: 503, retry_after: 30)
+  end
+
+  def self.bucket_for(user:, origin:, ip:)
+    identity = user ? "user:#{user.id}" : "ip:#{ip.presence || 'unknown'}"
+    OpenSSL::HMAC.hexdigest("SHA256", Rails.application.secret_key_base, "house:#{identity}")
   end
 end

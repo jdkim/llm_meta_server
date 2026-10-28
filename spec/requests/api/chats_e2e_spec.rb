@@ -174,96 +174,14 @@ RSpec.describe "POST /api/llm_api_keys/:uuid/models/:name/chats", type: :request
     end
   end
 
-  describe "anonymous Ollama path (no Authorization header)" do
-    # Ollama doesn't require a per-user API key, so the controller has an
-    # else-branch that proxies anonymous requests directly to the local
-    # Ollama daemon. Symmetric with the chat_streams anonymous path.
-    #
-    # The configured Ollama is a real LAN host; pin it to a mocked URL for the
-    # duration of the spec so WebMock can stub it and we never touch the real
-    # network. Both name pairs have to be pinned: the app prefers
-    # AIBRANCH_OLLAMA_* (see OllamaEndpoint) and falls back to OLLAMA_*, so
-    # pinning only the latter silently left the real host in play.
-    let(:ollama_url) { "http://test-ollama.invalid:11434/api/chat" }
-
-    OLLAMA_ENV_KEYS = %w[AIBRANCH_OLLAMA_HOST AIBRANCH_OLLAMA_PORT OLLAMA_HOST OLLAMA_PORT].freeze
-
-    around do |ex|
-      original = OLLAMA_ENV_KEYS.to_h { |k| [ k, ENV[k] ] }
-      ENV["AIBRANCH_OLLAMA_HOST"] = ENV["OLLAMA_HOST"] = "test-ollama.invalid"
-      ENV["AIBRANCH_OLLAMA_PORT"] = ENV["OLLAMA_PORT"] = "11434"
-      ex.run
-    ensure
-      original.each { |k, v| ENV[k] = v }
-    end
-
-    it "proxies a prompt to Ollama and returns the assistant message without requiring a bearer token" do
-      # Ollama always streams (NDJSON, not SSE) — one JSON object per line,
-      # last line carries done:true.
-      ndjson = [
-        { model: "qwen3.6:35b-fast", message: { role: "assistant", content: "ollama answers" }, done: false }.to_json,
-        { model: "qwen3.6:35b-fast", done: true, prompt_eval_count: 4, eval_count: 2 }.to_json
-      ].join("\n") + "\n"
-
-      stub_request(:post, ollama_url).to_return(
-        status: 200, headers: { "Content-Type" => "application/x-ndjson" },
-        body: ndjson
-      )
-
-      post "/api/llm_api_keys/anything/models/qwen3-6-35b-fast/chats",
-           params: { prompt: "hi" }
-
-      expect(response).to have_http_status(:ok)
-      expect(JSON.parse(response.body)).to eq("response" => { "message" => "ollama answers" })
-      # Resolved api_id "qwen3.6:35b-fast" was used on the upstream call, AND
-      # the catalog's per-model defaults (think: false) were applied even
-      # though the request supplied no generation_settings.
-      expect(WebMock).to have_requested(:post, ollama_url).with { |req|
-        body = JSON.parse(req.body)
-        body["model"] == "qwen3.6:35b-fast" && body["think"] == false
-      }
-    end
-
-    it "lets a user-supplied generation_settings override the catalog default" do
-      ndjson = [
-        { model: "qwen3.6:35b-fast", message: { role: "assistant", content: "ok" }, done: false }.to_json,
-        { model: "qwen3.6:35b-fast", done: true }.to_json
-      ].join("\n") + "\n"
-      stub_request(:post, ollama_url).to_return(
-        status: 200, headers: { "Content-Type" => "application/x-ndjson" }, body: ndjson
-      )
-
-      post "/api/llm_api_keys/anything/models/qwen3-6-35b-fast/chats",
-           params: { prompt: "hi", generation_settings: { think: true } }.to_json,
-           headers: { "Content-Type" => "application/json" }
-
-      expect(WebMock).to have_requested(:post, ollama_url).with { |req|
-        JSON.parse(req.body)["think"] == true
-      }
-    end
-
-    # Was a 404 "Model not found". That is the wrong shape for this case: the
-    # model exists and is active, the request simply had no provider key
-    # resolved for its family — an authorization state. In production the 404
-    # wording sent a real diagnosis into the catalog when the actual cause was
-    # a Google id_token that had expired 16 seconds earlier.
-    it "403s when an anonymous request names a non-Ollama model, and says why" do
-      post "/api/llm_api_keys/anything/models/gpt-5/chats",
-           params: { prompt: "hi" }
-
-      expect(response).to have_http_status(:forbidden)
-      body = JSON.parse(response.body)
-      expect(body["error"]).to eq("Model unavailable for this session")
-      expect(body["message"]).to match(/requires an API key for openai/)
-      expect(body["message"]).to match(/session may have expired/)
-    end
-
-    it "still 404s when the model genuinely is not in the catalog" do
-      post "/api/llm_api_keys/anything/models/not-a-real-model/chats",
-           params: { prompt: "hi" }
-
-      expect(response).to have_http_status(:not_found)
-      expect(JSON.parse(response.body)["error"]).to eq("Model not found")
+  describe "anonymous legacy endpoint" do
+    %w[qwen3-6-35b-fast gpt-5 not-a-real-model].each do |model|
+      it "rejects #{model} before provider selection" do
+        expect(LlmRbFacade).not_to receive(:call!)
+        post "/api/llm_api_keys/anything/models/#{model}/chats", params: { prompt: "hi" }
+        expect(response).to have_http_status(:forbidden)
+        expect(JSON.parse(response.body)["error"]).to eq("anonymous_endpoint_disabled")
+      end
     end
   end
 

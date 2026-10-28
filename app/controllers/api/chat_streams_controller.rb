@@ -1,6 +1,8 @@
 class Api::ChatStreamsController < ApiController
   include ActionController::Live
 
+  before_action :require_authenticated_legacy_chat
+
   wrap_parameters false
 
   def create
@@ -27,71 +29,40 @@ class Api::ChatStreamsController < ApiController
     has_image = image.present? || images.any?
     has_multimodal_input = has_image || document.present?
 
-    if bearer_token
-      llm_api_key = current_user.find_llm_api_key uuid
-      model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
-      # Bounds spending of the HOUSE key when the chosen model is free.
-      FreeModelThrottle.check!(
-        model_id: model_id, llm_api_key: llm_api_key,
-        user: current_user,
-        origin: request.headers["Origin"], ip: request.remote_ip
+    llm_api_key = current_user.find_llm_api_key uuid
+    model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
+    # Bounds spending of the HOUSE key when the chosen model is free.
+    FreeModelThrottle.check!(
+      model_id: model_id, llm_api_key: llm_api_key,
+      user: current_user,
+      origin: request.headers["Origin"], ip: AdmissionClientIp.call(request)
+    )
+    if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
+      raise ArgumentError, "Selected model doesn't support image or document input"
+    end
+    if document.present? && !DOCUMENT_CAPABLE_LLM_TYPES.include?(llm_api_key&.llm_type)
+      raise ArgumentError, "Document (PDF) attachments are only supported for Anthropic and Gemini models"
+    end
+    if LlmModelMap.image_model?(model_name, llm_type: llm_api_key&.llm_type)
+      markdown = ImageGenerationService.generate!(
+        model_id: model_id, prompt: prompt, llm_api_key: llm_api_key,
+        image_context: image_context_param,
+        image: image || images.last
       )
-      if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: llm_api_key&.llm_type)
-        raise ArgumentError, "Selected model doesn't support image or document input"
-      end
-      if document.present? && !DOCUMENT_CAPABLE_LLM_TYPES.include?(llm_api_key&.llm_type)
-        raise ArgumentError, "Document (PDF) attachments are only supported for Anthropic and Gemini models"
-      end
-      if LlmModelMap.image_model?(model_name, llm_type: llm_api_key&.llm_type)
-        markdown = ImageGenerationService.generate!(
-          model_id: model_id, prompt: prompt, llm_api_key: llm_api_key,
-          image_context: image_context_param,
-          image: image || images.last
-        )
-        sink << markdown
-      else
-        LlmRbFacade.stream! model_id, prompt,
-          sink: sink,
-          llm_api_key: llm_api_key,
-          tools: selected_tools,
-          generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
-          images: images.presence,
-          image: image,
-          document: document,
-          messages: messages_param,
-          on_tool_calls: on_tool_calls,
-          on_phase_change: on_phase_change,
-          endpoint: LlmModelMap.endpoint_for(model_name, llm_type: llm_api_key&.llm_type)
-      end
+      sink << markdown
     else
-      model_id = LlmModelMap.fetch! model_name
-      # Bounds spending of the HOUSE key when the chosen model is free.
-      FreeModelThrottle.check!(
-        model_id: model_id, llm_api_key: nil,
-        user: nil,
-        origin: request.headers["Origin"], ip: request.remote_ip
-      )
-      if has_multimodal_input && !LlmModelMap.supports_vision?(model_name, llm_type: nil)
-        raise ArgumentError, "Selected model doesn't support image or document input"
-      end
-      # Anonymous callers reach Ollama and any model flagged free_access.
-      # Documents stay blocked regardless: the Ollama adapter rejects
-      # non-image local files, and gpt-oss on Bedrock is text-only.
-      # non-image local files, so a PDF here would blow up mid-stream.
-      if document.present?
-        raise ArgumentError, "Document (PDF) attachments are only supported for Anthropic and Gemini models"
-      end
       LlmRbFacade.stream! model_id, prompt,
         sink: sink,
+        llm_api_key: llm_api_key,
         tools: selected_tools,
-        generation_params: effective_generation_params(model_name, nil),
+        generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
         images: images.presence,
         image: image,
         document: document,
         messages: messages_param,
         on_tool_calls: on_tool_calls,
         on_phase_change: on_phase_change,
-        endpoint: LlmModelMap.endpoint_for(model_name)
+        endpoint: LlmModelMap.endpoint_for(model_name, llm_type: llm_api_key&.llm_type)
     end
 
     sink.event("done")
@@ -184,6 +155,13 @@ class Api::ChatStreamsController < ApiController
 
   private
 
+  # Anonymous inference uses the bounded, client-orchestrated endpoint.
+  def require_authenticated_legacy_chat
+    if bearer_token.blank?
+      render json: { error: "anonymous_endpoint_disabled", message: "Use single_llm_calls for anonymous inference" }, status: :forbidden
+    end
+  end
+
   def safe_emit_error(sink, code, message)
     sink.event("error", { code: code, message: message })
   rescue IOError, ActionController::Live::ClientDisconnected
@@ -220,7 +198,7 @@ class Api::ChatStreamsController < ApiController
     # which routes McpTool.lookup through McpServer.visible_to(nil) and
     # correctly restricts to public_to_anonymous servers.
     viewer = bearer_token.present? ? current_user : nil
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: request.remote_ip)
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: AdmissionClientIp.call(request))
   end
 
   # Pass-through: caller sends `generation_settings: {…}` (any keys/values).

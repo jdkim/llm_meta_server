@@ -9,11 +9,38 @@
 # request → tool_call → tool_exec → follow-up loop server-side.
 class Api::SingleLlmCallsController < ApiController
   include ActionController::Live
+  include AnonymousUsageGuard
 
   wrap_parameters false
 
   def create
     uuid, model_name = expected_params
+    llm_api_key = bearer_token ? current_user.find_llm_api_key(uuid) : nil
+    model_id = LlmModelMap.fetch!(model_name, llm_type: nil) unless bearer_token
+    if !bearer_token && params[:generation_settings] && !(params[:generation_settings].is_a?(Hash) || params[:generation_settings].is_a?(ActionController::Parameters))
+      raise AnonymousUsagePolicy::Rejected.new("invalid_input", "generation_settings must be an object", status: 400)
+    end
+    generation = effective_generation_params(model_name, llm_api_key&.llm_type)
+    unless bearer_token
+      # free_access_model?, NOT ollama_model?. llm_model_map says why in its
+      # own comment: one asks whether a key is needed, the other asks where the
+      # model runs. gpt-oss-120b on Bedrock needs no caller key and is what
+      # pubdictionaries.org and togomcp.rdfportal.org serve anonymously today,
+      # so gating on "is it local" takes both of them off the air.
+      unless LlmModelMap.free_access_model?(model_id)
+        raise AnonymousUsagePolicy::Rejected.new("model_not_allowed", "Anonymous inference is limited to models that need no API key", status: 403)
+      end
+      generation = usage_policy.validate_llm!(params, model: model_name, generation: generation,
+                                               local: LlmModelMap.ollama_model?(model_id))
+      permit = usage_policy.acquire!(kind: "llm", ip: AdmissionClientIp.call(request))
+    end
+
+    model_id ||= LlmModelMap.fetch!(model_name, llm_type: llm_api_key&.llm_type)
+    # Anonymous requests already use the shared admission gate above.
+    if bearer_token
+      FreeModelThrottle.check!(model_id: model_id, llm_api_key: llm_api_key,
+        user: current_user, ip: AdmissionClientIp.call(request))
+    end
 
     response.headers["Content-Type"] = "text/event-stream"
     response.headers["Cache-Control"] = "no-cache"
@@ -25,33 +52,32 @@ class Api::SingleLlmCallsController < ApiController
     sink.phase("thinking")
     heartbeat = start_heartbeat(sink)
 
-    llm_api_key = bearer_token ? current_user.find_llm_api_key(uuid) : nil
-    model_id = LlmModelMap.fetch! model_name, llm_type: llm_api_key&.llm_type
-
-    # Bounds spending of the HOUSE key. current_user raises for an anonymous
-    # caller, hence the bearer_token guard.
-    FreeModelThrottle.check!(
-      model_id: model_id, llm_api_key: llm_api_key,
-      user: (bearer_token.present? ? current_user : nil),
-      origin: request.headers["Origin"], ip: request.remote_ip
-    )
-
-    result = LlmRbFacade.single_llm_turn!(
+    operation = -> { LlmRbFacade.single_llm_turn!(
       llm_api_key: llm_api_key,
       model_id: model_id,
       tools: selected_tools + local_tools_as_llm_functions,
-      generation_params: effective_generation_params(model_name, llm_api_key&.llm_type),
+      generation_params: generation,
       messages: messages_param,
       sink: sink,
       on_phase_change: on_phase_change
-    )
+    ) }
+    result = permit ? usage_policy.run(permit, disconnected: -> { @anonymous_client_disconnected }, &operation) : operation.call
 
     Array(result[:tool_calls]).each { |tc| sink.tool_call(tc) }
     sink.event("done", { content: result[:content], finish_reason: result[:finish_reason] })
+  rescue AnonymousUsagePolicy::Rejected => e
+    sink ? safe_emit_error(sink, e.code, e.message) : render_usage_rejection(e)
+  rescue AnonymousUsagePolicy::Cancelled => e
+    safe_emit_error(sink, e.is_a?(AnonymousUsagePolicy::DeadlineExceeded) ? "execution_timeout" : "stopped", e.message)
   rescue ActionController::Live::ClientDisconnected
     Rails.logger.info "[SingleLlmCalls] client disconnected mid-stream"
   rescue FreeModelThrottle::Exceeded => e
-    safe_emit_error(sink, "rate_limit", e.message)
+    if sink
+      safe_emit_error(sink, "rate_limit", e.message)
+    else
+      response.headers["Retry-After"] = e.retry_after.to_s
+      render json: { error: "rate_limit", message: e.message }, status: e.status
+    end
   rescue LLM::RateLimitError => e
     safe_emit_error(sink, "rate_limit", e.message)
   rescue LlmApiKeyRequiredError => e
@@ -65,13 +91,19 @@ class Api::SingleLlmCallsController < ApiController
     safe_emit_error(sink, "internal_error", e.message)
   ensure
     heartbeat&.kill
+    usage_policy.release!(permit) if permit
     response.stream.close
   end
 
   private
 
   def safe_emit_error(sink, code, message)
-    sink.event("error", { code: code, message: message })
+    if sink
+      sink.event("error", { code: code, message: message })
+    else
+      status = { "model_not_found" => 404, "internal_error" => 500, "api_key_required" => 403, "rate_limit" => 429 }.fetch(code, 400)
+      render json: { error: code, message: message }, status: status
+    end
   rescue IOError, ActionController::Live::ClientDisconnected
     # Stream already closed; nothing to do.
   end
@@ -83,6 +115,7 @@ class Api::SingleLlmCallsController < ApiController
         begin
           sink.heartbeat
         rescue IOError, ActionController::Live::ClientDisconnected, StandardError
+          @anonymous_client_disconnected = true
           break
         end
       end
@@ -108,7 +141,7 @@ class Api::SingleLlmCallsController < ApiController
     # an anonymous caller could chat, but only until it selected a hub tool:
     # the blank-tool_ids early return above was hiding the breakage.
     viewer = bearer_token.present? ? current_user : nil
-    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: request.remote_ip)
+    McpToolAdapter.to_llm_functions(McpTool.lookup(tool_ids, viewer: viewer), caller_ip: AdmissionClientIp.call(request))
   end
 
   # Inline tool schemas the client declares — for page-embedded local actions
@@ -148,7 +181,19 @@ class Api::SingleLlmCallsController < ApiController
   end
 
   def effective_generation_params(model_name, llm_type)
-    LlmModelMap.defaults_for(model_name, llm_type: llm_type).deep_merge(generation_params)
+    defaults = LlmModelMap.defaults_for(model_name, llm_type: llm_type).deep_dup
+    unless bearer_token
+      # Catalog defaults may target a larger trusted workload. Bound these
+      # before merging overrides; explicit out-of-range overrides still fail.
+      options = defaults[:options]
+      if options.is_a?(Hash)
+        { num_ctx: "num_ctx", num_predict: "num_predict" }.each do |key, limit|
+          value = options[key]
+          options[key] = [ value, usage_policy.limits[limit] ].min if value.is_a?(Integer) && value.positive?
+        end
+      end
+    end
+    defaults.deep_merge(generation_params)
   end
 
   # Role-tagged conversation history. Assistant messages that emitted

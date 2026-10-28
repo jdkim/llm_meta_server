@@ -39,8 +39,8 @@ RSpec.describe "POST /api/mcp_tools/:tool_id/call (E2E)", type: :request do
     end
   end
 
-  def create_tool!(owner: user, active: true, server_active: true, public: false, name: "search")
-    server = owner.mcp_servers.create!(name: "s", url: mcp_url, active: server_active, public: public)
+  def create_tool!(owner: user, active: true, server_active: true, public: false, public_to_anonymous: false, name: "search")
+    server = owner.mcp_servers.create!(name: "s", url: mcp_url, active: server_active, public: public, public_to_anonymous: public_to_anonymous)
     server.mcp_tools.create!(name: name, description: "d",
                              input_schema: { "type" => "object", "properties" => {} },
                              active: active)
@@ -122,11 +122,66 @@ RSpec.describe "POST /api/mcp_tools/:tool_id/call (E2E)", type: :request do
     expect(body["error"]).to eq("MCP server connection failed")
   end
 
-  it "returns 401 without a bearer token" do
-    tool = create_tool!
-    post "/api/mcp_tools/#{tool.id}/call", params: "{}",
-         headers: { "Content-Type" => "application/json" }
-    expect(response).to have_http_status(:bad_request).or have_http_status(:unauthorized)
+  context "without a bearer token" do
+    let(:anon_headers) { { "Content-Type" => "application/json" } }
+
+    it "executes an active anonymously public tool with empty arguments" do
+      tool = create_tool!(public: true, public_to_anonymous: true, name: "TogoMCP_Usage_Guide")
+      stub_mcp(tool_result_text: "usage guide")
+      expect(GoogleIdTokenVerifier).not_to receive(:verify_all)
+
+      post "/api/mcp_tools/#{tool.id}/call",
+           params: { arguments: {} }.to_json, headers: anon_headers
+
+      expect(response).to have_http_status(:ok)
+      expect(JSON.parse(response.body).dig("result", "content", 0, "text")).to eq("usage guide")
+      expect(WebMock).to have_requested(:post, mcp_url).with { |req|
+        b = JSON.parse(req.body)
+        b["method"] == "tools/call" && b["params"] == { "name" => "TogoMCP_Usage_Guide", "arguments" => {} }
+      }
+    end
+
+    [
+      { public: false },
+      { public: true, public_to_anonymous: false },
+      { public: true, public_to_anonymous: true, active: false },
+      { public: true, public_to_anonymous: true, server_active: false }
+    ].each do |attributes|
+      it "denies inaccessible tools: #{attributes}" do
+        tool = create_tool!(**attributes)
+        stub_mcp
+        post "/api/mcp_tools/#{tool.id}/call", params: "{}", headers: anon_headers
+        expect(response).to have_http_status(:unauthorized)
+        expect(WebMock).not_to have_requested(:post, mcp_url)
+      end
+    end
+
+    it "rejects oversized arguments without touching the upstream" do
+      tool = create_tool!(public: true, public_to_anonymous: true)
+      stub_mcp
+      post "/api/mcp_tools/#{tool.id}/call", params: { arguments: { q: "x" * 32768 } }.to_json, headers: anon_headers
+      expect(response).to have_http_status(:bad_request)
+      expect(WebMock).not_to have_requested(:post, mcp_url)
+    end
+
+    it "stops MCP independently of LLM before touching the upstream" do
+      tool = create_tool!(public: true, public_to_anonymous: true)
+      stub_mcp
+      AnonymousUsagePolicy.set_enabled!("mcp", false, actor: "spec", reason: "incident")
+      post "/api/mcp_tools/#{tool.id}/call", params: "{}", headers: anon_headers
+      expect(response).to have_http_status(:service_unavailable)
+      expect(WebMock).not_to have_requested(:post, mcp_url)
+    end
+
+    it "does not treat an invalid bearer token as anonymous" do
+      tool = create_tool!(public: true, public_to_anonymous: true)
+      stub_mcp
+      allow(GoogleIdTokenVerifier).to receive(:verify_all).with("invalid").and_raise(JWT::DecodeError)
+      post "/api/mcp_tools/#{tool.id}/call", params: "{}",
+           headers: anon_headers.merge("Authorization" => "Bearer invalid")
+      expect(response).to have_http_status(:unauthorized)
+      expect(WebMock).not_to have_requested(:post, mcp_url)
+    end
   end
 
   # Regression: the lookup passed `viewer: current_user` unguarded, and
@@ -167,5 +222,55 @@ RSpec.describe "POST /api/mcp_tools/:tool_id/call (E2E)", type: :request do
       expect(response).to have_http_status(:unauthorized)
       expect(WebMock).not_to have_requested(:post, mcp_url)
     end
+  end
+  it "serves anonymous discovery from cached tools without remote refresh" do
+    tool = create_tool!(public: true, public_to_anonymous: true)
+    expect(McpToolFetcher).not_to receive(:new)
+    get "/api/mcp_servers/#{tool.mcp_server.uuid}/tools"
+    expect(response).to have_http_status(:ok)
+    expect(JSON.parse(response.body)["tools"].map { |t| t["name"] }).to include(tool.name)
+    expect(WebMock).not_to have_requested(:post, mcp_url)
+  end
+
+  it "rejects direct anonymous MCP calls when the IP execution slots are full" do
+    AnonymousUsageState.delete_all
+    tool = create_tool!(public: true, public_to_anonymous: true)
+    policy = AnonymousUsagePolicy.new
+    2.times { policy.acquire!(kind: "mcp", ip: "127.0.0.1", tool: tool) }
+    post "/api/mcp_tools/#{tool.id}/call", params: "{}", headers: { "Content-Type" => "application/json" }
+    expect(response).to have_http_status(:too_many_requests)
+    expect(WebMock).not_to have_requested(:post, mcp_url)
+  end
+
+  it "completes a ten-turn anonymous request chain including remote tool results" do
+    AnonymousUsageState.delete_all
+    tool = create_tool!(public: true, public_to_anonymous: true, name: "TogoMCP_Usage_Guide")
+    stub_mcp(tool_result_text: "guide " * 19500)
+    allow(LlmModelMap).to receive(:fetch!).and_return("glm-4.7-flash")
+    allow(LlmModelMap).to receive(:ollama_model?).and_return(true)
+    allow(LlmModelMap).to receive(:defaults_for).and_return({})
+    path = "/api/llm_api_keys/anonymous/models/qwen3-8-27b-fast/single_llm_calls"
+    headers = { "Content-Type" => "application/json" }
+    messages = [ { role: "user", content: "Use the guide" } ]
+    call = { id: "guide-call", name: tool.name, arguments: {} }
+    expect(LlmRbFacade).to receive(:single_llm_turn!).ordered.and_return(content: "Calling guide", tool_calls: [ call ], finish_reason: "tool_calls")
+    post path, params: { messages: messages, tool_ids: [ tool.id.to_s ] }.to_json, headers: headers
+    expect(response.body).to include("event: tool_call")
+    post "/api/mcp_tools/#{tool.id}/call", params: "{}", headers: headers
+    expect(response).to have_http_status(:ok)
+    result = JSON.parse(response.body)["result"]
+    messages << { role: "assistant", content: "Calling guide", tool_calls: [ call ] }
+    messages << { role: "tool", tool_call_id: "guide-call", name: tool.name, content: result.to_json }
+    9.times do
+      expect(LlmRbFacade).to receive(:single_llm_turn!).ordered do |**args|
+        expect(args[:messages].last[:role]).to eq("tool")
+        expect(args[:messages].last[:content]).to include("guide ")
+        { content: "answer", tool_calls: [], finish_reason: "stop" }
+      end
+      post path, params: { messages: messages, tool_ids: [ tool.id.to_s ] }.to_json, headers: headers
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include("event: done")
+    end
+    expect(AnonymousUsageState.find_by!(scope: "admission").state["leases"]).to be_empty
   end
 end
